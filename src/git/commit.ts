@@ -17,7 +17,8 @@ export async function commitChanges(
     .filter(Boolean);
   if (files.length === 0) return { sha: null, files: [] };
 
-  await spawn('git', ['add', '-A'], { cwd: projectPath });
+  const add = await spawn('git', ['add', '-A'], { cwd: projectPath });
+  if (add.code !== 0) return { sha: null, files };
   const commit = await spawn('git', ['commit', '-m', message], { cwd: projectPath });
   if (commit.code !== 0) return { sha: null, files };
 
