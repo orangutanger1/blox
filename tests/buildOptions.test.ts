@@ -20,6 +20,7 @@ describe('buildQueryOptions', () => {
     expect(o.maxTurns).toBe(40);
     expect(o.maxBudgetUsd).toBe(5);
     expect(o.permissionMode).toBe('bypassPermissions');
+    expect(o.allowDangerouslySkipPermissions).toBe(true);
     expect(o.settingSources).toEqual([]);
     expect(o.thinking).toEqual({ type: 'adaptive' });
     expect(typeof o.systemPrompt).toBe('string');

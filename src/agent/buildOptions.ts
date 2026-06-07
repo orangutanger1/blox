@@ -10,6 +10,8 @@ export interface QueryOptionsLike {
   maxTurns: number;
   maxBudgetUsd: number;
   permissionMode: 'bypassPermissions';
+  // Required by the Agent SDK whenever permissionMode is 'bypassPermissions'.
+  allowDangerouslySkipPermissions: true;
   settingSources: never[];
   thinking: { type: 'adaptive' };
   allowedTools: string[];
@@ -30,6 +32,7 @@ export function buildQueryOptions(
     maxTurns: config.maxTurns,
     maxBudgetUsd: config.maxBudgetUsd,
     permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
     settingSources: [],
     thinking: { type: 'adaptive' },
     allowedTools: [...FILE_TOOLS, ...bridge.allowedTools()],
