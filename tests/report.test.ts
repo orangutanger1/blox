@@ -30,4 +30,17 @@ describe('formatReport', () => {
     };
     expect(formatReport(r)).toContain('commit: (none)');
   });
+
+  it('renders the stop reason when present', () => {
+    const r: RunReport = {
+      prompt: 'x',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 2,
+      costUsd: 0,
+      status: 'error',
+      stopReason: 'budget',
+    };
+    expect(formatReport(r)).toContain('stop: budget');
+  });
 });
