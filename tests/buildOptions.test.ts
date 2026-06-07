@@ -29,8 +29,16 @@ describe('buildQueryOptions', () => {
   it('whitelists file tools plus bridge tools and no Bash', () => {
     const o = buildQueryOptions(config, createMockStudioBridge(), digest);
     expect(o.allowedTools).toEqual(expect.arrayContaining(['Read', 'Write', 'Edit', 'Grep', 'Glob']));
-    expect(o.allowedTools).toContain('mcp__roblox_studio__search_game_tree');
+    expect(o.allowedTools).toContain('mcp__Roblox_Studio__search_game_tree');
     expect(o.allowedTools).not.toContain('Bash');
-    expect(o.mcpServers).toHaveProperty('roblox_studio');
+    expect(o.mcpServers).toHaveProperty('Roblox_Studio');
+  });
+
+  it('registers a PreToolUse sync hook for execute_luau', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest);
+    const pre = o.hooks.PreToolUse;
+    expect(pre).toBeDefined();
+    expect(pre?.[0].matcher).toBe('mcp__Roblox_Studio__execute_luau');
+    expect(pre?.[0].hooks).toHaveLength(1);
   });
 });
