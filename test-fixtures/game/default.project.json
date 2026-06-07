@@ -1,0 +1,14 @@
+{
+  "name": "blox-fixture",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Greeter": { "$path": "src/ReplicatedStorage/Greeter.luau" }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "Hello": { "$path": "src/ServerScriptService/Hello.server.luau" }
+    }
+  }
+}
