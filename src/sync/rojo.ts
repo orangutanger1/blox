@@ -10,6 +10,8 @@ export type SpawnFn = (
 export const realSpawn: SpawnFn = (cmd, args, opts) =>
   new Promise((resolveP) => {
     const child = nodeSpawn(cmd, args, { cwd: opts.cwd });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
