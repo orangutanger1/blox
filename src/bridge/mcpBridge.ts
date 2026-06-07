@@ -1,19 +1,42 @@
 import type { StudioBridge, McpServerConfig } from './types.js';
 
-// Real bridge → official Roblox Studio MCP server over stdio.
-// The binary name/path is environment-specific; configure via env.
+// Built-in Roblox Studio MCP server (https://create.roblox.com/docs/studio/mcp).
+// Transport is stdio. The launch command differs per OS; override via env.
+// (The standalone Rust server `rbx-studio-mcp` is deprecated.)
+function launcher(): { command: string; args: string[] } {
+  const override = process.env.BLOX_STUDIO_MCP_CMD;
+  if (override) {
+    const args = (process.env.BLOX_STUDIO_MCP_ARGS ?? '').split(' ').filter(Boolean);
+    return { command: override, args };
+  }
+  if (process.platform === 'darwin') {
+    return { command: '/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP', args: [] };
+  }
+  // Windows and WSL (linux) both reach the Windows batch launcher via cmd.exe.
+  return { command: 'cmd.exe', args: ['/c', '%LOCALAPPDATA%\\Roblox\\mcp.bat'] };
+}
+
+// SP1b tool surface: read/search the game + run Luau + generate prototype assets.
+// Out of scope: multi_edit (files are canonical via Rojo) and all tier-2/input/session tools.
+const TOOLS = [
+  'search_game_tree',
+  'inspect_instance',
+  'script_read',
+  'script_search',
+  'script_grep',
+  'execute_luau',
+  'generate_mesh',
+  'generate_material',
+  'generate_procedural_model',
+  'insert_from_creator_store',
+];
+
 export function createStudioMcpBridge(): StudioBridge {
-  const command = process.env.BLOX_STUDIO_MCP_CMD ?? 'rbx-studio-mcp';
-  // Official server speaks MCP over stdio when launched with --stdio.
-  const args = (process.env.BLOX_STUDIO_MCP_ARGS ?? '--stdio').split(' ').filter(Boolean);
+  const { command, args } = launcher();
   return {
     mcpServers: (): Record<string, McpServerConfig> => ({
-      roblox_studio: { type: 'stdio', command, args },
+      Roblox_Studio: { type: 'stdio', command, args },
     }),
-    allowedTools: () => [
-      'mcp__roblox_studio__search_game_tree',
-      'mcp__roblox_studio__inspect_instance',
-      'mcp__roblox_studio__script_read',
-    ],
+    allowedTools: () => TOOLS.map((t) => `mcp__Roblox_Studio__${t}`),
   };
 }
