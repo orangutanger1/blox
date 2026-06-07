@@ -41,6 +41,12 @@ describe('mock studio bridge', () => {
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__execute_luau');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__generate_material');
   });
+
+  it('mirrors the real bridge SP1b tool set', () => {
+    const mockTools = createMockStudioBridge().allowedTools().sort();
+    const realTools = createStudioMcpBridge().allowedTools().sort();
+    expect(mockTools).toEqual(realTools);
+  });
 });
 
 describe('sequenceResponder', () => {

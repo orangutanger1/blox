@@ -29,6 +29,12 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async () => ({ content: [{ type: 'text' as const, text: '[mock] Workspace, ReplicatedStorage, ServerScriptService' }] })),
       tool('inspect_instance', 'Return (fake) instance details', { path: z.string() },
         async ({ path }) => ({ content: [{ type: 'text' as const, text: `[mock] instance ${path}: {}` }] })),
+      tool('script_read', 'Return (fake) script source', { path: z.string() },
+        async ({ path }) => ({ content: [{ type: 'text' as const, text: `[mock] source of ${path}` }] })),
+      tool('script_search', 'Return (fake) script search results', { query: z.string() },
+        async ({ query }) => ({ content: [{ type: 'text' as const, text: `[mock] scripts matching ${query}` }] })),
+      tool('script_grep', 'Return (fake) grep results across scripts', { pattern: z.string() },
+        async ({ pattern }) => ({ content: [{ type: 'text' as const, text: `[mock] grep ${pattern}` }] })),
       tool('execute_luau', 'Run (fake) Luau and return canned output', { code: z.string() },
         // code is intentionally ignored; the mock returns the next scripted result.
         async (_args) => ({ content: [{ type: 'text' as const, text: nextLuau() }] })),
@@ -48,7 +54,8 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
     }),
     allowedTools: () =>
       [
-        'search_game_tree', 'inspect_instance', 'execute_luau',
+        'search_game_tree', 'inspect_instance',
+        'script_read', 'script_search', 'script_grep', 'execute_luau',
         'generate_mesh', 'generate_material', 'generate_procedural_model', 'insert_from_creator_store',
       ].map((t) => `mcp__Roblox_Studio__${t}`),
   };
