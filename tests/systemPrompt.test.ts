@@ -17,5 +17,9 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('blox-fixture');
     expect(p).toContain('ReplicatedStorage, ServerScriptService');
     expect(p).toContain('src/ReplicatedStorage/Greeter.luau');
+    expect(p).toContain('Verify loop');
+    expect(p).toContain('execute_luau');
+    expect(p).toContain('multi_edit');
+    expect(p).toContain('generate_mesh');
   });
 });
