@@ -73,16 +73,27 @@ Checked `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`:
 
 - **Hooks supported.** `Options.hooks?: Partial<Record<HookEvent,
   HookCallbackMatcher[]>>`. Events include `PreToolUse`, `PostToolUse`, `Stop`.
-  `HookCallback` is async and receives `{ signal: AbortSignal }`.
-- **`canUseTool?: CanUseTool`** — `(toolName, input, opts) => …` gate. Available
-  for a future stop-to-ask hook; minimal/stubbed in SP1b.
-- **`abortController?: AbortController`** is an options field; `query()` stops
-  when aborted.
-- **`maxTurns?: number`** is native.
-- **No native cost-budget option.** There is **no** `maxBudgetUsd` /
-  `task_budget` field. SP1a sets `maxBudgetUsd` on the options object, but it is
-  cast `as never` and **silently ignored by the SDK**. Budget bounding must be
-  enforced by blox.
+  `HookCallback` is `(input, toolUseID, { signal }) => Promise<HookJSONOutput>`;
+  `HookCallbackMatcher` is `{ matcher?: string; hooks: HookCallback[]; timeout? }`.
+- **Bounding is fully SDK-native.** `Options.maxTurns?: number` *and*
+  `Options.maxBudgetUsd?: number` are both real options — the docs on
+  `maxBudgetUsd` read: "Maximum budget in USD for the query. The query will stop
+  if this budget is exceeded, returning an `error_max_budget_usd` result."
+  SP1a already passes `maxBudgetUsd`, so it works as-is. (Also available:
+  `Options.taskBudget?: { total: number }` — a token budget the model is *made
+  aware of* so it paces tool use; optional nicety, see §6.3.)
+- **Result subtypes** (drive `stopReason`): `'success'` |
+  `'error_during_execution'` | `'error_max_turns'` | `'error_max_budget_usd'` |
+  `'error_max_structured_output_retries'`.
+- **`canUseTool?: CanUseTool`** exists for a future stop-to-ask gate; stubbed/out
+  of scope for SP1b.
+- **Type entry point** is `sdk.d.ts` itself, so `HookCallback`, `HookInput`,
+  `HookJSONOutput`, `Options` import directly from
+  `@anthropic-ai/claude-agent-sdk`.
+
+**Correction to an earlier assumption:** budget bounding does NOT need a
+blox-managed `abortController` / cost accumulation — `maxBudgetUsd` is native.
+The only blox-owned orchestration in SP1b is the PreToolUse sync hook.
 
 These findings drive the architecture in §5.
 
@@ -92,26 +103,27 @@ These findings drive the architecture in §5.
 
 The agent drives iteration inside a single `query()` session (so fix attempts
 retain memory of prior failures). blox does not run an outer re-invocation loop
-and does not introduce a second MCP client. The two blox-owned, unit-testable
-gates are:
+and does not introduce a second MCP client.
 
-1. **Sync gate (PreToolUse hook on `execute_luau`).** Before the agent runs any
-   Luau test, blox runs `syncProject()` (real Rojo). This guarantees tests
-   execute against the current `.luau` files. blox owns sync; the agent owns
-   *when* and *what* to test.
-2. **Budget gate (in `runAgent`).** blox accumulates `total_cost_usd` from the
-   message stream and calls `abortController.abort()` when it exceeds
-   `config.maxBudgetUsd`. `maxTurns` remains the native iteration cap.
+- **Bounding is SDK-native:** `maxTurns` (iteration cap) + `maxBudgetUsd` (cost
+  cap; query stops with `error_max_budget_usd`). Both already in `BloxConfig` and
+  already passed through. No blox-managed abort.
+- **The one blox-owned gate is the sync gate** — a **PreToolUse hook on
+  `execute_luau`**: before the agent runs any Luau test, blox runs
+  `syncProject()` (real Rojo) so tests execute against current `.luau` files.
+  blox owns sync; the agent owns *when* and *what* to test.
+- **`runAgent` maps the result `subtype` → `stopReason`** so the report
+  distinguishes a clean finish from a bounded stop (see §6.4).
 
 Why this shape:
 
 - Avoids the in-process-tool-calling-another-MCP-server problem (a blox `verify`
   tool would need its own stdio client to `Roblox_Studio`, i.e. a second Studio
   connection). A hook sidesteps that entirely.
-- Everything blox owns (bridge config, sync hook, budget abort, asset tool list,
-  system prompt) is pure TS and testable against the mock bridge. Agent
-  reasoning is not unit-testable in any design, so no loop logic lives in
-  untestable code.
+- Everything blox owns (bridge config, sync hook, subtype→stopReason mapping,
+  asset tool list, system prompt) is pure TS and testable against the mock
+  bridge. Agent reasoning is not unit-testable in any design, so no loop logic
+  lives in untestable code.
 - Fits the SP1a seams (`StudioBridge`, `SpawnFn`).
 
 ### Data flow (SP1b)
@@ -124,7 +136,7 @@ user prompt
   → agent calls execute_luau to run tests
       └─ [PreToolUse hook] blox runs syncProject() (real Rojo) first
   → agent reads output/errors
-  → fix → re-run execute_luau → … (bounded by maxTurns + budget abort)
+  → fix → re-run execute_luau → … (bounded natively by maxTurns + maxBudgetUsd)
   → (optional) asset tools for prototype assets
   → cli.ts: final syncProject → git commit → report
 ```
@@ -146,31 +158,33 @@ user prompt
 - **Out of scope tools** (not exposed in SP1b): `multi_edit` (files are
   canonical via Rojo), all tier-2/input/session tools (SP1c).
 
-### 6.2 `agent/hooks.ts` (new) — blox-owned gates
-- `buildSyncHook(projectPath, spawn?)` → a `PreToolUse` `HookCallback` that, when
-  the matched tool is `execute_luau`, runs `syncProject(projectPath, spawn)` and
-  returns `{ continue: true }`. On sync failure it returns a hook result that
-  surfaces the error to the agent (so the agent sees the sync problem rather than
-  testing stale files) and still allows the tool call decision per the SDK hook
-  contract.
-- Matcher targets the fully-qualified `mcp__Roblox_Studio__execute_luau`.
+### 6.2 `agent/hooks.ts` (new) — the sync gate
+- `buildSyncHook(projectPath, spawn?)` → a `HookCallback`. On a `PreToolUse`
+  event whose `tool_name` ends with `execute_luau`, it runs
+  `syncProject(projectPath, spawn)` and returns `{ continue: true }`. For any
+  other event/tool it returns `{ continue: true }` unchanged.
+- On sync failure it still returns `{ continue: true }` but attaches
+  `hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: '<sync
+  error>' }`, so the agent sees the sync problem (and that tests may be stale)
+  rather than silently testing old files.
+- Matcher targets the fully-qualified `mcp__Roblox_Studio__execute_luau`; the
+  hook body also re-checks `tool_name` defensively.
 - Pure/testable: inject `SpawnFn` (reuse `sync/rojo.ts` seam); no live Studio
   needed to test the hook.
 
 ### 6.3 `agent/buildOptions.ts`
-- Add `hooks: { PreToolUse: [ { matcher, hooks: [syncHook] } ] }`.
-- Add `abortController` (passed through from `cli.ts`/`runAgent`).
-- **Remove** `maxBudgetUsd` from the returned options object (it is a no-op).
-  Keep `maxTurns`. Keep `thinking: { type: 'adaptive' }`.
-- Optionally set `effort` (per parent spec's "high/xhigh" intent); confirm the
-  exact accepted values against `sdk.d.ts` during implementation.
+- Add `hooks: { PreToolUse: [ { matcher: 'mcp__Roblox_Studio__execute_luau',
+  hooks: [buildSyncHook(config.projectPath)] } ] }`.
+- **Keep `maxBudgetUsd`** in the returned options object — it is a real native
+  option, not a no-op. Keep `maxTurns`, `thinking: { type: 'adaptive' }`.
+- (Optional, deferred) `taskBudget: { total }` and `effort` — not in SP1b.
 
 ### 6.4 `agent/runAgent.ts`
-- Accept an `AbortController` (create one if not supplied).
-- Accumulate `total_cost_usd` (and/or per-message cost) across the stream;
-  when cumulative cost > `config.maxBudgetUsd`, call `abortController.abort()`.
-- Extend `AgentRunResult` with `stopReason: 'completed' | 'maxTurns' | 'budget'
-  | 'error'` so the report distinguishes a bounded stop from success.
+- No abort/cost-accumulation logic (budget is native).
+- Add a pure `classifyStop(subtype)` helper → `StopReason`
+  (`'completed' | 'maxTurns' | 'budget' | 'error'`): `'success'`→`completed`,
+  `'error_max_turns'`→`maxTurns`, `'error_max_budget_usd'`→`budget`, else
+  `error`. Extend `AgentRunResult` with `stopReason` set from the result message.
 
 ### 6.5 `agent/systemPrompt.ts`
 - Append fix-loop guidance: after editing `.luau` files, write and run Luau tests
@@ -179,12 +193,15 @@ user prompt
   of budget/turns. Use the asset tools for prototype assets when the task needs
   them. Note that files are canonical (do not use `multi_edit`).
 
-### 6.6 `bridge/mockBridge.ts` — enrich for loop testing
-- Add a **scriptable `execute_luau`** mock returning a configurable sequence
-  (e.g. fail → fail → pass) so unit tests can drive the bounded fix loop and
-  assert behavior.
-- Add no-op/echo mocks for the four asset tools.
-- `allowedTools()` mirrors the real bridge's SP1b set.
+### 6.6 `bridge/mockBridge.ts` — enrich for dev/gated-e2e
+- Rename in-process server to `Roblox_Studio`.
+- Add an `execute_luau` mock + echo mocks for the four asset tools so a dev/gated
+  run exercises the full tool set.
+- Export a pure `sequenceResponder(results: string[]): () => string` (returns
+  successive entries, last repeats) used to script the `execute_luau` mock
+  (e.g. fail→fail→pass for a gated loop run). The pure util is what unit tests
+  assert; the SDK tool handler is exercised only in dev/gated e2e.
+- `allowedTools()` mirrors the real bridge's SP1b set (`Roblox_Studio` prefix).
 
 ### 6.7 `sync/rojo.ts`
 - No code change required, but rojo is **installed in WSL** so an integration
@@ -200,10 +217,10 @@ when:
   - bridge config: server key, allowed-tool prefixes, per-platform default
     command, env-override behavior.
   - PreToolUse sync hook: fires `syncProject` for `execute_luau`, ignores other
-    tools, surfaces sync failure (SpawnFn injected — no live Studio).
-  - budget abort: `runAgent` aborts when accumulated cost exceeds
-    `maxBudgetUsd`, sets `stopReason: 'budget'` (fake message stream).
-  - scriptable `execute_luau` mock sequencing.
+    tools, surfaces sync failure via `additionalContext` (SpawnFn injected — no
+    live Studio).
+  - `classifyStop`: maps each result subtype to the right `stopReason`.
+  - `execute_luau` mock sequencer (pure `sequenceResponder` util).
   - asset tool list present in `allowedTools`.
 - **Integration test:** real rojo in WSL exercises `syncProject` against the
   fixture game (`test-fixtures/game/`); Studio still mocked.
@@ -231,8 +248,8 @@ when:
   the (deferred) SP1c live e2e, behind the existing env-override seam.
 - **rojo CLI surface drift** from SP1a's assumption. Mitigation: real-rojo
   integration test catches it inside SP1b.
-- **Budget abort races the stream.** Mitigation: abort is best-effort; `maxTurns`
-  is a hard secondary cap; `stopReason` records which fired.
+- **Runaway fix loop.** Mitigation: native `maxTurns` + `maxBudgetUsd` are hard
+  caps; `stopReason` records which fired.
 - **`execute_luau` output format unknown until live.** Mitigation: SP1b keeps
   parsing on the agent side (no blox-owned result parser), so format changes do
   not break blox; revisit if SP1c shows a need for structured gating.
