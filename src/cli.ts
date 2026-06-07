@@ -36,6 +36,7 @@ async function main(): Promise<void> {
     numTurns: agent.numTurns,
     costUsd: agent.costUsd,
     status: agent.status === 'success' && sync.ok ? 'success' : 'error',
+    stopReason: agent.stopReason,
     detail: sync.ok ? agent.detail : sync.detail,
   };
   console.log(formatReport(report));
