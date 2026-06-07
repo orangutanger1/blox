@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStudioMcpBridge } from '../src/bridge/mcpBridge.js';
-import { createMockStudioBridge } from '../src/bridge/mockBridge.js';
+import { createMockStudioBridge, sequenceResponder } from '../src/bridge/mockBridge.js';
 
 describe('real studio bridge', () => {
   it('exposes a stdio MCP server config under Roblox_Studio', () => {
@@ -35,9 +35,24 @@ describe('real studio bridge', () => {
 });
 
 describe('mock studio bridge', () => {
-  it('exposes an in-process server and read-only tools', () => {
+  it('exposes a Roblox_Studio server with execute_luau and asset tools', () => {
     const b = createMockStudioBridge();
-    expect(b.mcpServers()).toHaveProperty('roblox_studio');
-    expect(b.allowedTools()).toContain('mcp__roblox_studio__search_game_tree');
+    expect(b.mcpServers()).toHaveProperty('Roblox_Studio');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__execute_luau');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__generate_material');
+  });
+});
+
+describe('sequenceResponder', () => {
+  it('returns successive entries then repeats the last', () => {
+    const next = sequenceResponder(['a', 'b']);
+    expect(next()).toBe('a');
+    expect(next()).toBe('b');
+    expect(next()).toBe('b');
+  });
+
+  it('returns empty string when given no entries', () => {
+    const next = sequenceResponder([]);
+    expect(next()).toBe('');
   });
 });
