@@ -4,16 +4,24 @@ import { loadConfig } from './config.js';
 import { buildDigest } from './context/digest.js';
 import { syncProject } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
-import { createStudioMcpBridge } from './bridge/mcpBridge.js';
+import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
+import { runDoctor, formatDoctorReport } from './doctor.js';
 import { formatReport, type RunReport } from './report.js';
 
 async function main(): Promise<void> {
-  const { prompt, mock, projectPath } = parseArgs(process.argv.slice(2));
+  const { command, prompt, mock, projectPath } = parseArgs(process.argv.slice(2));
+
+  if (command === 'doctor') {
+    const report = await runDoctor(studioLauncher());
+    console.log(formatDoctorReport(report));
+    process.exit(report.connected ? 0 : 1);
+  }
+
   if (!prompt) {
-    console.error('usage: blox "<prompt>" [--mock] [--project <dir>]');
+    console.error('usage: blox "<prompt>" [--mock] [--project <dir>]  |  blox doctor');
     process.exit(2);
   }
 

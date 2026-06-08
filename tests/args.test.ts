@@ -20,3 +20,17 @@ describe('parseArgs', () => {
     expect(parseArgs(['--mock']).prompt).toBeNull();
   });
 });
+
+describe('doctor subcommand', () => {
+  it('parses a leading doctor token into command', () => {
+    const a = parseArgs(['doctor']);
+    expect(a.command).toBe('doctor');
+    expect(a.prompt).toBeNull();
+  });
+
+  it('leaves command null for a normal prompt', () => {
+    const a = parseArgs(['Add a comment']);
+    expect(a.command).toBeNull();
+    expect(a.prompt).toBe('Add a comment');
+  });
+});
