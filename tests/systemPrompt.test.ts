@@ -21,5 +21,9 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('execute_luau');
     expect(p).toContain('multi_edit');
     expect(p).toContain('generate_mesh');
+    expect(p).toContain('start_stop_play');
+    expect(p).toContain('get_console_output');
+    expect(p).toContain('CLIENT context');
+    expect(p).toContain('stop play');
   });
 });
