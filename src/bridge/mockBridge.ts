@@ -16,11 +16,19 @@ export function sequenceResponder(results: string[]): () => string {
 export interface MockBridgeOptions {
   /** Successive execute_luau outputs; the last repeats. */
   luauResults?: string[];
+  /** Successive get_console_output values; the last repeats. */
+  consoleResults?: string[];
+}
+
+// Deterministic start_stop_play echo for the mock bridge.
+export function playResult(isStart: boolean): string {
+  return isStart ? '[mock] Game Started' : '[mock] Game Stopped';
 }
 
 // In-process fake Studio bridge for tests/dev without a live Studio.
 export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBridge {
   const nextLuau = sequenceResponder(opts.luauResults ?? ['[mock] ok: tests passed']);
+  const nextConsole = sequenceResponder(opts.consoleResults ?? ['[mock] (console) ok']);
   const server = createSdkMcpServer({
     name: 'Roblox_Studio',
     version: '0.0.0',
@@ -38,6 +46,10 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
       tool('execute_luau', 'Run (fake) Luau and return canned output', { code: z.string() },
         // code is intentionally ignored; the mock returns the next scripted result.
         async (_args) => ({ content: [{ type: 'text' as const, text: nextLuau() }] })),
+      tool('start_stop_play', 'Start or stop a (fake) play session', { is_start: z.boolean() },
+        async ({ is_start }) => ({ content: [{ type: 'text' as const, text: playResult(is_start) }] })),
+      tool('get_console_output', 'Return (fake) Studio console output', {},
+        async () => ({ content: [{ type: 'text' as const, text: nextConsole() }] })),
       tool('generate_mesh', 'Return a (fake) generated mesh id', { prompt: z.string() },
         async ({ prompt }) => ({ content: [{ type: 'text' as const, text: `[mock] mesh for: ${prompt}` }] })),
       tool('generate_material', 'Return a (fake) generated material id', { prompt: z.string() },
@@ -56,6 +68,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
       [
         'search_game_tree', 'inspect_instance',
         'script_read', 'script_search', 'script_grep', 'execute_luau',
+        'start_stop_play', 'get_console_output',
         'generate_mesh', 'generate_material', 'generate_procedural_model', 'insert_from_creator_store',
       ].map((t) => `mcp__Roblox_Studio__${t}`),
   };

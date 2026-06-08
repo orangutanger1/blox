@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStudioMcpBridge, studioLauncher } from '../src/bridge/mcpBridge.js';
-import { createMockStudioBridge, sequenceResponder } from '../src/bridge/mockBridge.js';
+import { createMockStudioBridge, sequenceResponder, playResult } from '../src/bridge/mockBridge.js';
 
 describe('real studio bridge', () => {
   it('exposes a stdio MCP server config under Roblox_Studio', () => {
@@ -19,6 +19,12 @@ describe('real studio bridge', () => {
     }
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__execute_luau');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__generate_mesh');
+  });
+
+  it('exposes the tier-2 play tools', () => {
+    const b = createStudioMcpBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__start_stop_play');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__get_console_output');
   });
 
   it('honors the BLOX_STUDIO_MCP_CMD override', () => {
@@ -40,6 +46,17 @@ describe('mock studio bridge', () => {
     expect(b.mcpServers()).toHaveProperty('Roblox_Studio');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__execute_luau');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__generate_material');
+  });
+
+  it('playResult echoes the play state by is_start', () => {
+    expect(playResult(true)).toMatch(/Started/);
+    expect(playResult(false)).toMatch(/Stopped/);
+  });
+
+  it('exposes the tier-2 play tools in the mock too', () => {
+    const b = createMockStudioBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__start_stop_play');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__get_console_output');
   });
 
   it('mirrors the real bridge SP1b tool set', () => {

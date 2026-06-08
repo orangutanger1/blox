@@ -20,7 +20,7 @@ export function studioLauncher(): StudioLaunch {
 }
 
 // SP1b tool surface: read/search the game + run Luau + generate prototype assets.
-// Out of scope: multi_edit (files are canonical via Rojo) and all tier-2/input/session tools.
+// SP1c-d additions: start_stop_play and get_console_output (tier-2 play-testing).
 const TOOLS = [
   'search_game_tree',
   'inspect_instance',
@@ -28,6 +28,8 @@ const TOOLS = [
   'script_search',
   'script_grep',
   'execute_luau',
+  'start_stop_play',
+  'get_console_output',
   'generate_mesh',
   'generate_material',
   'generate_procedural_model',
