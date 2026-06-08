@@ -27,6 +27,13 @@ describe('real studio bridge', () => {
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__get_console_output');
   });
 
+  it('exposes the input-sim tools', () => {
+    const b = createStudioMcpBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__character_navigation');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_keyboard_input');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_mouse_input');
+  });
+
   it('honors the BLOX_STUDIO_MCP_CMD override', () => {
     const prev = process.env.BLOX_STUDIO_MCP_CMD;
     process.env.BLOX_STUDIO_MCP_CMD = '/custom/StudioMCP';
@@ -57,6 +64,13 @@ describe('mock studio bridge', () => {
     const b = createMockStudioBridge();
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__start_stop_play');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__get_console_output');
+  });
+
+  it('exposes the input-sim tools in the mock too', () => {
+    const b = createMockStudioBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__character_navigation');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_keyboard_input');
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_mouse_input');
   });
 
   it('mirrors the real bridge SP1b tool set', () => {
