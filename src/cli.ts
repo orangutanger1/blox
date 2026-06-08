@@ -9,6 +9,7 @@ import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
+import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { formatReport, type RunReport } from './report.js';
 
 async function main(): Promise<void> {
@@ -17,6 +18,8 @@ async function main(): Promise<void> {
   if (command === 'doctor') {
     const report = await runDoctor(studioLauncher());
     console.log(formatDoctorReport(report));
+    const serve = await checkRojoServe(rojoServeUrl());
+    console.log(formatServeCheck(serve));
     process.exit(report.connected ? 0 : 1);
   }
 
