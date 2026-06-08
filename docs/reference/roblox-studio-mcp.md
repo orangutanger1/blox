@@ -38,6 +38,30 @@ the experience.
 - **Multiple Studio instances:** `list_roblox_studios` and `set_active_studio`
   select which open Studio the tools target.
 
+### File sync (Rojo) — separate channel from MCP (observed 2026-06-07)
+
+Editing `.luau` files on disk reaches Studio via **`rojo serve` + the Rojo Studio
+plugin (Connect)** — a *different* channel from the MCP tools. Key facts:
+
+- **`rojo sourcemap` does NOT push files.** It only writes `sourcemap.json`
+  metadata and exits. blox's PreToolUse sync hook runs `rojo sourcemap`, so it
+  refreshes metadata but does **not** propagate edits — the propagation is the
+  running `rojo serve` + connected plugin.
+- **Setup:** run `rojo serve <project>` (e.g. `rojo serve
+  test-fixtures/game/default.project.json --port 34872`); in Studio click the Rojo
+  plugin toolbar button → **Connect** to `localhost:34872`.
+- **WSL→Windows boundary:** the Windows Studio plugin reaches WSL's `rojo serve` on
+  `localhost:34872` via WSL2 localhost-forwarding; fallback host is the WSL IP
+  (`hostname -I`).
+- **Verified propagation:** a WSL edit to `Greeter.luau` appeared in Studio —
+  `execute_luau` reading `game.ReplicatedStorage.Greeter.Source` returned the edited
+  text. `.Source` is readable in the Studio MCP context.
+- **`blox doctor` sync check:** `GET <serveUrl>/api/rojo` returns
+  `{ sessionId, serverVersion, protocolVersion, projectName, … }`; doctor reports it
+  as "SERVE REACHABLE". (This confirms serve is up, not that a plugin is connected —
+  the gated live-sync test is the end-to-end connected proof.) Override the URL with
+  `BLOX_ROJO_SERVE_URL`.
+
 ## Security
 
 > "MCP clients can read and modify content in your open Roblox places. Make sure to
