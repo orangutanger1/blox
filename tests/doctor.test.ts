@@ -81,3 +81,35 @@ describe('formatDoctorReport', () => {
     expect(out).toMatch(/Studio attached/);
   });
 });
+
+import { probeExecuteLuau } from '../src/doctor.js';
+
+describe('probeExecuteLuau', () => {
+  it('returns the luau result text when attached first try', async () => {
+    const r = await probeExecuteLuau(launch, 'return game.X.Source', fakeFactory({}), { probeAttempts: 3, probeDelayMs: 0 });
+    expect(r.attached).toBe(true);
+    expect(r.text).toBe('2');
+    expect(r.attempts).toBe(1);
+  });
+
+  it('retries past "no active studio" then attaches', async () => {
+    let n = 0;
+    const r = await probeExecuteLuau(launch, 'return 1', fakeFactory({
+      callTool: async () => {
+        n += 1;
+        return n < 2
+          ? { content: [{ type: 'text', text: 'No active Studio instance' }], isError: true }
+          : { content: [{ type: 'text', text: 'SYNCED' }], isError: false };
+      },
+    }), { probeAttempts: 4, probeDelayMs: 0 });
+    expect(r.attached).toBe(true);
+    expect(r.text).toBe('SYNCED');
+  });
+
+  it('returns not-attached when no execute_luau tool is advertised', async () => {
+    const r = await probeExecuteLuau(launch, 'return 1', fakeFactory({
+      listTools: async () => ({ tools: [{ name: 'mcp__Roblox_Studio__script_read' }] }),
+    }), { probeAttempts: 2, probeDelayMs: 0 });
+    expect(r.attached).toBe(false);
+  });
+});

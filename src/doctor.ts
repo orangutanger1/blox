@@ -65,6 +65,68 @@ export interface DoctorOptions {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+export interface LuauProbeResult {
+  text: string;
+  isError: boolean;
+  attempts: number;
+  attached: boolean;
+}
+
+// Run one execute_luau on an already-connected client, retrying past the
+// proxy->Studio attach race ("no active studio") until attached or out of tries.
+async function execLuauWithRetry(
+  client: DoctorClient,
+  luauTool: string,
+  code: string,
+  timeoutMs: number,
+  probeAttempts: number,
+  probeDelayMs: number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<LuauProbeResult> {
+  let text = '';
+  let isError = false;
+  let attached = false;
+  let attempt = 0;
+  for (attempt = 1; attempt <= probeAttempts; attempt++) {
+    const res = await withTimeout(
+      client.callTool({ name: luauTool, arguments: { code } }),
+      timeoutMs, 'execute_luau',
+    );
+    text = (res.content ?? []).map((c) => c.text ?? '').join('').trim();
+    isError = res.isError === true;
+    attached = !isError && !NO_STUDIO.test(text);
+    if (attached) break;
+    if (attempt < probeAttempts) await sleep(probeDelayMs);
+  }
+  return { text, isError, attempts: attached ? attempt : probeAttempts, attached };
+}
+
+// Connect, run one execute_luau with attach-retry, close. Used by the live sync
+// test to read a script's .Source; runDoctor uses execLuauWithRetry directly.
+export async function probeExecuteLuau(
+  launch: StudioLaunch,
+  code: string,
+  factory: McpClientFactory = defaultClientFactory,
+  opts: DoctorOptions = {},
+): Promise<LuauProbeResult> {
+  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const probeAttempts = opts.probeAttempts ?? 8;
+  const probeDelayMs = opts.probeDelayMs ?? 500;
+  const sleep = opts.sleep ?? defaultSleep;
+  let client: DoctorClient | undefined;
+  try {
+    client = await withTimeout(factory(launch), timeoutMs, 'connect');
+    const listed = await withTimeout(client.listTools(), timeoutMs, 'listTools');
+    const luau = listed.tools.map((t) => t.name).find((n) => n.endsWith('execute_luau'));
+    if (!luau) return { text: 'no execute_luau tool advertised', isError: true, attempts: 0, attached: false };
+    return await execLuauWithRetry(client, luau, code, timeoutMs, probeAttempts, probeDelayMs, sleep);
+  } catch (err) {
+    return { text: `connect failed: ${(err as Error)?.message ?? String(err)}`, isError: true, attempts: 0, attached: false };
+  } finally {
+    await client?.close().catch(() => {});
+  }
+}
+
 export async function runDoctor(
   launch: StudioLaunch,
   factory: McpClientFactory = defaultClientFactory,
@@ -94,23 +156,12 @@ export async function runDoctor(
     }
 
     const t1 = Date.now();
-    let text = '';
-    let studioAttached = false;
-    let attempt = 0;
-    for (attempt = 1; attempt <= probeAttempts; attempt++) {
-      const res = await withTimeout(
-        client.callTool({ name: luau, arguments: { code: 'return 1 + 1' } }),
-        timeoutMs, 'execute_luau',
-      );
-      text = (res.content ?? []).map((c) => c.text ?? '').join('').trim();
-      studioAttached = res.isError !== true && !NO_STUDIO.test(text);
-      if (studioAttached) break;
-      if (attempt < probeAttempts) await sleep(probeDelayMs);
-    }
+    const probe = await execLuauWithRetry(client, luau, 'return 1 + 1', timeoutMs, probeAttempts, probeDelayMs, sleep);
     const probeLatencyMs = Date.now() - t1;
+    const studioAttached = probe.attached;
     const detail = studioAttached
-      ? `Studio attached; execute_luau -> ${text}`
-      : `proxy up but no Studio attached after ${attempt} probe(s): ${text || '(isError)'}`;
+      ? `Studio attached; execute_luau -> ${probe.text}`
+      : `proxy up but no Studio attached after ${probe.attempts} probe(s): ${probe.text || '(isError)'}`;
 
     return {
       connected: true, serverName: info?.name, serverVersion: info?.version,
