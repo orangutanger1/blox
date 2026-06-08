@@ -54,11 +54,27 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 
 const NO_STUDIO = /no active studio|unable to find an active studio|no studio available/i;
 
+export interface DoctorOptions {
+  timeoutMs?: number;
+  // The proxy answers instantly, but Studio attaches a beat later; retry the
+  // execute_luau probe so a slow attach still registers as ATTACHED.
+  probeAttempts?: number;
+  probeDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export async function runDoctor(
   launch: StudioLaunch,
   factory: McpClientFactory = defaultClientFactory,
-  timeoutMs = 20_000,
+  opts: DoctorOptions = {},
 ): Promise<DoctorReport> {
+  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const probeAttempts = opts.probeAttempts ?? 8;
+  const probeDelayMs = opts.probeDelayMs ?? 500;
+  const sleep = opts.sleep ?? defaultSleep;
+
   const t0 = Date.now();
   let client: DoctorClient | undefined;
   try {
@@ -78,16 +94,23 @@ export async function runDoctor(
     }
 
     const t1 = Date.now();
-    const res = await withTimeout(
-      client.callTool({ name: luau, arguments: { code: 'return 1 + 1' } }),
-      timeoutMs, 'execute_luau',
-    );
+    let text = '';
+    let studioAttached = false;
+    let attempt = 0;
+    for (attempt = 1; attempt <= probeAttempts; attempt++) {
+      const res = await withTimeout(
+        client.callTool({ name: luau, arguments: { code: 'return 1 + 1' } }),
+        timeoutMs, 'execute_luau',
+      );
+      text = (res.content ?? []).map((c) => c.text ?? '').join('').trim();
+      studioAttached = res.isError !== true && !NO_STUDIO.test(text);
+      if (studioAttached) break;
+      if (attempt < probeAttempts) await sleep(probeDelayMs);
+    }
     const probeLatencyMs = Date.now() - t1;
-    const text = (res.content ?? []).map((c) => c.text ?? '').join('').trim();
-    const studioAttached = res.isError !== true && !NO_STUDIO.test(text);
     const detail = studioAttached
       ? `Studio attached; execute_luau -> ${text}`
-      : `proxy up but no Studio attached: ${text || '(isError)'}`;
+      : `proxy up but no Studio attached after ${attempt} probe(s): ${text || '(isError)'}`;
 
     return {
       connected: true, serverName: info?.name, serverVersion: info?.version,

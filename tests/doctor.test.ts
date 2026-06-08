@@ -25,10 +25,25 @@ describe('runDoctor', () => {
   it('reports proxy up but no Studio when execute_luau isError', async () => {
     const r = await runDoctor(launch, fakeFactory({
       callTool: async () => ({ content: [{ type: 'text', text: 'Unable to find an active Studio instance' }], isError: true }),
-    }));
+    }), { probeAttempts: 2, probeDelayMs: 0 });
     expect(r.connected).toBe(true);
     expect(r.studioAttached).toBe(false);
     expect(r.detail).toMatch(/no Studio attached/i);
+  });
+
+  it('retries the probe and reports attached once Studio appears', async () => {
+    let calls = 0;
+    const r = await runDoctor(launch, fakeFactory({
+      callTool: async () => {
+        calls += 1;
+        return calls < 3
+          ? { content: [{ type: 'text', text: 'No active Studio instance' }], isError: true }
+          : { content: [{ type: 'text', text: '2' }], isError: false };
+      },
+    }), { probeAttempts: 5, probeDelayMs: 0 });
+    expect(calls).toBe(3);
+    expect(r.studioAttached).toBe(true);
+    expect(r.detail).toMatch(/-> 2/);
   });
 
   it('reports Studio attached and echoes the luau result', async () => {
