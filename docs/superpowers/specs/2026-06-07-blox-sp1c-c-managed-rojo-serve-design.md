@@ -36,11 +36,17 @@ This slice adds the lifecycle layer on top of the verification layer SP1c-b ship
 
 ## 3. Grounding facts
 
-- **Manual Connect is required each serve session.** The Rojo Studio plugin does not
-  auto-reconnect; a human clicks **Connect** once per serve session. blox cannot
-  observe the plugin connection — only serve **reachability** (`GET /api/rojo`).
-  Consequence: tearing down serve every run would force a click every run, so the
-  reuse-first model (click once, reuse many) is the ergonomic design.
+- **Plugin auto-reconnect fires only on place open, not on serve restart.** The Rojo
+  plugin has a setting "reconnect to server on place open if the served project
+  matches the last sync to the place" — it reconnects when Studio **opens a place**,
+  not when a serve process is killed and restarted while the place stays open. So a
+  per-run teardown (Studio open, serve restarted each run) does **not** auto-reconnect
+  → it forces a manual **Connect** click every run. A persistent serve (reuse-first)
+  needs at most one initial click, and Studio reopens against a still-running serve
+  reconnect for free. blox cannot observe the plugin connection regardless — only
+  serve **reachability** (`GET /api/rojo`). This is why per-run teardown is rejected.
+  (A second setting, "auto connect playtest server", connects the game server to Rojo
+  during playtest while Edit is connected — a **tier-2 play** concern, out of scope.)
 - **Seam mismatch.** The existing `SpawnFn` (`src/sync/rojo.ts`) resolves a
   `Promise<SpawnResult>` *after* the child exits — correct for one-shot
   `rojo sourcemap`, wrong for a long-running daemon. A new seam is required.
