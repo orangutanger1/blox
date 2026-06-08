@@ -34,3 +34,17 @@ describe('doctor subcommand', () => {
     expect(a.prompt).toBe('Add a comment');
   });
 });
+
+describe('serve subcommand', () => {
+  it('parses a leading serve token into command', () => {
+    const a = parseArgs(['serve']);
+    expect(a.command).toBe('serve');
+    expect(a.prompt).toBeNull();
+  });
+
+  it('honors --project with serve', () => {
+    const a = parseArgs(['serve', '--project', '/game']);
+    expect(a.command).toBe('serve');
+    expect(a.projectPath).toBe('/game');
+  });
+});
