@@ -19,6 +19,15 @@ the experience.
 
 - **Transport:** `stdio` (standard input/output streams). The server runs as a
   **local process**.
+- **Two-layer proxy (observed 2026-06-07).** The launched process
+  (`%LOCALAPPDATA%\Roblox\mcp.bat` → `StudioMCP.exe`) is a **proxy / ws_server**,
+  not Studio itself. An MCP client connects to the proxy; the proxy brokers to a
+  running Studio that attaches over a local websocket once MCP-server mode is
+  enabled in Assistant settings. **`initialize` + `tools/list` succeed even with
+  no Studio attached** — a clean handshake does NOT imply a usable Studio. With no
+  Studio attached, the server logs `No studio available for proxy <uuid>` and tool
+  calls return a standard `CallToolResult` with `isError: true` and text
+  `"Unable to find an active Studio instance…"`. (`blox doctor` probes both layers.)
 - **Connection methods:**
   - **Quick connect** for supported clients (Claude Code, Claude Desktop, Cursor,
     VS Code).
@@ -38,6 +47,31 @@ No authentication — access control is purely trust-based. Treat as **local-onl
 never expose over a network.
 
 ## Tool surface
+
+### Observed live surface (2026-06-07)
+
+The tables below are compiled from the docs and predate live testing. A live
+`tools/list` against `RobloxStudio` v0.1.0 returned **26 tools** whose names differ
+from the docs in places. Trust this list over the tables:
+
+```
+http_get, character_navigation, search_game_tree, script_search, skill,
+search_creator_store, subagent, multi_edit, get_studio_state, generate_mesh,
+screen_capture, get_console_output, script_grep, wait_job_finished,
+generate_procedural_model, execute_luau, user_keyboard_input, user_mouse_input,
+generate_material, script_read, start_stop_play, insert_from_creator_store,
+store_image, inspect_instance, list_roblox_studios, set_active_studio
+```
+
+Name corrections vs the tables: console output is **`get_console_output`** (not
+`console_output`); input is **`user_keyboard_input`** / **`user_mouse_input`** (not
+`keyboard_input` / `mouse_input`); there is a single generic **`subagent`** (no
+`explore_subagent` / `playtest_subagent`); Luau exec is **`execute_luau` only** (no
+`run_code` / `run_script_in_play_mode`). Undocumented extras seen: `http_get`,
+`skill`, `get_studio_state`, `wait_job_finished`, `store_image`,
+`search_creator_store`. `execute_luau`'s argument is **`code`** (a Luau string);
+results come back as a standard `CallToolResult`
+(`{ content: [{ type: 'text', text }], isError }`).
 
 ### Script management
 | Tool | Description |
@@ -65,7 +99,7 @@ never expose over a network.
 ### Luau execution
 | Tool | Description |
 |------|-------------|
-| `execute_luau` / `run_code` | Runs Luau in Studio; returns the result/printed output or an error. Can both make changes and retrieve information. |
+| `execute_luau` | Runs Luau in Studio; returns the result/printed output or an error. Can both make changes and retrieve information. **Argument: `code` (string).** Result is a standard `CallToolResult`. (There is no `run_code`; the live server exposes only `execute_luau`.) |
 
 ### Playtesting
 | Tool | Description |
