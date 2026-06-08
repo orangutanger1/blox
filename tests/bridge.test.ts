@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createStudioMcpBridge } from '../src/bridge/mcpBridge.js';
+import { createStudioMcpBridge, studioLauncher } from '../src/bridge/mcpBridge.js';
 import { createMockStudioBridge, sequenceResponder } from '../src/bridge/mockBridge.js';
 
 describe('real studio bridge', () => {
@@ -46,6 +46,33 @@ describe('mock studio bridge', () => {
     const mockTools = createMockStudioBridge().allowedTools().sort();
     const realTools = createStudioMcpBridge().allowedTools().sort();
     expect(mockTools).toEqual(realTools);
+  });
+});
+
+describe('studioLauncher', () => {
+  it('returns the same command/args the bridge server config uses', () => {
+    const l = studioLauncher();
+    const cfg = createStudioMcpBridge().mcpServers().Roblox_Studio as {
+      command: string; args?: string[];
+    };
+    expect(l.command).toBe(cfg.command);
+    expect(l.args).toEqual(cfg.args ?? []);
+  });
+
+  it('defaults to a Windows-side cwd on the cmd.exe path (no override)', () => {
+    const prev = process.env.BLOX_STUDIO_MCP_CMD;
+    delete process.env.BLOX_STUDIO_MCP_CMD;
+    try {
+      const l = studioLauncher();
+      // linux/WSL + win32 reach mcp.bat via cmd.exe and get a Windows cwd.
+      if (process.platform !== 'darwin') {
+        expect(l.command).toBe('cmd.exe');
+        expect(l.cwd).toBeDefined();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.BLOX_STUDIO_MCP_CMD;
+      else process.env.BLOX_STUDIO_MCP_CMD = prev;
+    }
   });
 });
 

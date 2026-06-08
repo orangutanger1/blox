@@ -1,9 +1,11 @@
-import type { StudioBridge, McpServerConfig } from './types.js';
+import type { StudioBridge, McpServerConfig, StudioLaunch } from './types.js';
 
 // Built-in Roblox Studio MCP server (https://create.roblox.com/docs/studio/mcp).
-// Transport is stdio. The launch command differs per OS; override via env.
-// (The standalone Rust server `rbx-studio-mcp` is deprecated.)
-function launcher(): { command: string; args: string[] } {
+// stdio transport; a per-OS launcher. The standalone Rust server is deprecated.
+// On WSL/Windows the launched process is a *proxy* (StudioMCP.exe) that brokers to
+// a running Studio; a Windows-side cwd avoids cmd.exe's "UNC paths not supported"
+// warning when spawned from a \\wsl.localhost path.
+export function studioLauncher(): StudioLaunch {
   const override = process.env.BLOX_STUDIO_MCP_CMD;
   if (override) {
     const args = (process.env.BLOX_STUDIO_MCP_ARGS ?? '').split(' ').filter(Boolean);
@@ -13,7 +15,8 @@ function launcher(): { command: string; args: string[] } {
     return { command: '/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP', args: [] };
   }
   // Windows and WSL (linux) both reach the Windows batch launcher via cmd.exe.
-  return { command: 'cmd.exe', args: ['/c', '%LOCALAPPDATA%\\Roblox\\mcp.bat'] };
+  const cwd = process.env.BLOX_STUDIO_MCP_CWD ?? '/mnt/c';
+  return { command: 'cmd.exe', args: ['/c', '%LOCALAPPDATA%\\Roblox\\mcp.bat'], cwd };
 }
 
 // SP1b tool surface: read/search the game + run Luau + generate prototype assets.
@@ -32,10 +35,10 @@ const TOOLS = [
 ];
 
 export function createStudioMcpBridge(): StudioBridge {
-  const { command, args } = launcher();
+  const { command, args, cwd } = studioLauncher();
   return {
     mcpServers: (): Record<string, McpServerConfig> => ({
-      Roblox_Studio: { type: 'stdio', command, args },
+      Roblox_Studio: { type: 'stdio', command, args, ...(cwd ? { cwd } : {}) },
     }),
     allowedTools: () => TOOLS.map((t) => `mcp__Roblox_Studio__${t}`),
   };
