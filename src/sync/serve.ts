@@ -85,3 +85,26 @@ export async function stopServe(session: ServeSession): Promise<void> {
   session.handle.kill();
   await session.handle.exited;
 }
+
+export interface SignalLike {
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+}
+export interface TeardownOptions {
+  proc?: SignalLike;
+  exit?: (code: number) => void;
+}
+
+// Safety net so an interrupted run never orphans a rojo process. Only spawned
+// sessions are registered; reused serves are never touched. 'exit' kills sync
+// (Node forbids async work there); signals kill then exit 130 (adding a signal
+// listener suppresses Node's default exit-on-signal, so we exit explicitly).
+export function registerServeTeardown(session: ServeSession, opts: TeardownOptions = {}): void {
+  if (session.mode !== 'spawned' || !session.handle) return;
+  const proc = opts.proc ?? process;
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+  const handle = session.handle;
+  proc.on('exit', () => { handle.kill(); });
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    proc.on(sig, () => { handle.kill(); exit(130); });
+  }
+}

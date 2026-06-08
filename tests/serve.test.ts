@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { rojoServePort, serveUrl, ensureServe, stopServe, type ServeHandle, type ServeSpawnFn } from '../src/sync/serve.js';
+import { EventEmitter } from 'node:events';
+import { rojoServePort, serveUrl, ensureServe, stopServe, registerServeTeardown, type ServeHandle, type ServeSpawnFn } from '../src/sync/serve.js';
 import type { FetchFn } from '../src/sync/serveCheck.js';
 
 describe('rojoServePort', () => {
@@ -101,5 +102,40 @@ describe('stopServe', () => {
 
   it('is a no-op for a reused session', async () => {
     await expect(stopServe({ mode: 'reused', url: 'u', port: 1, handle: null })).resolves.toBeUndefined();
+  });
+});
+
+describe('registerServeTeardown', () => {
+  it('kills the spawned child and exits on SIGINT', () => {
+    const handle = fakeHandle();
+    const proc = new EventEmitter();
+    let exitCode: number | undefined;
+    registerServeTeardown(
+      { mode: 'spawned', url: 'u', port: 1, handle },
+      { proc, exit: (c) => { exitCode = c; } },
+    );
+    proc.emit('SIGINT');
+    expect(handle.killed).toBe(true);
+    expect(exitCode).toBe(130);
+  });
+
+  it('kills the spawned child on process exit (no exit() call)', () => {
+    const handle = fakeHandle();
+    const proc = new EventEmitter();
+    let exitCalled = false;
+    registerServeTeardown(
+      { mode: 'spawned', url: 'u', port: 1, handle },
+      { proc, exit: () => { exitCalled = true; } },
+    );
+    proc.emit('exit');
+    expect(handle.killed).toBe(true);
+    expect(exitCalled).toBe(false);
+  });
+
+  it('registers nothing for a reused session', () => {
+    const proc = new EventEmitter();
+    registerServeTeardown({ mode: 'reused', url: 'u', port: 1, handle: null }, { proc, exit: () => {} });
+    expect(proc.listenerCount('SIGINT')).toBe(0);
+    expect(proc.listenerCount('exit')).toBe(0);
   });
 });
