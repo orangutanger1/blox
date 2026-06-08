@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import { checkRojoServe, type FetchFn } from './serveCheck.js';
 
 // A long-running serve process. Distinct from rojo.ts's one-shot SpawnFn, which
 // resolves only AFTER the child exits — wrong shape for a daemon we must keep
@@ -32,3 +33,55 @@ export const realServeSpawn: ServeSpawnFn = (projectPath, port) => {
   });
   return { pid: child.pid, kill: () => { child.kill('SIGTERM'); }, exited };
 };
+
+export type ServeMode = 'reused' | 'spawned';
+export interface ServeSession {
+  mode: ServeMode;
+  url: string;
+  port: number;
+  handle: ServeHandle | null; // null when reused
+}
+
+export interface EnsureServeOptions {
+  spawn?: ServeSpawnFn;            // default realServeSpawn
+  fetch?: FetchFn;                 // default checkRojoServe's own default
+  port?: number;                   // default rojoServePort()
+  attempts?: number;               // readiness poll, default 10
+  delayMs?: number;                // readiness poll, default 500
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export async function ensureServe(projectPath: string, opts: EnsureServeOptions = {}): Promise<ServeSession> {
+  const port = opts.port ?? rojoServePort();
+  const url = serveUrl(port);
+  const spawn = opts.spawn ?? realServeSpawn;
+  const attempts = opts.attempts ?? 10;
+  const delayMs = opts.delayMs ?? 500;
+  const sleep = opts.sleep ?? defaultSleep;
+
+  const first = await checkRojoServe(url, opts.fetch);
+  if (first.reachable) return { mode: 'reused', url, port, handle: null };
+
+  const handle = spawn(projectPath, port);
+  let exitCode: number | null = null;
+  void handle.exited.then((c) => { exitCode = c; });
+
+  for (let i = 0; i < attempts; i++) {
+    if (exitCode !== null) {
+      throw new Error(`rojo serve exited with code ${exitCode} before becoming reachable`);
+    }
+    const r = await checkRojoServe(url, opts.fetch);
+    if (r.reachable) return { mode: 'spawned', url, port, handle };
+    await sleep(delayMs);
+  }
+  handle.kill();
+  throw new Error(`rojo serve did not become reachable at ${url} after ${attempts} attempts`);
+}
+
+export async function stopServe(session: ServeSession): Promise<void> {
+  if (session.mode !== 'spawned' || !session.handle) return;
+  session.handle.kill();
+  await session.handle.exited;
+}
