@@ -34,8 +34,9 @@ describe.skipIf(!enabled)('input simulation (live)', () => {
         expect(names.some((n) => n.endsWith(s))).toBe(true);
       }
 
+      // All callLuau uses run after start_stop_play -> client datamodel context.
       const callLuau = async (code: string) =>
-        textOf(await client!.callTool({ name: luau, arguments: { code } }));
+        textOf(await client!.callTool({ name: luau, arguments: { code, datamodel_type: 'Client' } }));
 
       // start play (attach retry), then wait for IsRunning
       let startText = '';

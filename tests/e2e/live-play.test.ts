@@ -37,14 +37,14 @@ describe.skipIf(!enabled)('tier-2 play (live)', () => {
       // execute_luau runs in-play (client context) -> IsRunning() is true
       let running = false;
       for (let i = 0; i < 6 && !running; i++) {
-        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING } });
+        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING, datamodel_type: 'Client' } });
         running = textOf(r).includes('true');
         if (!running) await sleep(800);
       }
       expect(running).toBe(true);
 
       // inject a runtime print, then read it back from the console
-      await client.callTool({ name: luau, arguments: { code: `print('${marker}') return 'ok'` } });
+      await client.callTool({ name: luau, arguments: { code: `print('${marker}') return 'ok'`, datamodel_type: 'Client' } });
       let seen = false;
       for (let i = 0; i < 6 && !seen; i++) {
         const r = await client.callTool({ name: consoleTool, arguments: {} });
@@ -58,7 +58,7 @@ describe.skipIf(!enabled)('tier-2 play (live)', () => {
       started = false;
       let stopped = false;
       for (let i = 0; i < 6 && !stopped; i++) {
-        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING } });
+        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING, datamodel_type: 'Edit' } });
         stopped = textOf(r).includes('false');
         if (!stopped) await sleep(800);
       }

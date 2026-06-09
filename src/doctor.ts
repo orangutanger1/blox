@@ -89,7 +89,9 @@ async function execLuauWithRetry(
   let attempt = 0;
   for (attempt = 1; attempt <= probeAttempts; attempt++) {
     const res = await withTimeout(
-      client.callTool({ name: luauTool, arguments: { code } }),
+      // execute_luau requires a datamodel_type (Edit|Client|Server); the attach
+      // probe runs in edit mode, so target the Edit datamodel.
+      client.callTool({ name: luauTool, arguments: { code, datamodel_type: 'Edit' } }),
       timeoutMs, 'execute_luau',
     );
     text = (res.content ?? []).map((c) => c.text ?? '').join('').trim();

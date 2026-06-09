@@ -112,4 +112,15 @@ describe('probeExecuteLuau', () => {
     }), { probeAttempts: 2, probeDelayMs: 0 });
     expect(r.attached).toBe(false);
   });
+
+  it('sends the required datamodel_type=Edit arg on the execute_luau probe', async () => {
+    let sentArgs: Record<string, unknown> | undefined;
+    await probeExecuteLuau(launch, 'return 1+1', fakeFactory({
+      callTool: async (req) => {
+        sentArgs = req.arguments;
+        return { content: [{ type: 'text', text: '2' }], isError: false };
+      },
+    }), { probeAttempts: 1, probeDelayMs: 0 });
+    expect(sentArgs).toEqual({ code: 'return 1+1', datamodel_type: 'Edit' });
+  });
 });
