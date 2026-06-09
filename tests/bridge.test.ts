@@ -99,9 +99,9 @@ describe('mock studio bridge', () => {
   });
 
   it('creatorSearchResult returns a searchId + objectTypes shape', () => {
-    const t = creatorSearchResult('tree');
-    expect(t).toContain('searchId');
-    expect(t).toContain('objectTypes');
+    const parsed = JSON.parse(creatorSearchResult('tree'));
+    expect(parsed.searchId).toBe('mock-search-tree');
+    expect(Array.isArray(parsed.objectTypes)).toBe(true);
   });
 
   it('jobFinishedResult references the generation id and reports finished', () => {
