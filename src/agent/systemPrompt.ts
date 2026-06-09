@@ -18,7 +18,7 @@ function groupNoun(group: ScriptGroup): string {
 function renderGameMap(digest: ProjectDigest): string[] {
   const total = digest.scripts.length;
   if (total === 0) return ['Game map (0 scripts): (none)'];
-  const lines = [`Game map (${total} scripts):`];
+  const lines = [`Game map (${total} ${total === 1 ? 'script' : 'scripts'}):`];
   for (const g of digest.groups) {
     if (g.total === 0) continue;
     lines.push(`  ${g.service}/  (${g.total} ${groupNoun(g)})`);

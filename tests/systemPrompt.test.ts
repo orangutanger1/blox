@@ -63,4 +63,31 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('Visual verification');
     expect(p).toContain('only visible on screen');
   });
+
+  it('renders the truncation line when a group exceeds its listed scripts', () => {
+    const d: ProjectDigest = {
+      name: 'x',
+      tree: ['ReplicatedStorage'],
+      scripts: ['src/ReplicatedStorage/A.luau', 'src/ReplicatedStorage/B.luau'],
+      groups: [
+        {
+          service: 'ReplicatedStorage',
+          total: 5,
+          scripts: [
+            { path: 'src/ReplicatedStorage/A.luau', kind: 'ModuleScript' },
+            { path: 'src/ReplicatedStorage/B.luau', kind: 'ModuleScript' },
+          ],
+        },
+      ],
+    };
+    const p = buildSystemPrompt(d);
+    expect(p).toContain('… +3 more (use script_search / glob to list)');
+    // a truncated group uses the generic noun
+    expect(p).toContain('ReplicatedStorage/  (5 scripts)');
+  });
+
+  it('renders (none) for an empty project', () => {
+    const d: ProjectDigest = { name: 'x', tree: [], scripts: [], groups: [] };
+    expect(buildSystemPrompt(d)).toContain('Game map (0 scripts): (none)');
+  });
 });
