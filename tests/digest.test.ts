@@ -18,6 +18,17 @@ describe('buildDigest', () => {
         'src/ServerScriptService/Hello.server.luau',
       ]),
     );
+    // groups: the fixture has Greeter (module) under ReplicatedStorage and
+    // Hello (server script) under ServerScriptService.
+    const services = d.groups.map((g) => g.service);
+    expect(services).toContain('ReplicatedStorage');
+    expect(services).toContain('ServerScriptService');
+    const rep = d.groups.find((g) => g.service === 'ReplicatedStorage');
+    expect(rep?.scripts).toEqual([
+      { path: 'src/ReplicatedStorage/Greeter.luau', kind: 'ModuleScript' },
+    ]);
+    const ss = d.groups.find((g) => g.service === 'ServerScriptService');
+    expect(ss?.scripts[0].kind).toBe('Script (server)');
   });
 
   it('throws when there is no project file', () => {

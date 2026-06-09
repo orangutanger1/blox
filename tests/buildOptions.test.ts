@@ -10,7 +10,7 @@ const config: BloxConfig = {
   maxTurns: 40,
   maxBudgetUsd: 5,
 };
-const digest: ProjectDigest = { name: 'g', tree: [], scripts: [] };
+const digest: ProjectDigest = { name: 'g', tree: [], scripts: [], groups: [] };
 
 describe('buildQueryOptions', () => {
   it('maps config to Agent SDK options', () => {

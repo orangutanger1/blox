@@ -114,9 +114,11 @@ export function buildDigest(projectPath: string): ProjectDigest {
     name?: string;
     tree?: Record<string, unknown>;
   };
-  const tree = Object.keys(proj.tree ?? {}).filter((k) => !k.startsWith('$'));
+  const treeObj = proj.tree ?? {};
+  const tree = Object.keys(treeObj).filter((k) => !k.startsWith('$'));
   const scripts = walkLuau(projectPath)
     .map((p) => relative(projectPath, p))
     .sort();
-  return { name: proj.name ?? 'unnamed', tree, scripts };
+  const groups = groupScripts(scripts, collectServicePaths(treeObj), tree);
+  return { name: proj.name ?? 'unnamed', tree, scripts, groups };
 }
