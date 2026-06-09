@@ -23,6 +23,8 @@ export function studioLauncher(): StudioLaunch {
 // SP1c-d additions: start_stop_play and get_console_output (tier-2 play-testing).
 // SP2-a additions: character_navigation, user_keyboard_input, user_mouse_input (input simulation).
 // SP2-b addition: screen_capture (visual verification — image returned to the model as vision).
+// SP3 additions: wait_job_finished (poll async generate_procedural_model jobs),
+//   search_creator_store (feeds insert_from_creator_store).
 const TOOLS = [
   'search_game_tree',
   'inspect_instance',
@@ -40,6 +42,8 @@ const TOOLS = [
   'generate_material',
   'generate_procedural_model',
   'insert_from_creator_store',
+  'wait_job_finished',
+  'search_creator_store',
 ];
 
 export function createStudioMcpBridge(): StudioBridge {

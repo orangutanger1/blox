@@ -35,6 +35,17 @@ export function captureResult(): { type: 'image'; data: string; mimeType: string
   return { type: 'image' as const, data: MOCK_CAPTURE_PNG, mimeType: 'image/png' };
 }
 
+// Deterministic search_creator_store result: mirrors the real {searchId, objectTypes}
+// JSON text shape so the mocked search->insert chain is honest.
+export function creatorSearchResult(query: string): string {
+  return JSON.stringify({ searchId: `mock-search-${query}`, objectTypes: ['mock-asset'] });
+}
+
+// Deterministic wait_job_finished result for the mock bridge.
+export function jobFinishedResult(generationId: string): string {
+  return `[mock] Generation ${generationId} finished.`;
+}
+
 // In-process fake Studio bridge for tests/dev without a live Studio.
 export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBridge {
   const nextLuau = sequenceResponder(opts.luauResults ?? ['[mock] ok: tests passed']);
@@ -102,6 +113,11 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async ({ prompt }) => ({ content: [{ type: 'text' as const, text: `[mock] model for: ${prompt}` }] })),
       tool('insert_from_creator_store', 'Insert a (fake) creator-store asset', { assetId: z.string() },
         async ({ assetId }) => ({ content: [{ type: 'text' as const, text: `[mock] inserted ${assetId}` }] })),
+      tool('wait_job_finished', 'Wait for a (fake) generation job to finish',
+        { generationId: z.string(), timeout: z.number().optional() },
+        async ({ generationId }) => ({ content: [{ type: 'text' as const, text: jobFinishedResult(generationId) }] })),
+      tool('search_creator_store', 'Return (fake) creator-store search results', { query: z.string() },
+        async ({ query }) => ({ content: [{ type: 'text' as const, text: creatorSearchResult(query) }] })),
     ],
   });
   return {
@@ -116,6 +132,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         'character_navigation', 'user_keyboard_input', 'user_mouse_input',
         'screen_capture',
         'generate_mesh', 'generate_material', 'generate_procedural_model', 'insert_from_creator_store',
+        'wait_job_finished', 'search_creator_store',
       ].map((t) => `mcp__Roblox_Studio__${t}`),
   };
 }
