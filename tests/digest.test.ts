@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { buildDigest, classifyKind, collectServicePaths } from '../src/context/digest.js';
+import {
+  buildDigest, classifyKind, collectServicePaths, groupScripts, MAX_PER_GROUP,
+} from '../src/context/digest.js';
 
 const game = resolve(__dirname, '../test-fixtures/game');
 
@@ -81,5 +83,55 @@ describe('collectServicePaths', () => {
   it('ignores $-keys as service names', () => {
     const tree = { $className: 'DataModel', $ignoreUnknownInstances: true };
     expect(collectServicePaths(tree)).toEqual([]);
+  });
+});
+
+describe('groupScripts', () => {
+  const mappings = [
+    { service: 'ReplicatedStorage', prefix: 'src/ReplicatedStorage' },
+    { service: 'ServerScriptService', prefix: 'src/ServerScriptService' },
+  ];
+  const order = ['ReplicatedStorage', 'ServerScriptService'];
+
+  it('groups scripts by longest matching prefix and tags kind', () => {
+    const groups = groupScripts(
+      ['src/ServerScriptService/Hello.server.luau', 'src/ReplicatedStorage/Greeter.luau'],
+      mappings,
+      order,
+    );
+    expect(groups).toEqual([
+      {
+        service: 'ReplicatedStorage',
+        total: 1,
+        scripts: [{ path: 'src/ReplicatedStorage/Greeter.luau', kind: 'ModuleScript' }],
+      },
+      {
+        service: 'ServerScriptService',
+        total: 1,
+        scripts: [{ path: 'src/ServerScriptService/Hello.server.luau', kind: 'Script (server)' }],
+      },
+    ]);
+  });
+
+  it('puts unmatched scripts in the (root) group, ordered last', () => {
+    const groups = groupScripts(['loose/Thing.luau', 'src/ReplicatedStorage/A.luau'], mappings, order);
+    expect(groups.map((g) => g.service)).toEqual(['ReplicatedStorage', '(root)']);
+  });
+
+  it('prefers the longest (most specific) matching prefix', () => {
+    const m = [
+      { service: 'Shared', prefix: 'src' },
+      { service: 'Net', prefix: 'src/net' },
+    ];
+    const groups = groupScripts(['src/net/Remote.luau'], m, ['Shared', 'Net']);
+    expect(groups[0]).toMatchObject({ service: 'Net', total: 1 });
+  });
+
+  it('bounds a group at MAX_PER_GROUP and reports the true total', () => {
+    const many = Array.from({ length: MAX_PER_GROUP + 5 }, (_, i) =>
+      `src/ReplicatedStorage/M${String(i).padStart(2, '0')}.luau`);
+    const groups = groupScripts(many, mappings, order);
+    expect(groups[0].total).toBe(MAX_PER_GROUP + 5);
+    expect(groups[0].scripts).toHaveLength(MAX_PER_GROUP);
   });
 });

@@ -66,6 +66,33 @@ function walkService(service: string, node: unknown, out: ServicePath[]): void {
   }
 }
 
+// Group scripts by the service of their longest-matching $path prefix.
+// Pure: takes the script list, the collected mappings, and the service order.
+export function groupScripts(
+  scripts: string[],
+  mappings: ServicePath[],
+  serviceOrder: string[],
+): ScriptGroup[] {
+  const sorted = [...mappings].sort((a, b) => b.prefix.length - a.prefix.length);
+  const byService = new Map<string, ScriptEntry[]>();
+  for (const path of [...scripts].sort()) {
+    const norm = path.replace(/\\/g, '/');
+    const m = sorted.find((sp) => norm === sp.prefix || norm.startsWith(sp.prefix + '/'));
+    const service = m ? m.service : ROOT_GROUP;
+    const entry: ScriptEntry = { path, kind: classifyKind(path) };
+    const arr = byService.get(service);
+    if (arr) arr.push(entry);
+    else byService.set(service, [entry]);
+  }
+  const present = [...byService.keys()];
+  const known = serviceOrder.filter((s) => byService.has(s));
+  const rest = present.filter((s) => !known.includes(s)).sort();
+  return [...known, ...rest].map((service) => {
+    const all = byService.get(service) ?? [];
+    return { service, total: all.length, scripts: all.slice(0, MAX_PER_GROUP) };
+  });
+}
+
 function walkLuau(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
