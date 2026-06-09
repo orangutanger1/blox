@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { buildDigest, classifyKind } from '../src/context/digest.js';
+import { buildDigest, classifyKind, collectServicePaths } from '../src/context/digest.js';
 
 const game = resolve(__dirname, '../test-fixtures/game');
 
@@ -41,5 +41,45 @@ describe('classifyKind', () => {
 
   it('is case-insensitive on the extension', () => {
     expect(classifyKind('A.SERVER.LUAU')).toBe('Script (server)');
+  });
+});
+
+describe('collectServicePaths', () => {
+  it('collects a top-level service directory $path', () => {
+    const tree = {
+      $className: 'DataModel',
+      ReplicatedStorage: { $className: 'ReplicatedStorage', $path: 'src/shared' },
+    };
+    expect(collectServicePaths(tree)).toEqual([
+      { service: 'ReplicatedStorage', prefix: 'src/shared' },
+    ]);
+  });
+
+  it('collects nested child $path tagged with its top-level service (fixture shape)', () => {
+    const tree = {
+      $className: 'DataModel',
+      ReplicatedStorage: {
+        $className: 'ReplicatedStorage',
+        Greeter: { $path: 'src/ReplicatedStorage/Greeter.luau' },
+      },
+      ServerScriptService: {
+        $className: 'ServerScriptService',
+        Hello: { $path: 'src/ServerScriptService/Hello.server.luau' },
+      },
+    };
+    expect(collectServicePaths(tree)).toEqual([
+      { service: 'ReplicatedStorage', prefix: 'src/ReplicatedStorage/Greeter.luau' },
+      { service: 'ServerScriptService', prefix: 'src/ServerScriptService/Hello.server.luau' },
+    ]);
+  });
+
+  it('normalizes backslashes and trailing slashes', () => {
+    const tree = { $className: 'DataModel', Foo: { $path: 'src\\\\foo\\\\' } };
+    expect(collectServicePaths(tree)).toEqual([{ service: 'Foo', prefix: 'src/foo' }]);
+  });
+
+  it('ignores $-keys as service names', () => {
+    const tree = { $className: 'DataModel', $ignoreUnknownInstances: true };
+    expect(collectServicePaths(tree)).toEqual([]);
   });
 });

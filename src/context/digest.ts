@@ -35,6 +35,37 @@ export function classifyKind(path: string): ScriptKind {
   return 'ModuleScript';
 }
 
+export interface ServicePath {
+  service: string;
+  prefix: string; // a file path (exact match) or a directory (prefix match)
+}
+
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '');
+}
+
+// Recursively collect every $path in the project tree, each tagged with its
+// top-level service ancestor (the DataModel child key it lives under).
+export function collectServicePaths(tree: Record<string, unknown>): ServicePath[] {
+  const out: ServicePath[] = [];
+  for (const [key, val] of Object.entries(tree)) {
+    if (key.startsWith('$')) continue;
+    walkService(key, val, out);
+  }
+  return out;
+}
+
+function walkService(service: string, node: unknown, out: ServicePath[]): void {
+  if (node === null || typeof node !== 'object') return;
+  const rec = node as Record<string, unknown>;
+  const p = rec['$path'];
+  if (typeof p === 'string') out.push({ service, prefix: normalizePath(p) });
+  for (const [k, v] of Object.entries(rec)) {
+    if (k.startsWith('$')) continue;
+    walkService(service, v, out);
+  }
+}
+
 function walkLuau(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
