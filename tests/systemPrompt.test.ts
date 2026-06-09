@@ -29,5 +29,8 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('user_keyboard_input');
     expect(p).toContain('user_mouse_input');
     expect(p).toContain('wait/poll');
+    expect(p).toContain('screen_capture');
+    expect(p).toContain('Visual verification');
+    expect(p).toContain('only visible on screen');
   });
 });
