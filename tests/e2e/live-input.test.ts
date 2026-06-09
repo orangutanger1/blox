@@ -64,7 +64,7 @@ describe.skipIf(!enabled)('input simulation (live)', () => {
       // navigate to an offset; assert the call succeeds
       const navRes = await client.callTool({
         name: nav,
-        arguments: { x: 16, y: 5, z: 16, speed_multiplier: 2.0 },
+        arguments: { x: 16, y: 5, z: 16, speed_multiplier: 2.0, datamodel_type: 'Client' },
       });
       expect(navRes.isError === true).toBe(false);
       expect(textOf(navRes)).toMatch(/success/i);
@@ -81,12 +81,12 @@ describe.skipIf(!enabled)('input simulation (live)', () => {
       // keyboard + mouse: assert each call succeeds (game-effect depends on wiring)
       const kbdRes = await client.callTool({
         name: kbd,
-        arguments: { actions: [{ action: 'keyPress', key_code: 'Space' }] },
+        arguments: { actions: [{ action: 'keyPress', key_code: 'Space' }], datamodel_type: 'Client' },
       });
       expect(kbdRes.isError === true).toBe(false);
       const mouseRes = await client.callTool({
         name: mouse,
-        arguments: { actions: [{ action: 'moveTo', x: 400, y: 300 }, { action: 'mouseButtonClick', mouse_button: 'left' }] },
+        arguments: { actions: [{ action: 'moveTo', x: 400, y: 300 }, { action: 'mouseButtonClick', mouse_button: 'left' }], datamodel_type: 'Client' },
       });
       expect(mouseRes.isError === true).toBe(false);
     } finally {

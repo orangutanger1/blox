@@ -30,13 +30,18 @@ describe.skipIf(!enabled)('tier-2 play (live)', () => {
       expect(names.some((n) => n.endsWith('get_console_output'))).toBe(true);
       expect(names.some((n) => n.endsWith('execute_luau'))).toBe(true);
 
-      await client.callTool({ name: play, arguments: { is_start: true } });
+      // Start play, retrying past the proxy->Studio attach race until it takes.
+      let startText = '';
+      for (let i = 0; i < 12 && !/game started/i.test(startText); i++) {
+        startText = textOf(await client.callTool({ name: play, arguments: { is_start: true } }));
+        if (!/game started/i.test(startText)) await sleep(700);
+      }
       started = true;
-      await sleep(5000); // play spin-up is multi-second
+      expect(startText).toMatch(/game started/i);
 
       // execute_luau runs in-play (client context) -> IsRunning() is true
       let running = false;
-      for (let i = 0; i < 6 && !running; i++) {
+      for (let i = 0; i < 10 && !running; i++) {
         const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING, datamodel_type: 'Client' } });
         running = textOf(r).includes('true');
         if (!running) await sleep(800);

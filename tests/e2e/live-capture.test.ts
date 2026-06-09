@@ -48,7 +48,7 @@ describe.skipIf(!enabled)('visual verification (live)', () => {
       expect(running).toBe(true);
 
       // capture the viewport; assert the call succeeds and returns an image
-      const capRes = await client.callTool({ name: capture, arguments: {} });
+      const capRes = await client.callTool({ name: capture, arguments: { capture_id: 'blox-live-capture' } });
       expect(capRes.isError === true).toBe(false);
       expect(hasImage(capRes)).toBe(true);
     } finally {
