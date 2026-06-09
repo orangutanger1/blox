@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createStudioMcpBridge, studioLauncher } from '../src/bridge/mcpBridge.js';
-import { createMockStudioBridge, sequenceResponder, playResult } from '../src/bridge/mockBridge.js';
+import { createMockStudioBridge, sequenceResponder, playResult, captureResult } from '../src/bridge/mockBridge.js';
 
 describe('real studio bridge', () => {
   it('exposes a stdio MCP server config under Roblox_Studio', () => {
@@ -32,6 +32,11 @@ describe('real studio bridge', () => {
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__character_navigation');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_keyboard_input');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_mouse_input');
+  });
+
+  it('exposes the screen_capture tool', () => {
+    const b = createStudioMcpBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__screen_capture');
   });
 
   it('honors the BLOX_STUDIO_MCP_CMD override', () => {
@@ -71,6 +76,18 @@ describe('mock studio bridge', () => {
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__character_navigation');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_keyboard_input');
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_mouse_input');
+  });
+
+  it('exposes the screen_capture tool in the mock too', () => {
+    const b = createMockStudioBridge();
+    expect(b.allowedTools()).toContain('mcp__Roblox_Studio__screen_capture');
+  });
+
+  it('captureResult returns an image content block', () => {
+    const block = captureResult();
+    expect(block.type).toBe('image');
+    expect(block.mimeType).toBe('image/png');
+    expect(block.data.length).toBeGreaterThan(0);
   });
 
   it('mirrors the real bridge tool set', () => {

@@ -25,6 +25,16 @@ export function playResult(isStart: boolean): string {
   return isStart ? '[mock] Game Started' : '[mock] Game Stopped';
 }
 
+// 1x1 transparent PNG — a deterministic stand-in for a captured frame.
+const MOCK_CAPTURE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+// Deterministic screen_capture result: an image content block, like the real tool.
+// (The Agent SDK forwards image content blocks to the model as vision input.)
+export function captureResult(): { type: 'image'; data: string; mimeType: string } {
+  return { type: 'image' as const, data: MOCK_CAPTURE_PNG, mimeType: 'image/png' };
+}
+
 // In-process fake Studio bridge for tests/dev without a live Studio.
 export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBridge {
   const nextLuau = sequenceResponder(opts.luauResults ?? ['[mock] ok: tests passed']);
@@ -82,6 +92,8 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
           })),
         },
         async () => ({ content: [{ type: 'text' as const, text: '[mock] Success' }] })),
+      tool('screen_capture', 'Return a (fake) captured viewport frame', {},
+        async () => ({ content: [captureResult()] })),
       tool('generate_mesh', 'Return a (fake) generated mesh id', { prompt: z.string() },
         async ({ prompt }) => ({ content: [{ type: 'text' as const, text: `[mock] mesh for: ${prompt}` }] })),
       tool('generate_material', 'Return a (fake) generated material id', { prompt: z.string() },
@@ -102,6 +114,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         'script_read', 'script_search', 'script_grep', 'execute_luau',
         'start_stop_play', 'get_console_output',
         'character_navigation', 'user_keyboard_input', 'user_mouse_input',
+        'screen_capture',
         'generate_mesh', 'generate_material', 'generate_procedural_model', 'insert_from_creator_store',
       ].map((t) => `mcp__Roblox_Studio__${t}`),
   };

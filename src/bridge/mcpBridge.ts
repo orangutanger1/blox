@@ -22,6 +22,7 @@ export function studioLauncher(): StudioLaunch {
 // SP1b tool surface: read/search the game + run Luau + generate prototype assets.
 // SP1c-d additions: start_stop_play and get_console_output (tier-2 play-testing).
 // SP2-a additions: character_navigation, user_keyboard_input, user_mouse_input (input simulation).
+// SP2-b addition: screen_capture (visual verification — image returned to the model as vision).
 const TOOLS = [
   'search_game_tree',
   'inspect_instance',
@@ -34,6 +35,7 @@ const TOOLS = [
   'character_navigation',
   'user_keyboard_input',
   'user_mouse_input',
+  'screen_capture',
   'generate_mesh',
   'generate_material',
   'generate_procedural_model',
