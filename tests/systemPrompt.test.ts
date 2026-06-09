@@ -25,5 +25,9 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('get_console_output');
     expect(p).toContain('CLIENT context');
     expect(p).toContain('stop play');
+    expect(p).toContain('character_navigation');
+    expect(p).toContain('user_keyboard_input');
+    expect(p).toContain('user_mouse_input');
+    expect(p).toContain('wait/poll');
   });
 });
