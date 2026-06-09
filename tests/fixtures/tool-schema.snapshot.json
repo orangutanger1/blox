@@ -1,0 +1,172 @@
+{
+  "character_navigation": {
+    "required": [
+      "datamodel_type"
+    ],
+    "props": [
+      "datamodel_type",
+      "instance_path",
+      "speed_multiplier",
+      "x",
+      "y",
+      "z"
+    ]
+  },
+  "execute_luau": {
+    "required": [
+      "code",
+      "datamodel_type"
+    ],
+    "props": [
+      "code",
+      "datamodel_type"
+    ]
+  },
+  "generate_material": {
+    "required": [
+      "baseMaterial",
+      "materialDescription",
+      "materialId",
+      "materialPattern"
+    ],
+    "props": [
+      "baseMaterial",
+      "materialDescription",
+      "materialId",
+      "materialPattern"
+    ]
+  },
+  "generate_mesh": {
+    "required": [
+      "textPrompt"
+    ],
+    "props": [
+      "maxTriangles",
+      "size",
+      "textPrompt"
+    ]
+  },
+  "generate_procedural_model": {
+    "required": [
+      "prompt"
+    ],
+    "props": [
+      "attachedImageUri",
+      "prompt"
+    ]
+  },
+  "get_console_output": {
+    "required": [],
+    "props": []
+  },
+  "insert_from_creator_store": {
+    "required": [
+      "searchId"
+    ],
+    "props": [
+      "assetName",
+      "objectTypes",
+      "searchId"
+    ]
+  },
+  "inspect_instance": {
+    "required": [
+      "path"
+    ],
+    "props": [
+      "path"
+    ]
+  },
+  "screen_capture": {
+    "required": [
+      "capture_id"
+    ],
+    "props": [
+      "camera_position",
+      "capture_id",
+      "look_at_position"
+    ]
+  },
+  "script_grep": {
+    "required": [
+      "query"
+    ],
+    "props": [
+      "query"
+    ]
+  },
+  "script_read": {
+    "required": [
+      "target_file"
+    ],
+    "props": [
+      "end_line_one_indexed_inclusive",
+      "should_read_entire_file",
+      "start_line_one_indexed",
+      "target_file"
+    ]
+  },
+  "script_search": {
+    "required": [
+      "keywords"
+    ],
+    "props": [
+      "keywords"
+    ]
+  },
+  "search_creator_store": {
+    "required": [
+      "query"
+    ],
+    "props": [
+      "query"
+    ]
+  },
+  "search_game_tree": {
+    "required": [],
+    "props": [
+      "head_limit",
+      "instance_type",
+      "keywords",
+      "max_depth",
+      "path"
+    ]
+  },
+  "start_stop_play": {
+    "required": [
+      "is_start"
+    ],
+    "props": [
+      "is_start"
+    ]
+  },
+  "user_keyboard_input": {
+    "required": [
+      "actions",
+      "datamodel_type"
+    ],
+    "props": [
+      "actions",
+      "datamodel_type"
+    ]
+  },
+  "user_mouse_input": {
+    "required": [
+      "actions",
+      "datamodel_type"
+    ],
+    "props": [
+      "actions",
+      "datamodel_type"
+    ]
+  },
+  "wait_job_finished": {
+    "required": [
+      "generationId"
+    ],
+    "props": [
+      "generationId",
+      "timeout"
+    ]
+  }
+}
