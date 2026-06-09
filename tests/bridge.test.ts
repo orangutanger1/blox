@@ -73,7 +73,7 @@ describe('mock studio bridge', () => {
     expect(b.allowedTools()).toContain('mcp__Roblox_Studio__user_mouse_input');
   });
 
-  it('mirrors the real bridge SP1b tool set', () => {
+  it('mirrors the real bridge tool set', () => {
     const mockTools = createMockStudioBridge().allowedTools().sort();
     const realTools = createStudioMcpBridge().allowedTools().sort();
     expect(mockTools).toEqual(realTools);

@@ -55,9 +55,10 @@ describe.skipIf(!enabled)('input simulation (live)', () => {
       let startPos = 'no-hrp';
       for (let i = 0; i < 12 && (startPos === 'no-hrp' || NO_STUDIO.test(startPos)); i++) {
         startPos = await callLuau(HRP_POS);
-        if (startPos === 'no-hrp') await sleep(700);
+        if (startPos === 'no-hrp' || NO_STUDIO.test(startPos)) await sleep(700);
       }
       expect(startPos).not.toBe('no-hrp');
+      expect(NO_STUDIO.test(startPos)).toBe(false);
 
       // navigate to an offset; assert the call succeeds
       const navRes = await client.callTool({
