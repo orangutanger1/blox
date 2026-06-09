@@ -29,8 +29,9 @@ describe.skipIf(!enabled)('visual verification (live)', () => {
       const capture = find('screen_capture');
       expect(names.some((n) => n.endsWith('screen_capture'))).toBe(true);
 
+      // All callLuau uses run after start_stop_play -> client datamodel context.
       const callLuau = async (code: string) =>
-        textOf(await client!.callTool({ name: luau, arguments: { code } }));
+        textOf(await client!.callTool({ name: luau, arguments: { code, datamodel_type: 'Client' } }));
 
       // start play (attach retry), then wait for IsRunning
       let startText = '';
@@ -47,7 +48,7 @@ describe.skipIf(!enabled)('visual verification (live)', () => {
       expect(running).toBe(true);
 
       // capture the viewport; assert the call succeeds and returns an image
-      const capRes = await client.callTool({ name: capture, arguments: {} });
+      const capRes = await client.callTool({ name: capture, arguments: { capture_id: 'blox-live-capture' } });
       expect(capRes.isError === true).toBe(false);
       expect(hasImage(capRes)).toBe(true);
     } finally {

@@ -37,7 +37,7 @@ describe.skipIf(!enabled)('asset pipeline (live)', () => {
       // Warm up past the proxy->Studio attach race.
       let attached = false;
       for (let i = 0; i < 15 && !attached; i++) {
-        const t = textOf(await client.callTool({ name: luau, arguments: { code: 'return 1+1' } }));
+        const t = textOf(await client.callTool({ name: luau, arguments: { code: 'return 1+1', datamodel_type: 'Edit' } }));
         attached = !NO_STUDIO.test(t) && t.includes('2');
         if (!attached) await sleep(700);
       }
@@ -46,7 +46,7 @@ describe.skipIf(!enabled)('asset pipeline (live)', () => {
       const childCount = 'return #workspace:GetChildren()';
 
       // Chain 1: search_creator_store -> insert_from_creator_store.
-      const before1 = intOf(await client.callTool({ name: luau, arguments: { code: childCount } }));
+      const before1 = intOf(await client.callTool({ name: luau, arguments: { code: childCount, datamodel_type: 'Edit' } }));
       const searchRes = await client.callTool({ name: search, arguments: { query: 'tree' } });
       expect(searchRes.isError === true).toBe(false);
       const parsed = JSON.parse(textOf(searchRes)) as { searchId?: string; objectTypes?: string[] };
@@ -54,11 +54,11 @@ describe.skipIf(!enabled)('asset pipeline (live)', () => {
       const insertRes = await client.callTool({ name: insert, arguments: { searchId: parsed.searchId } });
       expect(insertRes.isError === true).toBe(false);
       // Assert the asset actually landed under Workspace (spec §7.4).
-      const after1 = intOf(await client.callTool({ name: luau, arguments: { code: childCount } }));
+      const after1 = intOf(await client.callTool({ name: luau, arguments: { code: childCount, datamodel_type: 'Edit' } }));
       expect(after1).toBeGreaterThan(before1);
 
       // Chain 2: generate_procedural_model -> wait_job_finished.
-      const before2 = intOf(await client.callTool({ name: luau, arguments: { code: childCount } }));
+      const before2 = intOf(await client.callTool({ name: luau, arguments: { code: childCount, datamodel_type: 'Edit' } }));
       const genRes = await client.callTool({ name: genModel, arguments: { prompt: 'a small gray rock' } });
       expect(genRes.isError === true).toBe(false);
       const genId = textOf(genRes).match(/Generation ID:\s*([0-9a-fA-F-]+)/)?.[1];
@@ -71,7 +71,7 @@ describe.skipIf(!enabled)('asset pipeline (live)', () => {
       console.log('[live-asset] wait_job_finished result:', JSON.stringify(waitRes));
       expect(waitRes.isError === true).toBe(false);
       // Assert the model actually landed under Workspace (spec §7.5).
-      const after2 = intOf(await client.callTool({ name: luau, arguments: { code: childCount } }));
+      const after2 = intOf(await client.callTool({ name: luau, arguments: { code: childCount, datamodel_type: 'Edit' } }));
       expect(after2).toBeGreaterThan(before2);
     } finally {
       await client?.close().catch(() => {});

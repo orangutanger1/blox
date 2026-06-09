@@ -30,21 +30,26 @@ describe.skipIf(!enabled)('tier-2 play (live)', () => {
       expect(names.some((n) => n.endsWith('get_console_output'))).toBe(true);
       expect(names.some((n) => n.endsWith('execute_luau'))).toBe(true);
 
-      await client.callTool({ name: play, arguments: { is_start: true } });
+      // Start play, retrying past the proxy->Studio attach race until it takes.
+      let startText = '';
+      for (let i = 0; i < 12 && !/game started/i.test(startText); i++) {
+        startText = textOf(await client.callTool({ name: play, arguments: { is_start: true } }));
+        if (!/game started/i.test(startText)) await sleep(700);
+      }
       started = true;
-      await sleep(5000); // play spin-up is multi-second
+      expect(startText).toMatch(/game started/i);
 
       // execute_luau runs in-play (client context) -> IsRunning() is true
       let running = false;
-      for (let i = 0; i < 6 && !running; i++) {
-        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING } });
+      for (let i = 0; i < 10 && !running; i++) {
+        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING, datamodel_type: 'Client' } });
         running = textOf(r).includes('true');
         if (!running) await sleep(800);
       }
       expect(running).toBe(true);
 
       // inject a runtime print, then read it back from the console
-      await client.callTool({ name: luau, arguments: { code: `print('${marker}') return 'ok'` } });
+      await client.callTool({ name: luau, arguments: { code: `print('${marker}') return 'ok'`, datamodel_type: 'Client' } });
       let seen = false;
       for (let i = 0; i < 6 && !seen; i++) {
         const r = await client.callTool({ name: consoleTool, arguments: {} });
@@ -58,7 +63,7 @@ describe.skipIf(!enabled)('tier-2 play (live)', () => {
       started = false;
       let stopped = false;
       for (let i = 0; i < 6 && !stopped; i++) {
-        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING } });
+        const r = await client.callTool({ name: luau, arguments: { code: IS_RUNNING, datamodel_type: 'Edit' } });
         stopped = textOf(r).includes('false');
         if (!stopped) await sleep(800);
       }
