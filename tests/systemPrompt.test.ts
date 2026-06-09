@@ -4,8 +4,31 @@ import type { ProjectDigest } from '../src/context/digest.js';
 
 const digest: ProjectDigest = {
   name: 'blox-fixture',
-  tree: ['ReplicatedStorage', 'ServerScriptService'],
-  scripts: ['src/ReplicatedStorage/Greeter.luau'],
+  tree: ['ReplicatedStorage', 'ServerScriptService', 'StarterPlayer'],
+  scripts: [
+    'src/ReplicatedStorage/Greeter.luau',
+    'src/ServerScriptService/Hello.server.luau',
+    'src/StarterPlayer/StarterPlayerScripts/Controls.client.luau',
+  ],
+  groups: [
+    {
+      service: 'ReplicatedStorage',
+      total: 1,
+      scripts: [{ path: 'src/ReplicatedStorage/Greeter.luau', kind: 'ModuleScript' }],
+    },
+    {
+      service: 'ServerScriptService',
+      total: 1,
+      scripts: [{ path: 'src/ServerScriptService/Hello.server.luau', kind: 'Script (server)' }],
+    },
+    {
+      service: 'StarterPlayer',
+      total: 1,
+      scripts: [
+        { path: 'src/StarterPlayer/StarterPlayerScripts/Controls.client.luau', kind: 'LocalScript (client)' },
+      ],
+    },
+  ],
 };
 
 describe('buildSystemPrompt', () => {
@@ -16,7 +39,14 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('Rojo');
     expect(p).toContain('blox-fixture');
     expect(p).toContain('ReplicatedStorage, ServerScriptService');
-    expect(p).toContain('src/ReplicatedStorage/Greeter.luau');
+    expect(p).toContain('Game map');
+    expect(p).toContain('Greeter.luau — ModuleScript');
+    expect(p).toContain('Hello.server.luau — Script (server)');
+    expect(p).toContain('Controls.client.luau — LocalScript (client)');
+    // flaw-A guidance
+    expect(p).toContain('search_game_tree');
+    expect(p).toContain('instance_type');
+    expect(p).toContain('filter');
     expect(p).toContain('Verify loop');
     expect(p).toContain('execute_luau');
     expect(p).toContain('multi_edit');

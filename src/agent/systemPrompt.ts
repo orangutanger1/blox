@@ -1,4 +1,35 @@
-import type { ProjectDigest } from '../context/digest.js';
+import { basename } from 'node:path';
+import type { ProjectDigest, ScriptGroup } from '../context/digest.js';
+
+function groupNoun(group: ScriptGroup): string {
+  const n = group.total;
+  const plural = (s: string) => `${s}${n === 1 ? '' : 's'}`;
+  const truncated = group.total > group.scripts.length;
+  const kinds = new Set(group.scripts.map((s) => s.kind));
+  if (!truncated && kinds.size === 1) {
+    const k = group.scripts[0].kind;
+    if (k === 'ModuleScript') return plural('module');
+    if (k === 'Script (server)') return plural('server script');
+    if (k === 'LocalScript (client)') return plural('client script');
+  }
+  return plural('script');
+}
+
+function renderGameMap(digest: ProjectDigest): string[] {
+  const total = digest.scripts.length;
+  if (total === 0) return ['Game map (0 scripts): (none)'];
+  const lines = [`Game map (${total} scripts):`];
+  for (const g of digest.groups) {
+    if (g.total === 0) continue;
+    lines.push(`  ${g.service}/  (${g.total} ${groupNoun(g)})`);
+    for (const s of g.scripts) {
+      lines.push(`    ${basename(s.path)} — ${s.kind}`);
+    }
+    const hidden = g.total - g.scripts.length;
+    if (hidden > 0) lines.push(`    … +${hidden} more (use script_search / glob to list)`);
+  }
+  return lines;
+}
 
 export function buildSystemPrompt(digest: ProjectDigest): string {
   return [
@@ -57,9 +88,17 @@ export function buildSystemPrompt(digest: ProjectDigest): string {
     'Assets: when the task needs prototype assets, use generate_mesh,',
     '  generate_material, generate_procedural_model, or insert_from_creator_store.',
     '',
+    'Game context:',
+    '- The game map below lists the on-disk scripts you edit. For live game',
+    '  structure (instances, models, GUIs, parts), use search_game_tree.',
+    '- Always filter search_game_tree: pass instance_type (IsA, e.g. BasePart,',
+    '  Model, BaseScript), keywords, and/or a path start point, and keep max_depth',
+    '  small. An unfiltered call returns ~200 nodes dominated by built-in engine',
+    '  services and is truncated — filter to user content instead.',
+    '- Use inspect_instance for one instance\'s properties/children on demand.',
+    '',
     `Project: ${digest.name}`,
     `Top-level tree: ${digest.tree.join(', ') || '(none)'}`,
-    `Scripts (${digest.scripts.length}):`,
-    ...digest.scripts.map((s) => `  ${s}`),
+    ...renderGameMap(digest),
   ].join('\n');
 }
