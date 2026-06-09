@@ -64,7 +64,8 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async ({ query }) => ({ content: [{ type: 'text' as const, text: `[mock] scripts matching ${query}` }] })),
       tool('script_grep', 'Return (fake) grep results across scripts', { pattern: z.string() },
         async ({ pattern }) => ({ content: [{ type: 'text' as const, text: `[mock] grep ${pattern}` }] })),
-      tool('execute_luau', 'Run (fake) Luau and return canned output', { code: z.string() },
+      tool('execute_luau', 'Run (fake) Luau and return canned output',
+        { code: z.string(), datamodel_type: z.enum(['Edit', 'Client', 'Server']) },
         // code is intentionally ignored; the mock returns the next scripted result.
         async (_args) => ({ content: [{ type: 'text' as const, text: nextLuau() }] })),
       tool('start_stop_play', 'Start or stop a (fake) play session', { is_start: z.boolean() },
@@ -73,6 +74,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async () => ({ content: [{ type: 'text' as const, text: nextConsole() }] })),
       tool('character_navigation', 'Navigate the (fake) character to a position or instance',
         {
+          datamodel_type: z.enum(['Client']),
           instance_path: z.string().optional(),
           x: z.number().optional(),
           y: z.number().optional(),
@@ -82,6 +84,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async () => ({ content: [{ type: 'text' as const, text: '[mock] navigated' }] })),
       tool('user_keyboard_input', 'Send (fake) keyboard actions',
         {
+          datamodel_type: z.enum(['Client']),
           actions: z.array(z.object({
             action: z.string(),
             key_code: z.string().optional(),
@@ -93,6 +96,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         async () => ({ content: [{ type: 'text' as const, text: '[mock] Success' }] })),
       tool('user_mouse_input', 'Send (fake) mouse actions',
         {
+          datamodel_type: z.enum(['Client']),
           actions: z.array(z.object({
             action: z.string(),
             x: z.number().optional(),
@@ -103,7 +107,12 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
           })),
         },
         async () => ({ content: [{ type: 'text' as const, text: '[mock] Success' }] })),
-      tool('screen_capture', 'Return a (fake) captured viewport frame', {},
+      tool('screen_capture', 'Return a (fake) captured viewport frame',
+        {
+          capture_id: z.string(),
+          camera_position: z.array(z.number()).optional(),
+          look_at_position: z.array(z.number()).optional(),
+        },
         async () => ({ content: [captureResult()] })),
       tool('generate_mesh', 'Return a (fake) generated mesh id', { prompt: z.string() },
         async ({ prompt }) => ({ content: [{ type: 'text' as const, text: `[mock] mesh for: ${prompt}` }] })),
