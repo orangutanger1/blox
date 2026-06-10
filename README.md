@@ -25,6 +25,33 @@ node dist/cli.js --project /path/to/game "..."
 blox edits `.luau` files, validates the Rojo project (`rojo sourcemap`), commits the
 change, and prints a report.
 
+## Autonomy (per-run controls)
+
+Each run's autonomy is overridable on the command line (flag > `blox.config.json` >
+default):
+
+| Flag | Effect | Default |
+|------|--------|---------|
+| `--max-turns <N>` | Cap agent turns | 40 |
+| `--budget <USD>` | Cap spend; the run stops once exceeded | 5 |
+| `--effort <high\|xhigh>` | Model reasoning effort | SDK default |
+| `--auto` | Full autonomy — all tools run without prompting | (default) |
+| `--ask` | Gate risky actions (see below) | off |
+
+In `--ask` mode the inner code loop (editing `.luau`, running headless
+`execute_luau` checks) stays fully autonomous, but **asset generation**
+(`generate_mesh`, `generate_material`, `generate_procedural_model`,
+`insert_from_creator_store`) and **play-mode / input-sim**
+(`start_stop_play`, `character_navigation`, `user_keyboard_input`,
+`user_mouse_input`) are gated. When the agent reaches a gated action the run stops,
+the report lists the blocked action(s) and the session id, and you re-run with
+`--auto` to allow them.
+
+```bash
+# Bounded, gated run:
+node dist/cli.js --ask --budget 2 --effort xhigh --project /path/to/game "Build a shop UI"
+```
+
 ## Live Studio sync (manual)
 
 The CLI only *validates* the Rojo project. To push edits into a running Studio,
