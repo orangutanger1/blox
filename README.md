@@ -59,6 +59,40 @@ run `rojo serve` in the project dir and connect the Rojo plugin in Studio. Enabl
 the Roblox Studio MCP server in Studio's Assistant settings so the live bridge can
 read the DataModel.
 
+## Non-Rojo onboarding
+
+If your game has no Rojo project yet, `blox init` pulls the live Studio DataModel's
+scripts into one, then commits a git baseline so `blox` can track subsequent edits.
+
+```bash
+node dist/cli.js init [--project <dir>] [--on-conflict abort|suffix] [--force]
+```
+
+**Requires:** an attached Studio with the MCP server enabled (same prerequisite as
+`blox doctor`).
+
+**What it does:**
+
+- Walks the live DataModel and serializes every Script, LocalScript, and ModuleScript
+  to Rojo-convention `.luau` files under `<dir>/src/`.
+- Writes `<dir>/default.project.json` mapping the file tree back to the DataModel
+  hierarchy.
+- Commits the result as a git baseline (`git init` + initial commit if needed).
+
+**Non-script instances** (Parts, Models, GUIs, Values, …) stay DataModel-first and
+are not serialized; only script instances are pulled.
+
+**`--on-conflict` behavior:** when two scripts share the same parent and name they
+would map to the same file path. The default (`abort`) writes nothing and lists the
+conflicts so you can resolve them first. Re-run with `--on-conflict suffix` to let
+blox disambiguate automatically (`_2`, `_3`, …) and write everything.
+
+**`--force`** overwrites an existing `default.project.json` (safe to re-run after
+resolving DataModel renames).
+
+After `blox init`, run `rojo serve` in the project dir and click **Connect** in
+Studio's Rojo plugin, then use `blox "<prompt>"` normally.
+
 ## Test
 
 ```bash
