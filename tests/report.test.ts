@@ -44,3 +44,39 @@ describe('formatReport', () => {
     expect(formatReport(r)).toContain('stop: budget');
   });
 });
+
+describe('formatReport — autonomy', () => {
+  it('renders mode + effort lines when present', () => {
+    const out = formatReport({
+      prompt: 'p',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 1,
+      costUsd: 0,
+      status: 'success',
+      mode: 'ask',
+      effort: 'xhigh',
+    });
+    expect(out).toContain('mode: ask');
+    expect(out).toContain('effort: xhigh');
+  });
+
+  it('lists blocked actions, the session id, and the re-run hint on a gated stop', () => {
+    const out = formatReport({
+      prompt: 'make a rock',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 2,
+      costUsd: 0.1,
+      status: 'error',
+      stopReason: 'gated',
+      mode: 'ask',
+      sessionId: 'sess-9',
+      gatedActions: [{ tool: 'mcp__Roblox_Studio__generate_mesh', input: { prompt: 'rock' } }],
+    });
+    expect(out).toContain('blocked (needs approval):');
+    expect(out).toContain('mcp__Roblox_Studio__generate_mesh');
+    expect(out).toContain('session: sess-9');
+    expect(out).toContain('--auto');
+  });
+});
