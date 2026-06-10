@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: 'doctor' | 'serve' | null;
+  command: 'doctor' | 'serve' | 'init' | null;
   prompt: string | null;
   mock: boolean;
   projectPath: string | null;
@@ -7,16 +7,20 @@ export interface ParsedArgs {
   maxBudgetUsd: number | null;
   effort: 'high' | 'xhigh' | null;
   mode: 'auto' | 'ask' | null;
+  onConflict: 'abort' | 'suffix' | null;
+  force: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
-  let command: 'doctor' | 'serve' | null = null;
+  let command: 'doctor' | 'serve' | 'init' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
   let effort: 'high' | 'xhigh' | null = null;
   let mode: 'auto' | 'ask' | null = null;
+  let onConflict: 'abort' | 'suffix' | null = null;
+  let force = false;
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -36,6 +40,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
       effort = v;
     } else if (a === '--auto') mode = 'auto';
     else if (a === '--ask') mode = 'ask';
+    else if (a === '--on-conflict') {
+      const v = argv[++i];
+      if (v !== 'abort' && v !== 'suffix') throw new Error('--on-conflict must be abort or suffix');
+      onConflict = v;
+    } else if (a === '--force') force = true;
+    else if (a === 'init' && command === null && positional.length === 0) command = 'init';
     else if (a === 'doctor' && command === null && positional.length === 0) command = 'doctor';
     else if (a === 'serve' && command === null && positional.length === 0) command = 'serve';
     else positional.push(a);
@@ -49,5 +59,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     maxBudgetUsd,
     effort,
     mode,
+    onConflict,
+    force,
   };
 }

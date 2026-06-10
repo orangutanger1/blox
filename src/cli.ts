@@ -12,6 +12,11 @@ import { runDoctor, formatDoctorReport } from './doctor.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
 import { formatReport, type RunReport } from './report.js';
+import { basename } from 'node:path';
+import { pullScripts, mockPulledScripts } from './onboard/pull.js';
+import { planLayout } from './onboard/layout.js';
+import { writePlan } from './onboard/write.js';
+import { formatOnboardReport } from './onboard/report.js';
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -51,9 +56,37 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (command === 'init') {
+    const dir = projectPath ?? process.cwd();
+    const strategy = args.onConflict ?? 'abort';
+    const name = basename(dir) || 'blox-game';
+    let scripts;
+    try {
+      scripts = mock ? mockPulledScripts() : await pullScripts(studioLauncher());
+    } catch (e) {
+      console.error(`blox init failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
+    const plan = planLayout(scripts, strategy, name);
+    const result = await writePlan(dir, plan, { force: args.force });
+    if (result.refused) {
+      console.error(`default.project.json already exists in ${dir} — re-run with --force to overwrite`);
+      process.exit(1);
+    }
+    console.log(
+      formatOnboardReport({
+        written: result.written,
+        baselineSha: result.baselineSha,
+        renamed: plan.renamed,
+        conflicts: plan.conflicts,
+      }),
+    );
+    process.exit(plan.conflicts.length > 0 ? 1 : 0);
+  }
+
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]',
     );
     process.exit(2);
   }
