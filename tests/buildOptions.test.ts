@@ -43,3 +43,27 @@ describe('buildQueryOptions', () => {
     expect(pre?.[0].hooks).toHaveLength(1);
   });
 });
+
+const askConfig: BloxConfig = { ...config, mode: 'ask', effort: 'xhigh' };
+
+describe('buildQueryOptions — ask mode', () => {
+  it('uses default permission mode + a canUseTool callback', () => {
+    const o = buildQueryOptions(askConfig, createMockStudioBridge(), digest);
+    expect(o.permissionMode).toBe('default');
+    expect(o.allowDangerouslySkipPermissions).toBeUndefined();
+    expect(typeof o.canUseTool).toBe('function');
+  });
+
+  it('drops gated tools from the allow-list but keeps the inner loop', () => {
+    const o = buildQueryOptions(askConfig, createMockStudioBridge(), digest);
+    expect(o.allowedTools).not.toContain('mcp__Roblox_Studio__generate_mesh');
+    expect(o.allowedTools).not.toContain('mcp__Roblox_Studio__start_stop_play');
+    expect(o.allowedTools).toContain('mcp__Roblox_Studio__execute_luau');
+    expect(o.allowedTools).toEqual(expect.arrayContaining(['Read', 'Write', 'Edit']));
+  });
+
+  it('passes effort when set and omits it when unset', () => {
+    expect(buildQueryOptions(askConfig, createMockStudioBridge(), digest).effort).toBe('xhigh');
+    expect(buildQueryOptions(config, createMockStudioBridge(), digest).effort).toBeUndefined();
+  });
+});
