@@ -78,3 +78,24 @@ describe('autonomy flags', () => {
     expect(() => parseArgs(['--effort', 'medium'])).toThrow(/high or xhigh/);
   });
 });
+
+describe('init subcommand', () => {
+  it('parses a leading init token into command', () => {
+    const a = parseArgs(['init']);
+    expect(a.command).toBe('init');
+    expect(a.onConflict).toBeNull();
+    expect(a.force).toBe(false);
+  });
+
+  it('parses --on-conflict and --force with init', () => {
+    const a = parseArgs(['init', '--project', '/game', '--on-conflict', 'suffix', '--force']);
+    expect(a.command).toBe('init');
+    expect(a.projectPath).toBe('/game');
+    expect(a.onConflict).toBe('suffix');
+    expect(a.force).toBe(true);
+  });
+
+  it('rejects an invalid --on-conflict value', () => {
+    expect(() => parseArgs(['init', '--on-conflict', 'nope'])).toThrow(/on-conflict/);
+  });
+});
