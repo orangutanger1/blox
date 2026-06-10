@@ -37,6 +37,10 @@ export function denyMessage(toolName: string): string {
 // Permission callback for --ask: allow everything except gated tools, which are
 // denied with feedback so the agent self-explains and stops. Denials surface in
 // the result's permission_denials[] for the report.
+//
+// The deny is non-interrupting by design: an interrupt would cut off the agent's
+// self-explanation. A non-compliant agent could therefore retry gated tools, but
+// the run stays bounded by --max-turns and --budget, so the worst case is capped.
 export function buildCanUseTool(): CanUseTool {
   return async (toolName) => {
     if (isGated(toolName)) {

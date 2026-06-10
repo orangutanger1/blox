@@ -52,7 +52,9 @@ async function main(): Promise<void> {
   }
 
   if (!prompt) {
-    console.error('usage: blox "<prompt>" [--mock] [--project <dir>]  |  blox doctor');
+    console.error(
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor',
+    );
     process.exit(2);
   }
 
