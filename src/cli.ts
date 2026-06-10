@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { parseArgs } from './args.js';
-import { loadConfig } from './config.js';
+import { parseArgs, type ParsedArgs } from './args.js';
+import { loadConfig, overridesFromArgs } from './config.js';
 import { buildDigest } from './context/digest.js';
 import { syncProject } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
@@ -14,7 +14,14 @@ import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from
 import { formatReport, type RunReport } from './report.js';
 
 async function main(): Promise<void> {
-  const { command, prompt, mock, projectPath } = parseArgs(process.argv.slice(2));
+  let args: ParsedArgs;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exit(2);
+  }
+  const { command, prompt, mock, projectPath } = args;
 
   if (command === 'doctor') {
     const report = await runDoctor(studioLauncher());
@@ -50,7 +57,7 @@ async function main(): Promise<void> {
   }
 
   const cwd = projectPath ?? process.cwd();
-  const config = loadConfig(cwd, projectPath ? { projectPath } : {});
+  const config = loadConfig(cwd, overridesFromArgs(args));
   const digest = buildDigest(config.projectPath);
   const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
   const options = buildQueryOptions(config, bridge, digest);
@@ -87,6 +94,10 @@ async function main(): Promise<void> {
       status: agent.status === 'success' && sync.ok ? 'success' : 'error',
       stopReason: agent.stopReason,
       detail: sync.ok ? agent.detail : sync.detail,
+      mode: config.mode,
+      effort: config.effort,
+      sessionId: agent.sessionId,
+      gatedActions: agent.gatedActions,
     };
     console.log(formatReport(report));
     process.exitCode = report.status === 'success' ? 0 : 1;
