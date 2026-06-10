@@ -9,6 +9,7 @@ const config: BloxConfig = {
   model: 'claude-opus-4-8',
   maxTurns: 40,
   maxBudgetUsd: 5,
+  mode: 'auto',
 };
 const digest: ProjectDigest = { name: 'g', tree: [], scripts: [], groups: [] };
 
