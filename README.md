@@ -87,8 +87,10 @@ would map to the same file path. The default (`abort`) writes nothing and lists 
 conflicts so you can resolve them first. Re-run with `--on-conflict suffix` to let
 blox disambiguate automatically (`_2`, `_3`, …) and write everything.
 
-**`--force`** overwrites an existing `default.project.json` (safe to re-run after
-resolving DataModel renames).
+**`--force`** overwrites an existing `default.project.json` and re-writes the
+pulled scripts. It does **not** prune files from a previous onboard, so a script
+renamed or deleted in Studio leaves its old `.luau` behind — remove stale files by
+hand (or start from a clean dir) after big DataModel renames.
 
 After `blox init`, run `rojo serve` in the project dir and click **Connect** in
 Studio's Rojo plugin, then use `blox "<prompt>"` normally.

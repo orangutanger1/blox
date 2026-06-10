@@ -79,27 +79,35 @@ export function planLayout(
   const conflicts: Conflict[] = [];
   const renamed: Renamed[] = [];
 
-  for (const d of desired) {
-    const group = byPath.get(d.path)!;
-    if (group.length === 1) {
-      files.push({ path: d.path, source: d.script.source });
-      continue;
+  if (strategy === 'abort') {
+    for (const d of desired) {
+      const group = byPath.get(d.path)!;
+      if (group.length === 1) {
+        files.push({ path: d.path, source: d.script.source });
+      } else {
+        conflicts.push({ fullName: d.script.fullName, path: d.path, reason: 'duplicate-path' });
+      }
     }
-    // Collision.
-    if (strategy === 'abort') {
-      conflicts.push({ fullName: d.script.fullName, path: d.path, reason: 'duplicate-path' });
-      continue;
-    }
-    // suffix: first occurrence keeps the path; later ones get _2, _3, ... inserted
-    // before the Rojo suffix (.server.luau / .client.luau / .luau).
-    const idx = group.indexOf(d);
-    if (idx === 0) {
-      files.push({ path: d.path, source: d.script.source });
-    } else {
-      const m = d.path.match(/^(.*?)(\.(?:server|client)\.luau|\.luau)$/)!;
-      const to = `${m[1]}_${idx + 1}${m[2]}`;
-      files.push({ path: to, source: d.script.source });
-      renamed.push({ fullName: d.script.fullName, from: d.path, to });
+  } else {
+    // suffix: every script gets a unique path. The first claimant keeps its
+    // natural path; any later script whose path is already taken gets _2, _3, ...
+    // inserted before the Rojo suffix, bumping until free. The free-path check is
+    // against ALL claimed paths, so a generated _N never silently overwrites a
+    // real _N-named sibling.
+    const taken = new Set<string>();
+    for (const d of desired) {
+      let candidate = d.path;
+      if (taken.has(candidate)) {
+        const m = d.path.match(/^(.*?)(\.(?:server|client)\.luau|\.luau)$/)!;
+        let n = 2;
+        do {
+          candidate = `${m[1]}_${n}${m[2]}`;
+          n++;
+        } while (taken.has(candidate));
+        renamed.push({ fullName: d.script.fullName, from: d.path, to: candidate });
+      }
+      taken.add(candidate);
+      files.push({ path: candidate, source: d.script.source });
     }
   }
 

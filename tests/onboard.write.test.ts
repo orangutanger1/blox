@@ -48,6 +48,17 @@ describe('writePlan', () => {
     expect(calls).toHaveLength(0); // refused before any git/fs side effects
   });
 
+  it('writes nothing (no project file, no commit) for an empty plan', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-onboard-'));
+    const { fn, calls } = fakeSpawn();
+    const empty: LayoutPlan = { ...plan, files: [], project: { name: 'g', tree: { $className: 'DataModel' } } };
+    const r = await writePlan(dir, empty, { force: false, spawn: fn });
+    expect(r.written).toEqual([]);
+    expect(r.baselineSha).toBeNull();
+    expect(existsSync(join(dir, 'default.project.json'))).toBe(false);
+    expect(calls).toHaveLength(0); // no git init / commit on an empty onboard
+  });
+
   it('writes nothing when an abort plan has conflicts', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'blox-onboard-'));
     const { fn, calls } = fakeSpawn();

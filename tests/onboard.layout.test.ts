@@ -65,6 +65,22 @@ describe('planLayout — conflicts', () => {
     expect(plan.conflicts).toEqual([]);
     expect(plan.renamed).toHaveLength(1);
   });
+
+  it('suffix: a generated _N never overwrites a real _N-named sibling', () => {
+    // Dup×2 plus a genuine "Dup_2": every script must keep a unique path — no
+    // silent overwrite/loss. Bumps the generated suffix past the real collision.
+    const plan = planLayout(
+      [s('ReplicatedStorage.Dup', 'ModuleScript', 'A'), s('ReplicatedStorage.Dup', 'ModuleScript', 'B'), s('ReplicatedStorage.Dup_2', 'ModuleScript', 'C')],
+      'suffix', 'g',
+    );
+    const paths = plan.files.map((f) => f.path);
+    expect(new Set(paths).size).toBe(3); // all distinct — nothing lost
+    expect(paths).toContain('src/ReplicatedStorage/Dup.luau');
+    expect(paths).toContain('src/ReplicatedStorage/Dup_2.luau');
+    expect(paths).toContain('src/ReplicatedStorage/Dup_2_2.luau');
+    // sources preserved 1:1 with the three inputs
+    expect(plan.files.map((f) => f.source).sort()).toEqual(['A', 'B', 'C']);
+  });
 });
 
 describe('planLayout — project.json', () => {

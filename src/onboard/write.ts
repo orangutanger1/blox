@@ -26,6 +26,11 @@ export async function writePlan(
   if (plan.conflicts.length > 0) {
     return { written: [], baselineSha: null, conflictsAborted: true };
   }
+  if (plan.files.length === 0) {
+    // Empty DataModel: nothing to onboard. Write nothing (no project file, no
+    // baseline commit); the caller reports "nothing to onboard".
+    return { written: [], baselineSha: null };
+  }
   if (existsSync(join(projectPath, 'default.project.json')) && !opts.force) {
     return { written: [], baselineSha: null, refused: true };
   }
