@@ -28,11 +28,15 @@ export class GateBroker {
     });
     return new Promise((resolve) => {
       const finish = (d: GateDecision) => {
-        clearTimeout(timer);
+        if (!this.pending.has(gateId)) return; // idempotent: first resolution wins
         this.pending.delete(gateId);
+        clearTimeout(timer);
         if (d.decision === 'deny' && d.source === 'dock') this.denied.push(tool);
-        this.sink.emit({ type: 'gate_resolved', gateId, decision: d.decision, source: d.source });
-        resolve(d);
+        try {
+          this.sink.emit({ type: 'gate_resolved', gateId, decision: d.decision, source: d.source });
+        } finally {
+          resolve(d); // a throwing sink must never leave the agent parked
+        }
       };
       const timer = setTimeout(() => finish({ decision: 'deny', source: 'timeout' }), this.timeoutMs);
       this.pending.set(gateId, finish);

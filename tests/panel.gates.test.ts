@@ -63,9 +63,11 @@ describe('GateBroker', () => {
   it('truncates huge input summaries', async () => {
     const { sink, events } = collector();
     const broker = new GateBroker(sink, 60_000);
-    void broker.request('mcp__Roblox_Studio__generate_mesh', { prompt: 'x'.repeat(1000) });
+    const p = broker.request('mcp__Roblox_Studio__generate_mesh', { prompt: 'x'.repeat(1000) });
     const req = events.find((e) => e.type === 'gate_request');
     if (req?.type !== 'gate_request') throw new Error('unreachable');
     expect(req.inputSummary.length).toBeLessThanOrEqual(200);
+    broker.resolve(req.gateId, 'allow');
+    await p;
   });
 });
