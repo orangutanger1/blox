@@ -48,3 +48,10 @@ describe('overridesFromArgs', () => {
     ).toEqual({ projectPath: '/g', maxTurns: 10, maxBudgetUsd: 2.5, effort: 'high', mode: 'ask' });
   });
 });
+
+describe('panel config', () => {
+  it('defaults port and gate timeout', () => {
+    const c = loadConfig('/tmp/definitely-missing-blox-config');
+    expect(c.panel).toEqual({ port: 35768, gateTimeoutSeconds: 120 });
+  });
+});

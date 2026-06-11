@@ -9,6 +9,12 @@ export const BloxConfigSchema = z.object({
   maxBudgetUsd: z.number().positive().default(5),
   mode: z.enum(['auto', 'ask']).default('auto'),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  panel: z
+    .object({
+      port: z.number().int().positive().default(35768),
+      gateTimeoutSeconds: z.number().positive().default(120),
+    })
+    .default({ port: 35768, gateTimeoutSeconds: 120 }),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;

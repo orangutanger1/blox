@@ -10,6 +10,7 @@ const config: BloxConfig = {
   maxTurns: 40,
   maxBudgetUsd: 5,
   mode: 'auto',
+  panel: { port: 35768, gateTimeoutSeconds: 120 },
 };
 const digest: ProjectDigest = { name: 'g', tree: [], scripts: [], groups: [] };
 
