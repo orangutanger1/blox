@@ -80,6 +80,25 @@ function Ui.build(widget: DockWidgetPluginGui)
 	local diffs = scroller("Diffs", 3, 0.25)
 	local log = scroller("Log", 4, 0.6)
 
+	-- Log/diff lines are read-only TextBoxes (not TextLabels) so text can be
+	-- selected and copied with Ctrl+C.
+	local function line(parent: ScrollingFrame, text: string, order: number)
+		local b = Instance.new("TextBox")
+		b.Name = "Line" .. order
+		b.LayoutOrder = order
+		b.Size = UDim2.new(1, -8, 0, 18)
+		b.BackgroundTransparency = 1
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		b.TextColor3 = Color3.fromRGB(204, 204, 204)
+		b.TextSize = 14
+		b.Font = Enum.Font.Code
+		b.TextTruncate = Enum.TextTruncate.AtEnd
+		b.TextEditable = false
+		b.ClearTextOnFocus = false
+		b.Text = text
+		b.Parent = parent
+	end
+
 	return {
 		status = status,
 		gate = gate,
@@ -88,9 +107,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 		denyButton = deny,
 		diffs = diffs,
 		log = log,
-		addLine = function(parent: ScrollingFrame, text: string, order: number)
-			label(parent, "Line" .. order, order).Text = text
-		end,
+		addLine = line,
 	}
 end
 
