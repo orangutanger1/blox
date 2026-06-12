@@ -26,9 +26,20 @@ The only unknown in the spec. Requires a Windows Studio attached. **If Studio is
 Run: `BLOX_LIVE_ASSET=1 npx vitest run tests/e2e/live-asset.test.ts 2>&1 | tee /tmp/p2-probe.log`
 Expected: PASS; the test console.logs the `wait_job_finished` result JSON.
 
-- [ ] **Step 2: Record findings**
+- [x] **Step 2: Record findings**
 
-Paste the logged result shape here (edit this plan file), noting: does the done-result contain the inserted model's instance name, and does it match the `Assistant-<Kind>-<uuid>` tag convention? Commit the plan edit:
+**PROBED 2026-06-12 (live Studio, test passed twice).** `wait_job_finished` done-result is one MCP text block whose body is JSON:
+
+```json
+{"modelFullName":"Workspace.SmallGrayRock","resultName":"SmallGrayRock","status":"Completed","prompt":"a small gray rock","generationId":"49a17172-aa30-4234-8e3d-f09b99831fca"}
+```
+
+**Design impact (Tasks 5 and 9 amended in place):**
+- Procedural models do NOT follow the `Assistant-<Kind>-<uuid>` tag convention — the instance is named from the prompt (`resultName`, parented per `modelFullName`). A tag-regex-only parser would always miss chain 2.
+- Extraction parses JSON text blocks first: `tag` key → mesh; `status === "Completed"` + `resultName` → procedural. The `Assistant-*` regex stays as a defensive fallback only.
+- A `wait_job_finished` response with `status !== "Completed"` landed nothing — the hook skips the gate entirely (the agent sees the failure in the tool result; a retry re-enters the P1 pre-gate).
+
+Commit the plan edit:
 
 ```bash
 git add docs/superpowers/plans/2026-06-12-blox-pivot-p2-asset-gate.md
@@ -428,7 +439,7 @@ git commit -m "feat(panel): result decisions and feedback on POST /gate"
 Append to `tests/hooks.test.ts`:
 
 ```ts
-import { buildAssetResultHook, extractAssetTag, rejectMessage, GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
+import { buildAssetResultHook, extractAssetTag, jobLandedNothing, rejectMessage, GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
 import type { ResultGateChannel } from '../src/agent/hooks.js';
 
 type BlockOut = { decision?: string; reason?: string; continue?: boolean };
@@ -453,7 +464,28 @@ describe('extractAssetTag', () => {
     expect(extractAssetTag(meshResponse)).toBe('Assistant-MeshGen-1f2e3d4c-0000-4000-8000-aabbccddeeff');
   });
 
-  it('finds a tag in any stringifiable shape (defensive: wait_job_finished shape unprobed)', () => {
+  it('finds the procedural model name from a Completed wait_job_finished result (live-probed shape)', () => {
+    const waitResponse = {
+      content: [
+        {
+          type: 'text',
+          text: '{"modelFullName":"Workspace.SmallGrayRock","resultName":"SmallGrayRock","status":"Completed","prompt":"a small gray rock","generationId":"49a17172-aa30-4234-8e3d-f09b99831fca"}',
+        },
+      ],
+      isError: false,
+    };
+    expect(extractAssetTag(waitResponse)).toBe('SmallGrayRock');
+  });
+
+  it('returns null for a non-Completed job (nothing landed)', () => {
+    const failed = { content: [{ type: 'text', text: '{"status":"Failed","generationId":"x"}' }] };
+    expect(extractAssetTag(failed)).toBeNull();
+    expect(jobLandedNothing(failed)).toBe(true);
+    expect(jobLandedNothing({ content: [{ type: 'text', text: '{"status":"Completed","resultName":"R"}' }] })).toBe(false);
+    expect(jobLandedNothing({ weird: 'shape' })).toBe(false); // unknown shape: not provably failed
+  });
+
+  it('falls back to the Assistant-* tag regex for unexpected shapes', () => {
     expect(extractAssetTag({ result: 'inserted Assistant-ModelGen-deadbeef-1111-4222-8333-444455556666 ok' })).toBe(
       'Assistant-ModelGen-deadbeef-1111-4222-8333-444455556666',
     );
@@ -526,6 +558,15 @@ describe('buildAssetResultHook', () => {
     const out = (await hook(postInput(GEN_MESH_TOOL, meshResponse), 't9', { signal })) as BlockOut;
     expect(out.continue).toBe(true);
   });
+
+  it('skips the gate for a non-Completed job — nothing landed, nothing to review', async () => {
+    const calls: unknown[][] = [];
+    const hook = buildAssetResultHook(channel('reject', undefined, calls));
+    const failed = { content: [{ type: 'text', text: '{"status":"Failed","generationId":"x"}' }] };
+    const out = (await hook(postInput(WAIT_JOB_TOOL, failed), 't9', { signal })) as BlockOut;
+    expect(out.continue).toBe(true);
+    expect(calls.length).toBe(0);
+  });
 });
 ```
 
@@ -553,14 +594,38 @@ export interface ResultGateChannel {
   ): Promise<{ decision: 'approve' | 'reject'; source: 'dock' | 'timeout'; feedback?: string }>;
 }
 
-// Generated instances are named "Assistant-<Kind>-<uuid>" (live-probed for
-// generate_mesh; assumed for the procedural chain until Task 1's probe says
-// otherwise). The parser is shape-agnostic on purpose: wait_job_finished's
-// done-result shape is unprobed, so we match the tag convention anywhere in
-// the stringified response instead of walking a specific structure.
 const TAG_RE = /Assistant-[A-Za-z]+-[0-9a-fA-F][0-9a-fA-F-]{7,}/;
 
+// JSON-decode every MCP text block in a tool response (non-JSON blocks skipped).
+function textBlockJson(response: unknown): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const content = (response as { content?: unknown } | null)?.content;
+  if (!Array.isArray(content)) return out;
+  for (const b of content as { type?: unknown; text?: unknown }[]) {
+    if (b?.type === 'text' && typeof b.text === 'string') {
+      try {
+        const j = JSON.parse(b.text) as unknown;
+        if (j && typeof j === 'object') out.push(j as Record<string, unknown>);
+      } catch {
+        // not JSON — the regex fallback below handles it
+      }
+    }
+  }
+  return out;
+}
+
+// Both result shapes live-probed (Task 1, 2026-06-12):
+//   generate_mesh      → {"tag":"Assistant-MeshGen-<uuid>"} — instance name.
+//   wait_job_finished  → {"modelFullName":"Workspace.SmallGrayRock",
+//                         "resultName":"SmallGrayRock","status":"Completed",...}
+//     — the procedural instance is named from the PROMPT, not Assistant-tagged.
+// Parse JSON first; the Assistant-* regex is a defensive fallback for shapes
+// a future Studio build might introduce.
 export function extractAssetTag(response: unknown): string | null {
+  for (const j of textBlockJson(response)) {
+    if (typeof j.tag === 'string') return j.tag;
+    if (j.status === 'Completed' && typeof j.resultName === 'string') return j.resultName;
+  }
   let s: string;
   try {
     s = JSON.stringify(response) ?? '';
@@ -568,6 +633,13 @@ export function extractAssetTag(response: unknown): string | null {
     s = String(response);
   }
   return s.match(TAG_RE)?.[0] ?? null;
+}
+
+// True only when the response provably reports a non-Completed job: nothing
+// landed in the DataModel, so there is no result to gate. Unknown shapes
+// return false (gate defensively rather than silently skip).
+export function jobLandedNothing(response: unknown): boolean {
+  return textBlockJson(response).some((j) => typeof j.status === 'string' && j.status !== 'Completed');
 }
 
 export function rejectMessage(toolName: string, stashed: boolean, feedback?: string): string {
@@ -590,6 +662,7 @@ export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
     if (input.hook_event_name !== 'PostToolUse') return { continue: true };
     if (input.tool_name !== GEN_MESH_TOOL && input.tool_name !== WAIT_JOB_TOOL) return { continue: true };
     if (!gate?.isConnected()) return { continue: true };
+    if (input.tool_name === WAIT_JOB_TOOL && jobLandedNothing(input.tool_response)) return { continue: true };
 
     const tag = extractAssetTag(input.tool_response);
     const inputSummary = JSON.stringify(input.tool_input ?? {}).slice(0, 200);
@@ -925,7 +998,19 @@ const MOCK_MESH_TAG = 'Assistant-MeshGen-00000000-0000-4000-8000-000000000000';
 textResult(JSON.stringify({ tag: MOCK_MESH_TAG }))
 ```
 
-Follow the file's existing fake/helper pattern (`playResult()`, `creatorSearchResult()`, `jobFinishedResult()` are precedents); export `MOCK_MESH_TAG` so tests can assert against it. If Task 1's probe recorded a `wait_job_finished` done-shape, update `jobFinishedResult` to match it; otherwise leave it and add a comment pointing at Task 1.
+Follow the file's existing fake/helper pattern (`playResult()`, `creatorSearchResult()`, `jobFinishedResult()` are precedents); export `MOCK_MESH_TAG` so tests can assert against it. Task 1's probe recorded the real `wait_job_finished` done-shape — update `jobFinishedResult` to produce a text block whose body matches it:
+
+```ts
+JSON.stringify({
+  modelFullName: 'Workspace.MockRock',
+  resultName: 'MockRock',
+  status: 'Completed',
+  prompt: 'a mock rock',
+  generationId: '00000000-0000-4000-8000-000000000001',
+})
+```
+
+(Keep the helper's existing signature/parameterization if it has one; only the body shape changes.)
 
 - [ ] **Step 2: Run the suite**
 
