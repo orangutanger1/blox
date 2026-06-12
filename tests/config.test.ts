@@ -54,4 +54,11 @@ describe('panel config', () => {
     const c = loadConfig('/tmp/definitely-missing-blox-config');
     expect(c.panel).toEqual({ port: 35768, gateTimeoutSeconds: 120 });
   });
+
+  it('fills missing panel fields when the config file sets only some', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    writeFileSync(join(dir, 'blox.config.json'), JSON.stringify({ panel: { port: 40000 } }));
+    const c = loadConfig(dir);
+    expect(c.panel).toEqual({ port: 40000, gateTimeoutSeconds: 120 });
+  });
 });

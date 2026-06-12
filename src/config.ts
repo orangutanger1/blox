@@ -14,7 +14,9 @@ export const BloxConfigSchema = z.object({
       port: z.number().int().positive().default(35768),
       gateTimeoutSeconds: z.number().positive().default(120),
     })
-    .default({ port: 35768, gateTimeoutSeconds: 120 }),
+    // prefault (not default): zod v4 .default() short-circuits inner parsing,
+    // so {} would skip the field defaults; prefault parses it through them.
+    .prefault({}),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
