@@ -49,6 +49,16 @@ describe('buildCanUseTool', () => {
     const r = await cb('mcp__Roblox_Studio__execute_luau', {}, {} as never);
     expect(r.behavior).toBe('allow');
   });
+
+  // The CLI's allow-result schema requires updatedInput (the sdk.d.ts optional
+  // marker is wrong); an allow without it is rejected and turns into a deny.
+  it('always carries updatedInput on allow', async () => {
+    const cb = buildCanUseTool();
+    const input = { script: 'print(1)' };
+    const r = await cb('mcp__Roblox_Studio__execute_luau', input, {} as never);
+    expect(r.behavior).toBe('allow');
+    if (r.behavior === 'allow') expect(r.updatedInput).toEqual(input);
+  });
 });
 
 describe('buildCanUseTool — interactive gate channel', () => {
@@ -59,8 +69,10 @@ describe('buildCanUseTool — interactive gate channel', () => {
 
   it('allows a gated tool when the dock approves', async () => {
     const cb = buildCanUseTool(gateAllow);
-    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    const input = { prompt: 'a low-poly barrel' };
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', input, {} as never);
     expect(r.behavior).toBe('allow');
+    if (r.behavior === 'allow') expect(r.updatedInput).toEqual(input);
   });
 
   it('denies with the dock message when the user denies', async () => {

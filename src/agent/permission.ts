@@ -53,13 +53,18 @@ export interface GateChannel {
 // With a connected dock the call PAUSES on the gate broker; Allow lets the run
 // continue, an explicit user Deny tells the agent to skip the action and keep
 // going, and a timeout falls back to the deny+stop path (spec §5, §7).
+//
+// Allow results MUST carry updatedInput: the CLI's response schema requires it
+// (sdk.d.ts marks it optional, but a bare {behavior:'allow'} fails validation
+// CLI-side and comes back as "Tool permission request failed").
 export function buildCanUseTool(gate?: GateChannel): CanUseTool {
   return async (toolName, input) => {
-    if (!isGated(toolName)) return { behavior: 'allow' };
+    const allow = { behavior: 'allow' as const, updatedInput: (input ?? {}) as Record<string, unknown> };
+    if (!isGated(toolName)) return allow;
     if (gate?.isConnected()) {
       try {
-        const d = await gate.request(toolName, (input ?? {}) as Record<string, unknown>);
-        if (d.decision === 'allow') return { behavior: 'allow' };
+        const d = await gate.request(toolName, allow.updatedInput);
+        if (d.decision === 'allow') return allow;
         if (d.source === 'dock') return { behavior: 'deny', message: dockDenyMessage(toolName) };
       } catch {
         // A broken channel must never stall the run — fall back to deny+stop.
