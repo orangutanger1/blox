@@ -59,6 +59,29 @@ run `rojo serve` in the project dir and connect the Rojo plugin in Studio. Enabl
 the Roblox Studio MCP server in Studio's Assistant settings so the live bridge can
 read the DataModel.
 
+## Studio dock panel
+
+Watch and steer a run from inside Studio. One-time setup:
+
+```bash
+blox panel install        # builds the plugin and copies it into Studio's plugins folder
+```
+
+Then in Studio: Plugins toolbar → **blox** → **blox panel**. Allow HTTP requests
+when prompted (the panel talks to the local CLI on `127.0.0.1:35768`; override
+with `panel.port` in `blox.config.json`).
+
+With the panel open, `--ask` becomes interactive: gated actions (asset
+generation, play mode, input sim) pause the run and show an Allow/Deny card in
+the dock. Allow resumes the run; Deny tells the agent to continue without that
+action. Without the panel, `--ask` behaves as before (blocked actions stop the
+run). Gates time out after `panel.gateTimeoutSeconds` (default 120) back to the
+stop behavior.
+
+If the panel can't reach the CLI on WSL, check Windows↔WSL localhost forwarding
+and set `BLOX_STUDIO_PLUGINS_DIR` if `panel install` can't find your plugins
+folder.
+
 ## Non-Rojo onboarding
 
 If your game has no Rojo project yet, `blox init` pulls the live Studio DataModel's
