@@ -27,6 +27,10 @@ describe('studioPluginsDir', () => {
     expect(dir).toBe('/mnt/c/Users/me/AppData/Local/Roblox/Plugins');
     expect(calls[0][0]).toBe('cmd.exe');
   });
+
+  it('throws when LOCALAPPDATA is unset on native Windows', async () => {
+    await expect(studioPluginsDir({ env: {}, platform: 'win32' })).rejects.toThrow('LOCALAPPDATA is not set');
+  });
 });
 
 describe('installPanel', () => {

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,9 +53,14 @@ export function defaultPluginProjectDir(): string {
 export async function installPanel(opts: InstallOptions): Promise<string> {
   const exec = opts.exec ?? defaultExec;
   const projectDir = opts.pluginProjectDir ?? defaultPluginProjectDir();
-  const out = join(mkdtempSync(join(tmpdir(), 'blox-panel-')), 'blox-panel.rbxm');
-  await exec('rojo', ['build', join(projectDir, 'default.project.json'), '-o', out]);
-  const dest = join(opts.pluginsDir, 'blox-panel.rbxm');
-  copyFileSync(out, dest);
-  return dest;
+  const buildDir = mkdtempSync(join(tmpdir(), 'blox-panel-'));
+  try {
+    const out = join(buildDir, 'blox-panel.rbxm');
+    await exec('rojo', ['build', join(projectDir, 'default.project.json'), '-o', out]);
+    const dest = join(opts.pluginsDir, 'blox-panel.rbxm');
+    copyFileSync(out, dest);
+    return dest;
+  } finally {
+    rmSync(buildDir, { recursive: true, force: true });
+  }
 }
