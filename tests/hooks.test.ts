@@ -182,4 +182,14 @@ describe('buildAssetResultHook', () => {
     expect(out.continue).toBe(true);
     expect(calls.length).toBe(0);
   });
+
+  it('continues when tool_input is unserializable (defense: a hook must never throw)', async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const hook = buildAssetResultHook(channel('reject'));
+    const input = postInput(GEN_MESH_TOOL, meshResponse) as unknown as { tool_input: unknown };
+    input.tool_input = circular;
+    const out = (await hook(input as never, 't9', { signal })) as BlockOut;
+    expect(out.continue).toBe(true);
+  });
 });

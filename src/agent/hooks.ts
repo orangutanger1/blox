@@ -87,8 +87,8 @@ export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
     if (input.tool_name === WAIT_JOB_TOOL && jobLandedNothing(input.tool_response)) return { continue: true };
 
     const tag = extractAssetTag(input.tool_response);
-    const inputSummary = JSON.stringify(input.tool_input ?? {}).slice(0, 200);
     try {
+      const inputSummary = JSON.stringify(input.tool_input ?? {}).slice(0, 200);
       const d = await gate.requestResult(input.tool_name, tag, inputSummary);
       if (d.decision === 'reject') {
         return { decision: 'block', reason: rejectMessage(input.tool_name, tag !== null, d.feedback) };
