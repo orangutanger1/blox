@@ -99,3 +99,11 @@ describe('init subcommand', () => {
     expect(() => parseArgs(['init', '--on-conflict', 'nope'])).toThrow(/on-conflict/);
   });
 });
+
+describe('panel command', () => {
+  it('parses "panel install"', () => {
+    const a = parseArgs(['panel', 'install']);
+    expect(a.command).toBe('panel');
+    expect(a.prompt).toBe('install');
+  });
+});

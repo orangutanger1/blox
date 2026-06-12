@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: 'doctor' | 'serve' | 'init' | null;
+  command: 'doctor' | 'serve' | 'init' | 'panel' | null;
   prompt: string | null;
   mock: boolean;
   projectPath: string | null;
@@ -14,7 +14,7 @@ export interface ParsedArgs {
 export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
-  let command: 'doctor' | 'serve' | 'init' | null = null;
+  let command: 'doctor' | 'serve' | 'init' | 'panel' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
   let effort: 'high' | 'xhigh' | null = null;
@@ -48,6 +48,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (a === 'init' && command === null && positional.length === 0) command = 'init';
     else if (a === 'doctor' && command === null && positional.length === 0) command = 'doctor';
     else if (a === 'serve' && command === null && positional.length === 0) command = 'serve';
+    else if (a === 'panel' && command === null && positional.length === 0) command = 'panel';
     else positional.push(a);
   }
   return {
