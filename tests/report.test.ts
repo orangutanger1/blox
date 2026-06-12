@@ -97,3 +97,33 @@ describe('formatReport — deniedByUser', () => {
     expect(out).not.toContain('re-run with --auto');
   });
 });
+
+describe('formatReport — assetDecisions', () => {
+  const baseReport: RunReport = {
+    prompt: 'p',
+    changedFiles: [],
+    commitSha: null,
+    numTurns: 1,
+    costUsd: 0,
+    status: 'success',
+  };
+
+  it('renders the assets section with feedback and timeout note', () => {
+    const out = formatReport({
+      ...baseReport,
+      assetDecisions: [
+        { tool: 'mcp__Roblox_Studio__generate_mesh', decision: 'approve', source: 'dock' },
+        { tool: 'mcp__Roblox_Studio__generate_mesh', decision: 'reject', source: 'dock', feedback: 'too tall' },
+        { tool: 'mcp__Roblox_Studio__wait_job_finished', decision: 'approve', source: 'timeout' },
+      ],
+    });
+    expect(out).toContain('assets:');
+    expect(out).toContain('  mcp__Roblox_Studio__generate_mesh — approve');
+    expect(out).toContain('  mcp__Roblox_Studio__generate_mesh — reject  feedback: too tall');
+    expect(out).toContain('  mcp__Roblox_Studio__wait_job_finished — approve (unreviewed: gate timed out)');
+  });
+
+  it('omits the assets section when empty', () => {
+    expect(formatReport({ ...baseReport, assetDecisions: [] })).not.toContain('assets:');
+  });
+});

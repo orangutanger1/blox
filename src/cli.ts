@@ -141,6 +141,8 @@ async function main(): Promise<void> {
     ? {
         isConnected: () => panel!.isConnected(),
         request: (tool: string, input: Record<string, unknown>) => panel!.gates.request(tool, input),
+        requestResult: (tool: string, tag: string | null, inputSummary: string) =>
+          panel!.gates.requestResult(tool, tag, inputSummary),
       }
     : undefined;
 
@@ -194,6 +196,7 @@ async function main(): Promise<void> {
       sessionId: agent.sessionId,
       gatedActions: agent.gatedActions,
       deniedByUser: agent.deniedByUser,
+      assetDecisions: panel ? panel.gates.resultDecisions() : undefined,
     };
     panel?.emit({
       type: 'run_finished',

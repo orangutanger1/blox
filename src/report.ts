@@ -12,6 +12,7 @@ export interface RunReport {
   sessionId?: string | null;
   gatedActions?: { tool: string; input: Record<string, unknown> }[];
   deniedByUser?: string[];
+  assetDecisions?: { tool: string; decision: 'approve' | 'reject'; source: 'dock' | 'timeout'; feedback?: string }[];
 }
 
 export function formatReport(r: RunReport): string {
@@ -31,6 +32,17 @@ export function formatReport(r: RunReport): string {
       : []),
     ...(r.deniedByUser && r.deniedByUser.length
       ? [`denied by user:`, ...r.deniedByUser.map((t) => `  ${t}`)]
+      : []),
+    ...(r.assetDecisions && r.assetDecisions.length
+      ? [
+          `assets:`,
+          ...r.assetDecisions.map(
+            (a) =>
+              `  ${a.tool} — ${a.decision}` +
+              (a.source === 'timeout' ? ' (unreviewed: gate timed out)' : '') +
+              (a.feedback ? `  feedback: ${a.feedback}` : ''),
+          ),
+        ]
       : []),
     `changed files (${r.changedFiles.length}):`,
     ...r.changedFiles.map((f) => `  ${f}`),
