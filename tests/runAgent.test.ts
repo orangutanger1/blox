@@ -77,3 +77,21 @@ describe('summarizeResult — dock-denied split', () => {
     expect(r.deniedByUser).toEqual(['mcp__Roblox_Studio__generate_mesh']);
   });
 });
+
+describe('summarizeResult — duplicate denials', () => {
+  it('consumes one dockDenied entry per matching denial (multiset)', () => {
+    const r = summarizeResult(
+      {
+        ...base,
+        permission_denials: [
+          { tool_name: 'mcp__Roblox_Studio__generate_mesh', tool_input: { prompt: 'a' } },
+          { tool_name: 'mcp__Roblox_Studio__generate_mesh', tool_input: { prompt: 'b' } },
+        ],
+      },
+      ['mcp__Roblox_Studio__generate_mesh'],
+    );
+    expect(r.deniedByUser).toEqual(['mcp__Roblox_Studio__generate_mesh']);
+    expect(r.gatedActions).toEqual([{ tool: 'mcp__Roblox_Studio__generate_mesh', input: { prompt: 'b' } }]);
+    expect(r.stopReason).toBe('gated');
+  });
+});

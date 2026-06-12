@@ -100,10 +100,16 @@ export async function runAgent(
   let turns = 0;
   for await (const message of query({ prompt, options: options as never })) {
     if (extras.sink) {
-      for (const e of eventsFromMessage(message)) extras.sink.emit(e);
-      if (message.type === 'assistant') {
-        turns += 1;
-        extras.sink.emit({ type: 'status', turns });
+      // The panel is observability, never control flow: a throwing sink must
+      // not take down the run (spec §7).
+      try {
+        for (const e of eventsFromMessage(message)) extras.sink.emit(e);
+        if (message.type === 'assistant') {
+          turns += 1;
+          extras.sink.emit({ type: 'status', turns });
+        }
+      } catch {
+        // swallow — degraded panel beats a dead run
       }
     }
     if (message.type === 'result') {
