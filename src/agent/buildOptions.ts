@@ -3,8 +3,12 @@ import type { StudioBridge, McpServerConfig } from '../bridge/types.js';
 import type { ProjectDigest } from '../context/digest.js';
 import type { HookCallbackMatcher, HookEvent, CanUseTool, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { buildSystemPrompt } from './systemPrompt.js';
-import { buildSyncHook, EXECUTE_LUAU_TOOL } from './hooks.js';
+import { buildSyncHook, buildAssetResultHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL } from './hooks.js';
+import type { ResultGateChannel } from './hooks.js';
 import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permission.js';
+
+// The dock panel's combined channel: P1 pre-call gates + P2 result gates.
+export type PanelGateChannel = GateChannel & ResultGateChannel;
 
 export interface QueryOptionsLike {
   model: string;
@@ -35,7 +39,7 @@ export function buildQueryOptions(
   config: BloxConfig,
   bridge: StudioBridge,
   digest: ProjectDigest,
-  gate?: GateChannel,
+  gate?: PanelGateChannel,
 ): QueryOptionsLike {
   const allTools = [...FILE_TOOLS, ...bridge.allowedTools()];
   const ask = config.mode === 'ask';
@@ -58,6 +62,14 @@ export function buildQueryOptions(
       PreToolUse: [
         { matcher: EXECUTE_LUAU_TOOL, hooks: [buildSyncHook(config.projectPath)] },
       ],
+      ...(ask && gate
+        ? {
+            PostToolUse: [
+              { matcher: GEN_MESH_TOOL, hooks: [buildAssetResultHook(gate)] },
+              { matcher: WAIT_JOB_TOOL, hooks: [buildAssetResultHook(gate)] },
+            ],
+          }
+        : {}),
     },
   };
 }

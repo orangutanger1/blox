@@ -4,6 +4,7 @@ import { createMockStudioBridge } from '../src/bridge/mockBridge.js';
 import type { BloxConfig } from '../src/config.js';
 import type { ProjectDigest } from '../src/context/digest.js';
 import type { GateChannel } from '../src/agent/permission.js';
+import { GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
 
 const config: BloxConfig = {
   projectPath: '/game',
@@ -94,5 +95,25 @@ describe('buildQueryOptions — gate channel', () => {
     const o = buildQueryOptions(config, createMockStudioBridge(), digest, gate);
     expect(o.canUseTool).toBeUndefined();
     expect(o.allowDangerouslySkipPermissions).toBe(true);
+  });
+});
+
+const fullGate = {
+  isConnected: () => true,
+  request: async () => ({ decision: 'allow' as const, source: 'dock' as const }),
+  requestResult: async () => ({ decision: 'approve' as const, source: 'dock' as const }),
+};
+
+describe('asset result hook wiring', () => {
+  it('registers PostToolUse hooks for both gen tools in ask mode with a gate', () => {
+    const options = buildQueryOptions(askConfig, createMockStudioBridge(), digest, fullGate);
+    const post = options.hooks.PostToolUse ?? [];
+    expect(post.map((m) => m.matcher).sort()).toEqual([GEN_MESH_TOOL, WAIT_JOB_TOOL].sort());
+    expect(post.every((m) => m.hooks.length === 1)).toBe(true);
+  });
+
+  it('registers no PostToolUse hooks in auto mode or without a gate', () => {
+    expect(buildQueryOptions(config, createMockStudioBridge(), digest, fullGate).hooks.PostToolUse).toBeUndefined();
+    expect(buildQueryOptions(askConfig, createMockStudioBridge(), digest, undefined).hooks.PostToolUse).toBeUndefined();
   });
 });
