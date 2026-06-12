@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +57,8 @@ export async function installPanel(opts: InstallOptions): Promise<string> {
   try {
     const out = join(buildDir, 'blox-panel.rbxm');
     await exec('rojo', ['build', join(projectDir, 'default.project.json'), '-o', out]);
+    // A machine that has never had a local plugin lacks the Plugins folder.
+    mkdirSync(opts.pluginsDir, { recursive: true });
     const dest = join(opts.pluginsDir, 'blox-panel.rbxm');
     copyFileSync(out, dest);
     return dest;

@@ -56,4 +56,18 @@ describe('installPanel', () => {
     expect(dest).toBe(join(pluginsDir, 'blox-panel.rbxm'));
     expect(existsSync(dest)).toBe(true);
   });
+
+  it('creates the plugins dir when it does not exist yet', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'blox-install-'));
+    const pluginsDir = join(work, 'Roblox', 'Plugins'); // fresh machine: never created
+    const exec = async (cmd: string, args: string[]) => {
+      if (cmd === 'rojo') {
+        writeFileSync(args[args.indexOf('-o') + 1], 'rbxm-bytes');
+        return '';
+      }
+      throw new Error(`unexpected ${cmd}`);
+    };
+    const dest = await installPanel({ pluginsDir, pluginProjectDir: work, exec });
+    expect(existsSync(dest)).toBe(true);
+  });
 });
