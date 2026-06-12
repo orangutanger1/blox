@@ -34,18 +34,33 @@ export function denyMessage(toolName: string): string {
   return `Action "${toolName}" requires approval and is blocked in --ask mode. Do not retry it. Briefly explain what you intended to do with it and why, then stop.`;
 }
 
-// Permission callback for --ask: allow everything except gated tools, which are
-// denied with feedback so the agent self-explains and stops. Denials surface in
-// the result's permission_denials[] for the report.
-//
-// The deny is non-interrupting by design: an interrupt would cut off the agent's
-// self-explanation. A non-compliant agent could therefore retry gated tools, but
-// the run stays bounded by --max-turns and --budget, so the worst case is capped.
-export function buildCanUseTool(): CanUseTool {
-  return async (toolName) => {
-    if (isGated(toolName)) {
-      return { behavior: 'deny', message: denyMessage(toolName) };
+export function dockDenyMessage(toolName: string): string {
+  return `Action "${toolName}" was denied by the user from the Studio panel. Do not retry it. Continue with the rest of the task without it.`;
+}
+
+// How the permission callback reaches the panel's gate broker without
+// depending on the server: connectivity check + an awaitable decision.
+export interface GateChannel {
+  isConnected(): boolean;
+  request(
+    tool: string,
+    input: Record<string, unknown>,
+  ): Promise<{ decision: 'allow' | 'deny'; source: 'dock' | 'timeout' }>;
+}
+
+// Permission callback for --ask. Without a connected dock this is exactly the
+// pre-panel behavior: deny with feedback so the agent self-explains and stops.
+// With a connected dock the call PAUSES on the gate broker; Allow lets the run
+// continue, an explicit user Deny tells the agent to skip the action and keep
+// going, and a timeout falls back to the deny+stop path (spec §5, §7).
+export function buildCanUseTool(gate?: GateChannel): CanUseTool {
+  return async (toolName, input) => {
+    if (!isGated(toolName)) return { behavior: 'allow' };
+    if (gate?.isConnected()) {
+      const d = await gate.request(toolName, (input ?? {}) as Record<string, unknown>);
+      if (d.decision === 'allow') return { behavior: 'allow' };
+      if (d.source === 'dock') return { behavior: 'deny', message: dockDenyMessage(toolName) };
     }
-    return { behavior: 'allow' };
+    return { behavior: 'deny', message: denyMessage(toolName) };
   };
 }

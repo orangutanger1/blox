@@ -4,6 +4,7 @@ import {
   isGated,
   nonGatedAllowedTools,
   denyMessage,
+  dockDenyMessage,
   buildCanUseTool,
 } from '../src/agent/permission.js';
 import { createMockStudioBridge } from '../src/bridge/mockBridge.js';
@@ -47,6 +48,59 @@ describe('buildCanUseTool', () => {
     const cb = buildCanUseTool();
     const r = await cb('mcp__Roblox_Studio__execute_luau', {}, {} as never);
     expect(r.behavior).toBe('allow');
+  });
+});
+
+describe('buildCanUseTool — interactive gate channel', () => {
+  const gateAllow = {
+    isConnected: () => true,
+    request: async () => ({ decision: 'allow' as const, source: 'dock' as const }),
+  };
+
+  it('allows a gated tool when the dock approves', async () => {
+    const cb = buildCanUseTool(gateAllow);
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    expect(r.behavior).toBe('allow');
+  });
+
+  it('denies with the dock message when the user denies', async () => {
+    const cb = buildCanUseTool({
+      isConnected: () => true,
+      request: async () => ({ decision: 'deny' as const, source: 'dock' as const }),
+    });
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    expect(r.behavior).toBe('deny');
+    if (r.behavior === 'deny') expect(r.message).toBe(dockDenyMessage('mcp__Roblox_Studio__generate_mesh'));
+  });
+
+  it('falls back to the stop message on timeout', async () => {
+    const cb = buildCanUseTool({
+      isConnected: () => true,
+      request: async () => ({ decision: 'deny' as const, source: 'timeout' as const }),
+    });
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    if (r.behavior === 'deny') expect(r.message).toBe(denyMessage('mcp__Roblox_Studio__generate_mesh'));
+  });
+
+  it('falls back to the stop message when the dock is not connected', async () => {
+    const cb = buildCanUseTool({ ...gateAllow, isConnected: () => false });
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    expect(r.behavior).toBe('deny');
+    if (r.behavior === 'deny') expect(r.message).toBe(denyMessage('mcp__Roblox_Studio__generate_mesh'));
+  });
+
+  it('never consults the channel for non-gated tools', async () => {
+    let asked = false;
+    const cb = buildCanUseTool({
+      isConnected: () => true,
+      request: async () => {
+        asked = true;
+        return { decision: 'deny' as const, source: 'dock' as const };
+      },
+    });
+    const r = await cb('mcp__Roblox_Studio__execute_luau', {}, {} as never);
+    expect(r.behavior).toBe('allow');
+    expect(asked).toBe(false);
   });
 });
 
