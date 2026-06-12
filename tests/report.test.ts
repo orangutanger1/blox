@@ -80,3 +80,20 @@ describe('formatReport — autonomy', () => {
     expect(out).toContain('--auto');
   });
 });
+
+describe('formatReport — deniedByUser', () => {
+  it('lists user-denied actions without the re-run hint', () => {
+    const out = formatReport({
+      prompt: 'p',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 1,
+      costUsd: 0.1,
+      status: 'success',
+      deniedByUser: ['mcp__Roblox_Studio__generate_mesh'],
+    });
+    expect(out).toContain('denied by user:');
+    expect(out).toContain('  mcp__Roblox_Studio__generate_mesh');
+    expect(out).not.toContain('re-run with --auto');
+  });
+});

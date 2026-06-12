@@ -11,6 +11,7 @@ export interface RunReport {
   effort?: string;
   sessionId?: string | null;
   gatedActions?: { tool: string; input: Record<string, unknown> }[];
+  deniedByUser?: string[];
 }
 
 export function formatReport(r: RunReport): string {
@@ -27,6 +28,9 @@ export function formatReport(r: RunReport): string {
           ...(r.sessionId ? [`session: ${r.sessionId}`] : []),
           `→ re-run with --auto to allow these actions`,
         ]
+      : []),
+    ...(r.deniedByUser && r.deniedByUser.length
+      ? [`denied by user:`, ...r.deniedByUser.map((t) => `  ${t}`)]
       : []),
     `changed files (${r.changedFiles.length}):`,
     ...r.changedFiles.map((f) => `  ${f}`),
