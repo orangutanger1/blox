@@ -102,6 +102,18 @@ describe('buildCanUseTool — interactive gate channel', () => {
     expect(r.behavior).toBe('allow');
     expect(asked).toBe(false);
   });
+
+  it('falls back to the stop message if the channel rejects', async () => {
+    const cb = buildCanUseTool({
+      isConnected: () => true,
+      request: async () => {
+        throw new Error('boom');
+      },
+    });
+    const r = await cb('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    expect(r.behavior).toBe('deny');
+    if (r.behavior === 'deny') expect(r.message).toBe(denyMessage('mcp__Roblox_Studio__generate_mesh'));
+  });
 });
 
 describe('drift guard', () => {

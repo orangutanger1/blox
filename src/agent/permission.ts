@@ -57,9 +57,13 @@ export function buildCanUseTool(gate?: GateChannel): CanUseTool {
   return async (toolName, input) => {
     if (!isGated(toolName)) return { behavior: 'allow' };
     if (gate?.isConnected()) {
-      const d = await gate.request(toolName, (input ?? {}) as Record<string, unknown>);
-      if (d.decision === 'allow') return { behavior: 'allow' };
-      if (d.source === 'dock') return { behavior: 'deny', message: dockDenyMessage(toolName) };
+      try {
+        const d = await gate.request(toolName, (input ?? {}) as Record<string, unknown>);
+        if (d.decision === 'allow') return { behavior: 'allow' };
+        if (d.source === 'dock') return { behavior: 'deny', message: dockDenyMessage(toolName) };
+      } catch {
+        // A broken channel must never stall the run — fall back to deny+stop.
+      }
     }
     return { behavior: 'deny', message: denyMessage(toolName) };
   };
