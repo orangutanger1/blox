@@ -89,3 +89,54 @@ describe('PanelServer', () => {
     expect((await fetch(`${base}/bogus`)).status).toBe(404);
   });
 });
+
+describe('PanelServer — result gates', () => {
+  it('resolves a result gate with approve', async () => {
+    const { s, base } = await start();
+    const decision = s.gates.requestResult('mcp__Roblox_Studio__generate_mesh', 'Assistant-MeshGen-abc', '{}');
+    const events = (await (await fetch(`${base}/events?cursor=0`)).json()).events;
+    const req = events.find((e: { type: string }) => e.type === 'result_gate_request');
+    const ok = await fetch(`${base}/gate/${req.gateId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approve' }),
+    });
+    expect(ok.status).toBe(200);
+    expect(await decision).toEqual({ decision: 'approve', source: 'dock' });
+  });
+
+  it('passes reject feedback through, truncated at 2000 chars', async () => {
+    const { s, base } = await start();
+    const decision = s.gates.requestResult('mcp__Roblox_Studio__generate_mesh', null, '{}');
+    const events = (await (await fetch(`${base}/events?cursor=0`)).json()).events;
+    const req = events.find((e: { type: string }) => e.type === 'result_gate_request');
+    await fetch(`${base}/gate/${req.gateId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'reject', feedback: 'x'.repeat(3000) }),
+    });
+    const d = await decision;
+    expect(d.decision).toBe('reject');
+    expect(d.feedback?.length).toBe(2000);
+  });
+
+  it('400s a kind-mismatched decision on a live gate', async () => {
+    const { s, base } = await start();
+    void s.gates.request('mcp__Roblox_Studio__generate_mesh', {});
+    const events = (await (await fetch(`${base}/events?cursor=0`)).json()).events;
+    const req = events.find((e: { type: string }) => e.type === 'gate_request');
+    const res = await fetch(`${base}/gate/${req.gateId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'approve' }),
+    });
+    expect(res.status).toBe(400);
+    // gate still pending — the right decision still works
+    const ok = await fetch(`${base}/gate/${req.gateId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'allow' }),
+    });
+    expect(ok.status).toBe(200);
+  });
+});

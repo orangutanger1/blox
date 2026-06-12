@@ -85,13 +85,18 @@ export class PanelServer {
       }
       const gateMatch = url.pathname.match(/^\/api\/v1\/gate\/([^/]+)$/);
       if (req.method === 'POST' && gateMatch) {
-        const body = await readJson(req);
-        const decision = (body as { decision?: unknown })?.decision;
-        if (decision !== 'allow' && decision !== 'deny') {
-          return json(res, 400, { error: 'decision must be "allow" or "deny"' });
+        const body = (await readJson(req)) as { decision?: unknown; feedback?: unknown } | null;
+        const decision = body?.decision;
+        if (decision !== 'allow' && decision !== 'deny' && decision !== 'approve' && decision !== 'reject') {
+          return json(res, 400, { error: 'decision must be "allow", "deny", "approve" or "reject"' });
         }
-        const ok = this.gates.resolve(gateMatch[1], decision);
-        return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'unknown gate id' });
+        const kind = this.gates.kindOf(gateMatch[1]);
+        if (!kind) return json(res, 404, { error: 'unknown gate id' });
+        const feedback = typeof body?.feedback === 'string' ? body.feedback.slice(0, 2000) : undefined;
+        const ok = this.gates.resolve(gateMatch[1], decision, feedback);
+        return ok
+          ? json(res, 200, { ok: true })
+          : json(res, 400, { error: `decision "${decision}" does not match the gate kind "${kind}"` });
       }
       return json(res, 404, { error: 'not found' });
     } catch {
