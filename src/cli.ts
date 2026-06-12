@@ -17,6 +17,9 @@ import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
 import { writePlan } from './onboard/write.js';
 import { formatOnboardReport } from './onboard/report.js';
+import { PanelServer } from './panel/server.js';
+import { studioPluginsDir, installPanel } from './panel/install.js';
+import { randomUUID } from 'node:crypto';
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -84,9 +87,27 @@ async function main(): Promise<void> {
     process.exit(plan.conflicts.length > 0 ? 1 : 0);
   }
 
+  if (command === 'panel') {
+    if (prompt !== 'install') {
+      console.error('usage: blox panel install');
+      process.exit(2);
+    }
+    try {
+      const dir = await studioPluginsDir();
+      const dest = await installPanel({ pluginsDir: dir });
+      console.log(`blox panel installed → ${dest}`);
+      console.log('→ in Studio: Plugins toolbar → blox → blox panel (enable HttpService requests if prompted)');
+      process.exit(0);
+    } catch (e) {
+      console.error(`panel install failed: ${(e as Error).message}`);
+      console.error('hint: set BLOX_STUDIO_PLUGINS_DIR to your Studio plugins folder and re-run');
+      process.exit(1);
+    }
+  }
+
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install',
     );
     process.exit(2);
   }
@@ -95,7 +116,35 @@ async function main(): Promise<void> {
   const config = loadConfig(cwd, overridesFromArgs(args));
   const digest = buildDigest(config.projectPath);
   const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
-  const options = buildQueryOptions(config, bridge, digest);
+
+  // Panel server: a window into the run for the Studio dock plugin. Never
+  // blocks or fails the run — startup errors degrade to a headless run with
+  // today's gating behavior. Mock runs skip it (fixed port vs parallel tests).
+  const runId = randomUUID();
+  let panel: PanelServer | null = null;
+  if (!mock) {
+    try {
+      const p = new PanelServer({
+        runId,
+        project: digest.name,
+        port: config.panel.port,
+        gateTimeoutMs: config.panel.gateTimeoutSeconds * 1000,
+      });
+      await p.start();
+      panel = p;
+    } catch (e) {
+      console.error(`warning: panel server failed to start: ${(e as Error)?.message ?? String(e)}`);
+    }
+  }
+
+  const gate = panel
+    ? {
+        isConnected: () => panel!.isConnected(),
+        request: (tool: string, input: Record<string, unknown>) => panel!.gates.request(tool, input),
+      }
+    : undefined;
+
+  const options = buildQueryOptions(config, bridge, digest, gate);
 
   // Mock runs never touch real Studio/serve. Real runs ensure the rojo serve
   // sync channel is up (reuse-first); a serve failure is non-fatal — the run
@@ -114,7 +163,18 @@ async function main(): Promise<void> {
   }
 
   try {
-    const agent = await runAgent(prompt, options);
+    panel?.emit({
+      type: 'run_started',
+      runId,
+      prompt,
+      mode: config.mode,
+      maxTurns: config.maxTurns,
+      maxBudgetUsd: config.maxBudgetUsd,
+    });
+    const agent = await runAgent(prompt, options, {
+      sink: panel ?? undefined,
+      dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
+    });
     const sync = await syncProject(config.projectPath);
     const commit = sync.ok
       ? await commitChanges(config.projectPath, `blox: ${prompt}`.slice(0, 72))
@@ -133,11 +193,20 @@ async function main(): Promise<void> {
       effort: config.effort,
       sessionId: agent.sessionId,
       gatedActions: agent.gatedActions,
+      deniedByUser: agent.deniedByUser,
     };
+    panel?.emit({
+      type: 'run_finished',
+      status: report.status,
+      stopReason: agent.stopReason,
+      turns: agent.numTurns,
+      costUsd: agent.costUsd,
+    });
     console.log(formatReport(report));
     process.exitCode = report.status === 'success' ? 0 : 1;
   } finally {
     if (session) await stopServe(session);
+    if (panel) await panel.stop();
   }
 }
 
