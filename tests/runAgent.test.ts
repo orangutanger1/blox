@@ -45,3 +45,35 @@ describe('summarizeResult', () => {
     expect(summarizeResult({ ...base, subtype: 'error_max_turns' }).stopReason).toBe('maxTurns');
   });
 });
+
+describe('summarizeResult — dock-denied split', () => {
+  it('moves dock-denied tools out of gatedActions into deniedByUser', () => {
+    const r = summarizeResult(
+      {
+        ...base,
+        permission_denials: [
+          { tool_name: 'mcp__Roblox_Studio__generate_mesh', tool_input: { prompt: 'rock' } },
+          { tool_name: 'mcp__Roblox_Studio__start_stop_play', tool_input: {} },
+        ],
+      },
+      ['mcp__Roblox_Studio__start_stop_play'],
+    );
+    expect(r.gatedActions).toEqual([{ tool: 'mcp__Roblox_Studio__generate_mesh', input: { prompt: 'rock' } }]);
+    expect(r.deniedByUser).toEqual(['mcp__Roblox_Studio__start_stop_play']);
+    expect(r.stopReason).toBe('gated'); // one denial remains unresolved
+  });
+
+  it('does not force gated/error when every denial was a dock decision', () => {
+    const r = summarizeResult(
+      {
+        ...base,
+        permission_denials: [{ tool_name: 'mcp__Roblox_Studio__generate_mesh', tool_input: {} }],
+      },
+      ['mcp__Roblox_Studio__generate_mesh'],
+    );
+    expect(r.status).toBe('success');
+    expect(r.stopReason).toBe('completed');
+    expect(r.gatedActions).toEqual([]);
+    expect(r.deniedByUser).toEqual(['mcp__Roblox_Studio__generate_mesh']);
+  });
+});

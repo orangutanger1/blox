@@ -1,5 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryOptionsLike } from './buildOptions.js';
+import type { EventSink } from '../panel/events.js';
+import { eventsFromMessage } from '../panel/translate.js';
 
 export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error';
 
@@ -30,6 +32,7 @@ export interface AgentRunResult {
   detail: string;
   sessionId: string | null;
   gatedActions: GatedAction[];
+  deniedByUser: string[];
 }
 
 interface ResultMessageLike {
@@ -40,14 +43,26 @@ interface ResultMessageLike {
   permission_denials?: { tool_name: string; tool_input: Record<string, unknown> }[];
 }
 
-// Build the run result from an SDK 'result' message. Gated denials (collected in
-// permission_denials[] by the canUseTool deny path) override the stop reason and
-// force a non-zero status: the task did not complete without approval.
-export function summarizeResult(message: ResultMessageLike): AgentRunResult {
-  const gatedActions = (message.permission_denials ?? []).map((d) => ({
-    tool: d.tool_name,
-    input: d.tool_input,
-  }));
+// Build the run result from an SDK 'result' message. Denials split two ways:
+// dock-denied tools were resolved BY the user (listed informationally, run not
+// failed for them); the rest are unresolved gates which override the stop
+// reason and force a non-zero status, exactly as before the panel existed.
+export function summarizeResult(
+  message: ResultMessageLike,
+  dockDeniedTools: string[] = [],
+): AgentRunResult {
+  const remainingDenied = [...dockDeniedTools];
+  const gatedActions: GatedAction[] = [];
+  const deniedByUser: string[] = [];
+  for (const d of message.permission_denials ?? []) {
+    const i = remainingDenied.indexOf(d.tool_name);
+    if (i >= 0) {
+      remainingDenied.splice(i, 1);
+      deniedByUser.push(d.tool_name);
+    } else {
+      gatedActions.push({ tool: d.tool_name, input: d.tool_input });
+    }
+  }
   const gated = gatedActions.length > 0;
   const baseStatus: 'success' | 'error' = message.subtype === 'success' ? 'success' : 'error';
   return {
@@ -58,12 +73,19 @@ export function summarizeResult(message: ResultMessageLike): AgentRunResult {
     detail: gated ? 'gated' : message.subtype,
     sessionId: message.session_id,
     gatedActions,
+    deniedByUser,
   };
+}
+
+export interface RunAgentExtras {
+  sink?: EventSink;
+  dockDeniedTools?: () => string[];
 }
 
 export async function runAgent(
   prompt: string,
   options: QueryOptionsLike,
+  extras: RunAgentExtras = {},
 ): Promise<AgentRunResult> {
   let result: AgentRunResult = {
     numTurns: 0,
@@ -73,10 +95,22 @@ export async function runAgent(
     detail: 'no result',
     sessionId: null,
     gatedActions: [],
+    deniedByUser: [],
   };
+  let turns = 0;
   for await (const message of query({ prompt, options: options as never })) {
+    if (extras.sink) {
+      for (const e of eventsFromMessage(message)) extras.sink.emit(e);
+      if (message.type === 'assistant') {
+        turns += 1;
+        extras.sink.emit({ type: 'status', turns });
+      }
+    }
     if (message.type === 'result') {
-      result = summarizeResult(message as unknown as ResultMessageLike);
+      result = summarizeResult(
+        message as unknown as ResultMessageLike,
+        extras.dockDeniedTools?.() ?? [],
+      );
     }
   }
   return result;
