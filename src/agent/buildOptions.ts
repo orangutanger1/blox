@@ -4,7 +4,7 @@ import type { ProjectDigest } from '../context/digest.js';
 import type { HookCallbackMatcher, HookEvent, CanUseTool, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { buildSystemPrompt } from './systemPrompt.js';
 import { buildSyncHook, EXECUTE_LUAU_TOOL } from './hooks.js';
-import { buildCanUseTool, nonGatedAllowedTools } from './permission.js';
+import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permission.js';
 
 export interface QueryOptionsLike {
   model: string;
@@ -35,6 +35,7 @@ export function buildQueryOptions(
   config: BloxConfig,
   bridge: StudioBridge,
   digest: ProjectDigest,
+  gate?: GateChannel,
 ): QueryOptionsLike {
   const allTools = [...FILE_TOOLS, ...bridge.allowedTools()];
   const ask = config.mode === 'ask';
@@ -46,7 +47,7 @@ export function buildQueryOptions(
     maxBudgetUsd: config.maxBudgetUsd,
     permissionMode: ask ? 'default' : 'bypassPermissions',
     ...(ask
-      ? { canUseTool: buildCanUseTool() }
+      ? { canUseTool: buildCanUseTool(gate) }
       : { allowDangerouslySkipPermissions: true as const }),
     ...(config.effort ? { effort: config.effort } : {}),
     settingSources: [],

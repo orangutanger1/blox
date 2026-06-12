@@ -3,6 +3,7 @@ import { buildQueryOptions } from '../src/agent/buildOptions.js';
 import { createMockStudioBridge } from '../src/bridge/mockBridge.js';
 import type { BloxConfig } from '../src/config.js';
 import type { ProjectDigest } from '../src/context/digest.js';
+import type { GateChannel } from '../src/agent/permission.js';
 
 const config: BloxConfig = {
   projectPath: '/game',
@@ -66,5 +67,32 @@ describe('buildQueryOptions — ask mode', () => {
   it('passes effort when set and omits it when unset', () => {
     expect(buildQueryOptions(askConfig, createMockStudioBridge(), digest).effort).toBe('xhigh');
     expect(buildQueryOptions(config, createMockStudioBridge(), digest).effort).toBeUndefined();
+  });
+});
+
+describe('buildQueryOptions — gate channel', () => {
+  it('threads the gate channel into canUseTool in ask mode', async () => {
+    let asked = false;
+    const gate: GateChannel = {
+      isConnected: () => true,
+      request: async () => {
+        asked = true;
+        return { decision: 'allow', source: 'dock' };
+      },
+    };
+    const o = buildQueryOptions(askConfig, createMockStudioBridge(), digest, gate);
+    const r = await o.canUseTool!('mcp__Roblox_Studio__generate_mesh', {}, {} as never);
+    expect(r.behavior).toBe('allow');
+    expect(asked).toBe(true);
+  });
+
+  it('ignores the gate channel in auto mode', () => {
+    const gate: GateChannel = {
+      isConnected: () => true,
+      request: async () => ({ decision: 'deny', source: 'dock' }),
+    };
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest, gate);
+    expect(o.canUseTool).toBeUndefined();
+    expect(o.allowDangerouslySkipPermissions).toBe(true);
   });
 });
