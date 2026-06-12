@@ -1,7 +1,7 @@
 # blox Pivot P1 — Studio Dock Panel
 
 **Date:** 2026-06-11
-**Status:** Design approved → ready for implementation planning
+**Status:** Implemented (P1) — live Studio smoke passed 2026-06-12 (Allow / Deny / kill-CLI disconnect)
 
 ## 1. Context: the pivot
 
