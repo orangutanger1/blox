@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createStudioMcpBridge, studioLauncher } from '../src/bridge/mcpBridge.js';
 import {
   createMockStudioBridge, sequenceResponder, playResult, captureResult,
-  creatorSearchResult, jobFinishedResult,
+  creatorSearchResult, jobFinishedResult, MOCK_MESH_TAG,
 } from '../src/bridge/mockBridge.js';
 
 describe('real studio bridge', () => {
@@ -104,9 +104,16 @@ describe('mock studio bridge', () => {
     expect(Array.isArray(parsed.objectTypes)).toBe(true);
   });
 
-  it('jobFinishedResult references the generation id and reports finished', () => {
-    expect(jobFinishedResult('g-123')).toContain('g-123');
-    expect(jobFinishedResult('g-123')).toMatch(/finished/i);
+  it('jobFinishedResult returns the live-probed done shape (JSON with generationId + Completed)', () => {
+    const parsed = JSON.parse(jobFinishedResult('g-123'));
+    expect(parsed.generationId).toBe('g-123');
+    expect(parsed.status).toBe('Completed');
+    expect(parsed.resultName).toBe('MockRock');
+    expect(parsed.modelFullName).toBe('Workspace.MockRock');
+  });
+
+  it('MOCK_MESH_TAG is exported and matches the Assistant-MeshGen- pattern', () => {
+    expect(MOCK_MESH_TAG).toMatch(/^Assistant-MeshGen-/);
   });
 
   it('captureResult returns an image content block', () => {

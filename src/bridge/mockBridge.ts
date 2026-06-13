@@ -41,9 +41,20 @@ export function creatorSearchResult(query: string): string {
   return JSON.stringify({ searchId: `mock-search-${query}`, objectTypes: ['mock-asset'] });
 }
 
+// Deterministic generate_mesh tag — exported so tests can assert against it.
+export const MOCK_MESH_TAG = 'Assistant-MeshGen-00000000-0000-4000-8000-000000000000';
+
 // Deterministic wait_job_finished result for the mock bridge.
+// Shape matches the live-probed done response: a JSON text block with
+// modelFullName, resultName, status, prompt, and generationId fields.
 export function jobFinishedResult(generationId: string): string {
-  return `[mock] Generation ${generationId} finished.`;
+  return JSON.stringify({
+    modelFullName: 'Workspace.MockRock',
+    resultName: 'MockRock',
+    status: 'Completed',
+    prompt: 'a mock rock',
+    generationId,
+  });
 }
 
 // In-process fake Studio bridge for tests/dev without a live Studio.
@@ -120,7 +131,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
           size: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional(),
           maxTriangles: z.number().optional(),
         },
-        async ({ textPrompt }) => ({ content: [{ type: 'text' as const, text: `[mock] mesh for: ${textPrompt}` }] })),
+        async () => ({ content: [{ type: 'text' as const, text: JSON.stringify({ tag: MOCK_MESH_TAG }) }] })),
       tool('generate_material', 'Return a (fake) generated material id',
         {
           materialPattern: z.enum(['Regular', 'Organic']),
