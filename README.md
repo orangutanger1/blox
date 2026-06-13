@@ -78,6 +78,15 @@ action. Without the panel, `--ask` behaves as before (blocked actions stop the
 run). Gates time out after `panel.gateTimeoutSeconds` (default 120) back to the
 stop behavior.
 
+Asset generations (`generate_mesh`, procedural models) additionally pause
+after the result lands: the dock shows a 3D preview of the generated asset
+(click it to frame the asset in the main viewport) with **Approve** and
+**Reject** buttons and an optional feedback box. Approve resumes the run.
+Reject moves the asset to `ReplicatedStorage._bloxRejected` (undo-able,
+nothing is destroyed) and tells the agent why, using your feedback. If the
+gate times out (default 120s) the asset is kept and the run continues — the
+report marks it unreviewed.
+
 If the panel can't reach the CLI on WSL, check Windows↔WSL localhost forwarding
 and set `BLOX_STUDIO_PLUGINS_DIR` if `panel install` can't find your plugins
 folder.
