@@ -228,6 +228,7 @@ end)
 task.spawn(function()
 	local cursor = 0
 	local announced = false
+	local runId: string? = nil
 	while true do
 		if not widget.Enabled then
 			task.wait(1)
@@ -237,6 +238,13 @@ task.spawn(function()
 			local info = request("GET", "/info")
 			if info then
 				announced = true
+				-- A new runId means a fresh CLI process with a fresh event buffer
+				-- (cursors restart at 0). Reset ours so a stale high cursor from a
+				-- previous run can't skip the new run's events (e.g. its result gate).
+				if info.runId ~= runId then
+					runId = info.runId
+					cursor = 0
+				end
 				if info.protocol ~= PROTOCOL then
 					addLog("⚠ blox CLI speaks protocol " .. tostring(info.protocol) .. " — update this plugin")
 				end
