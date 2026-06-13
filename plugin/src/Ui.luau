@@ -77,8 +77,56 @@ function Ui.build(widget: DockWidgetPluginGui)
 		ll.Parent = s
 		return s
 	end
-	local diffs = scroller("Diffs", 3, 0.25)
-	local log = scroller("Log", 4, 0.6)
+	-- Result card: hidden until a result_gate_request arrives (P2 spec §5).
+	local result = Instance.new("Frame")
+	result.Name = "ResultGate"
+	result.LayoutOrder = 3
+	result.Size = UDim2.new(1, -8, 0, 210)
+	result.BackgroundColor3 = Color3.fromRGB(30, 50, 60)
+	result.Visible = false
+	result.Parent = root
+
+	local resultText = label(result, "ResultText", 1)
+	resultText.Position = UDim2.fromOffset(4, 4)
+	resultText.Size = UDim2.new(1, -8, 0, 36)
+	resultText.TextWrapped = true
+	resultText.TextTruncate = Enum.TextTruncate.None
+
+	local viewport = Instance.new("ViewportFrame")
+	viewport.Name = "Preview"
+	viewport.Position = UDim2.fromOffset(4, 44)
+	viewport.Size = UDim2.new(1, -8, 0, 100)
+	viewport.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	viewport.Parent = result
+
+	local feedbackBox = Instance.new("TextBox")
+	feedbackBox.Name = "Feedback"
+	feedbackBox.PlaceholderText = "optional feedback for the agent (sent on Reject)"
+	feedbackBox.Text = ""
+	feedbackBox.Position = UDim2.new(0, 4, 1, -62)
+	feedbackBox.Size = UDim2.new(1, -8, 0, 24)
+	feedbackBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	feedbackBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+	feedbackBox.TextXAlignment = Enum.TextXAlignment.Left
+	feedbackBox.ClearTextOnFocus = false
+	feedbackBox.Parent = result
+
+	local function resultButton(name: string, x: number, color: Color3): TextButton
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.Text = name
+		b.Position = UDim2.new(0, x, 1, -30)
+		b.Size = UDim2.fromOffset(80, 24)
+		b.BackgroundColor3 = color
+		b.TextColor3 = Color3.fromRGB(255, 255, 255)
+		b.Parent = result
+		return b
+	end
+	local approve = resultButton("Approve", 4, Color3.fromRGB(40, 120, 40))
+	local reject = resultButton("Reject", 92, Color3.fromRGB(140, 40, 40))
+
+	local diffs = scroller("Diffs", 4, 0.25)
+	local log = scroller("Log", 5, 0.6)
 
 	-- Log/diff lines are read-only TextBoxes (not TextLabels) so text can be
 	-- selected and copied with Ctrl+C.
@@ -105,6 +153,12 @@ function Ui.build(widget: DockWidgetPluginGui)
 		gateText = gateText,
 		allowButton = allow,
 		denyButton = deny,
+		resultGate = result,
+		resultText = resultText,
+		preview = viewport,
+		feedbackBox = feedbackBox,
+		approveButton = approve,
+		rejectButton = reject,
 		diffs = diffs,
 		log = log,
 		addLine = line,
