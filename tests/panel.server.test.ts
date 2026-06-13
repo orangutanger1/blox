@@ -84,6 +84,28 @@ describe('PanelServer', () => {
     expect(s.isConnected()).toBe(true);
   });
 
+  it('stays connected across a full long-poll hold (window must exceed holdMs)', async () => {
+    // While idle the dock holds a single poll for up to holdMs before re-polling,
+    // so lastPollAt legitimately ages by holdMs between polls. If the recency
+    // window is shorter than holdMs, an actively-connected dock reads as
+    // disconnected mid-hold and the PostToolUse result gate silently skips.
+    const clock = { t: 1_000_000 };
+    const holdMs = 25_000;
+    server = new PanelServer({ runId: 'run-1', project: 'game', port: 0, holdMs, now: () => clock.t });
+    const port = await server.start();
+    const base = `http://127.0.0.1:${port}/api/v1`;
+    // A poll arrives (returns at once — buffer already has an event), stamping lastPollAt = now.
+    server.emit({ type: 'log', text: 'x' });
+    await fetch(`${base}/events?cursor=0`);
+    expect(server.isConnected()).toBe(true);
+    // The dock is still holding its next poll: lastPollAt has aged a full holdMs.
+    clock.t += holdMs;
+    expect(server.isConnected()).toBe(true);
+    // But a dock that has truly gone (no re-poll well past the window) reads disconnected.
+    clock.t += holdMs + 60_000;
+    expect(server.isConnected()).toBe(false);
+  });
+
   it('404s unknown paths', async () => {
     const { base } = await start();
     expect((await fetch(`${base}/bogus`)).status).toBe(404);

@@ -24,13 +24,19 @@ export class PanelServer {
   private opts: Required<Omit<PanelServerOptions, 'port'>> & { port: number };
 
   constructor(options: PanelServerOptions) {
+    const holdMs = options.holdMs ?? 25_000;
     this.opts = {
       runId: options.runId,
       project: options.project,
       port: options.port ?? 35768,
-      holdMs: options.holdMs ?? 25_000,
+      holdMs,
       gateTimeoutMs: options.gateTimeoutMs ?? 120_000,
-      connectedWindowMs: options.connectedWindowMs ?? 10_000,
+      // The recency window MUST exceed holdMs. While idle the dock sits in a
+      // single long-poll for up to holdMs, so lastPollAt ages by holdMs between
+      // re-polls; a window < holdMs intermittently misreports a connected dock
+      // as disconnected, silently skipping the PostToolUse result gate. The
+      // +10s margin absorbs re-poll/network/dock-render latency.
+      connectedWindowMs: options.connectedWindowMs ?? holdMs + 10_000,
       now: options.now ?? Date.now,
     };
     this.gates = new GateBroker({ emit: (e) => this.emit(e) }, this.opts.gateTimeoutMs);
