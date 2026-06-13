@@ -1,9 +1,13 @@
 -- blox dock panel: a thin window into a local blox CLI run (spec §3.2).
 -- Poll + render only; all real logic lives CLI-side.
 local HttpService = game:GetService("HttpService")
+local Selection = game:GetService("Selection")
+local TweenService = game:GetService("TweenService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Ui = require(script.Ui)
 
-local PROTOCOL = 1
+local PROTOCOL = 2
 local PORT = 35768 -- keep in sync with blox.config.json panel.port
 local BASE = "http://127.0.0.1:" .. PORT .. "/api/v1"
 local MAX_LINES = 200
@@ -42,6 +46,73 @@ end
 local logOrder = 0
 local diffOrder = 0
 local activeGateId: string? = nil
+local activeResultGateId: string? = nil
+local activeResultInstance: Instance? = nil
+
+-- Find the generated instance by its name tag anywhere under Workspace.
+local function findByTag(tag: string?): Instance?
+	if not tag then
+		return nil
+	end
+	return workspace:FindFirstChild(tag, true)
+end
+
+-- Clone into a WorldModel inside the ViewportFrame, camera fitted from the
+-- clone's bounding box. Cleared and rebuilt per gate.
+local function showPreview(viewport: ViewportFrame, instance: Instance?)
+	viewport:ClearAllChildren()
+	if not instance then
+		return
+	end
+	local world = Instance.new("WorldModel")
+	world.Parent = viewport
+	local holder = Instance.new("Model")
+	local clone = instance:Clone()
+	clone.Parent = holder
+	holder.Parent = world
+	local cf, size = holder:GetBoundingBox()
+	local camera = Instance.new("Camera")
+	local dist = math.max(size.Magnitude, 1) * 1.5
+	camera.CFrame = CFrame.lookAt(cf.Position + Vector3.new(dist, dist * 0.6, dist), cf.Position)
+	camera.Parent = viewport
+	viewport.CurrentCamera = camera
+end
+
+-- Select the real instance and tween the main camera to frame it.
+local function frameInViewport(instance: Instance?)
+	if not instance then
+		return
+	end
+	Selection:Set({ instance })
+	local cf: CFrame, size: Vector3
+	if instance:IsA("Model") then
+		cf, size = instance:GetBoundingBox()
+	elseif instance:IsA("BasePart") then
+		cf, size = instance.CFrame, instance.Size
+	else
+		return
+	end
+	local dist = math.max(size.Magnitude, 1) * 2
+	local target = CFrame.lookAt(cf.Position + Vector3.new(dist, dist * 0.6, dist), cf.Position)
+	local camera = workspace.CurrentCamera
+	TweenService:Create(camera, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = target }):Play()
+end
+
+-- Reject disposition (P2 spec §2): stash, don't destroy. Runs BEFORE the
+-- decision POST so the agent's "already set aside" message is true.
+local function stashRejected(instance: Instance?)
+	if not instance then
+		return
+	end
+	local folder = ReplicatedStorage:FindFirstChild("_bloxRejected")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "_bloxRejected"
+		folder.Parent = ReplicatedStorage
+	end
+	instance.Parent = folder
+	ChangeHistoryService:SetWaypoint("blox: stash rejected asset")
+end
 
 local function addLog(text: string)
 	logOrder += 1
@@ -76,6 +147,25 @@ local function handleEvent(e: { [string]: any })
 			activeGateId = nil
 		end
 		addLog(("gate %s — %s (%s)"):format(e.gateId:sub(1, 8), e.decision, e.source))
+	elseif e.type == "result_gate_request" then
+		activeResultGateId = e.gateId
+		activeResultInstance = findByTag(e.tag)
+		local title = ("Keep this %s result?\n%s"):format(e.tool, e.inputSummary)
+		if not activeResultInstance then
+			title = title .. "\n(preview unavailable)"
+		end
+		ui.resultText.Text = title
+		ui.feedbackBox.Text = ""
+		showPreview(ui.preview, activeResultInstance)
+		ui.resultGate.Visible = true
+		frameInViewport(activeResultInstance)
+	elseif e.type == "result_gate_resolved" then
+		if e.gateId == activeResultGateId then
+			ui.resultGate.Visible = false
+			activeResultGateId = nil
+			activeResultInstance = nil
+		end
+		addLog(("asset %s — %s (%s)"):format(e.gateId:sub(1, 8), e.decision, e.source))
 	elseif e.type == "run_finished" then
 		ui.status.Text = ("%s — %d turns, $%.4f"):format(e.status, e.turns, e.costUsd)
 		ui.status.TextColor3 = if e.status == "success"
@@ -95,6 +185,34 @@ ui.allowButton.MouseButton1Click:Connect(function()
 end)
 ui.denyButton.MouseButton1Click:Connect(function()
 	decide("deny")
+end)
+
+local function decideResult(decision: string)
+	if not activeResultGateId then
+		return
+	end
+	local body: { [string]: any } = { decision = decision }
+	if decision == "reject" then
+		stashRejected(activeResultInstance)
+		if ui.feedbackBox.Text ~= "" then
+			body.feedback = ui.feedbackBox.Text
+		end
+	end
+	request("POST", "/gate/" .. activeResultGateId, body)
+	ui.resultGate.Visible = false
+	activeResultGateId = nil
+	activeResultInstance = nil
+end
+ui.approveButton.MouseButton1Click:Connect(function()
+	decideResult("approve")
+end)
+ui.rejectButton.MouseButton1Click:Connect(function()
+	decideResult("reject")
+end)
+ui.preview.InputBegan:Connect(function(io)
+	if io.UserInputType == Enum.UserInputType.MouseButton1 then
+		frameInViewport(activeResultInstance)
+	end
 end)
 
 -- Poll loop. The server long-polls (~25s) so a healthy loop is mostly idle.
