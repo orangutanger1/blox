@@ -1,7 +1,7 @@
 # blox Pivot P2 — Asset Result Gate
 
 **Date:** 2026-06-12
-**Status:** Design approved → ready for implementation planning
+**Status:** Implemented (P2) — live smoke 2026-06-13: approve (dock) + timeout paths verified end-to-end. Two post-implementation fixes surfaced by the live smoke: panel `connectedWindowMs` must outlast the long-poll `holdMs` (else the result gate's `isConnected()` check bailed after generation), and the dock must reset its event cursor on a new `runId` (else a second run with the dock open skipped its events).
 
 ## 1. Context
 
