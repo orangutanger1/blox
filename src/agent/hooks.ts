@@ -36,13 +36,16 @@ function textBlockJson(response: unknown): Record<string, unknown>[] {
   return out;
 }
 
-// Both result shapes live-probed (Task 1, 2026-06-12):
-//   generate_mesh      → {"tag":"Assistant-MeshGen-<uuid>"} — instance name.
+// Both result shapes live-probed (Tasks 1 + 13, 2026-06-12):
+//   generate_mesh      → {"tag":"Assistant-MeshGen-<uuid>"} — a CollectionService
+//     tag on the inserted Model (the instance itself is named from the prompt).
 //   wait_job_finished  → {"modelFullName":"Workspace.SmallGrayRock",
 //                         "resultName":"SmallGrayRock","status":"Completed",...}
-//     — the procedural instance is named from the PROMPT, not Assistant-tagged.
-// Parse JSON first; the Assistant-* regex is a defensive fallback for shapes
-// a future Studio build might introduce.
+//     — resultName IS the instance name (from the prompt), not Assistant-tagged.
+// Either way the extracted string is the identifier the dock plugin resolves
+// (CollectionService:GetTagged first, name search fallback). Parse JSON first;
+// the Assistant-* regex is a defensive fallback for shapes a future Studio
+// build might introduce.
 export function extractAssetTag(response: unknown): string | null {
   for (const j of textBlockJson(response)) {
     if (typeof j.tag === 'string') return j.tag;

@@ -5,6 +5,7 @@ local Selection = game:GetService("Selection")
 local TweenService = game:GetService("TweenService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 local Ui = require(script.Ui)
 
 local PROTOCOL = 2
@@ -49,10 +50,18 @@ local activeGateId: string? = nil
 local activeResultGateId: string? = nil
 local activeResultInstance: Instance? = nil
 
--- Find the generated instance by its name tag anywhere under Workspace.
+-- Find the generated instance. generate_mesh's "tag" is a CollectionService
+-- tag on the inserted Model (live-probed: the instance itself is NAMED from
+-- the prompt); wait_job_finished's resultName IS an instance name. Try the
+-- tag registry first, then fall back to a name search under Workspace.
 local function findByTag(tag: string?): Instance?
 	if not tag then
 		return nil
+	end
+	for _, inst in CollectionService:GetTagged(tag) do
+		if inst:IsDescendantOf(workspace) then
+			return inst
+		end
 	end
 	return workspace:FindFirstChild(tag, true)
 end

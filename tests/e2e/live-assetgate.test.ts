@@ -56,11 +56,14 @@ describe.skipIf(!enabled)('asset gate (live)', () => {
       expect(typeof tag).toBe('string');
       expect((tag as string).length).toBeGreaterThan(0);
 
-      // The asset must have landed in the workspace under the extracted tag.
+      // The asset must have landed: generate_mesh's "tag" is a CollectionService
+      // tag on the inserted Model (the instance is named from the prompt), so
+      // check the tag registry first with a name-search fallback — exactly the
+      // lookup the dock plugin's findByTag performs.
       const landedRes = await client.callTool({
         name: luau,
         arguments: {
-          code: `return workspace:FindFirstChild("${tag}", true) ~= nil`,
+          code: `return #game:GetService("CollectionService"):GetTagged("${tag}") > 0 or workspace:FindFirstChild("${tag}", true) ~= nil`,
           datamodel_type: 'Edit',
         },
       });

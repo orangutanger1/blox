@@ -38,6 +38,7 @@ Expected: PASS; the test console.logs the `wait_job_finished` result JSON.
 - Procedural models do NOT follow the `Assistant-<Kind>-<uuid>` tag convention — the instance is named from the prompt (`resultName`, parented per `modelFullName`). A tag-regex-only parser would always miss chain 2.
 - Extraction parses JSON text blocks first: `tag` key → mesh; `status === "Completed"` + `resultName` → procedural. The `Assistant-*` regex stays as a defensive fallback only.
 - A `wait_job_finished` response with `status !== "Completed"` landed nothing — the hook skips the gate entirely (the agent sees the failure in the tool result; a retry re-enters the P1 pre-gate).
+- **Task 13 live-run finding:** `generate_mesh`'s `tag` is a **CollectionService tag** on the inserted Model — the instance itself is NAMED from the prompt (e.g. "a small test cube"), so a name-only lookup never finds it. Plugin `findByTag` and the live test resolve via `CollectionService:GetTagged(tag)` first, name search fallback (which is what resolves procedural `resultName`).
 
 Commit the plan edit:
 
