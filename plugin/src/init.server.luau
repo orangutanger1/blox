@@ -6,9 +6,10 @@ local TweenService = game:GetService("TweenService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
+local StudioService = game:GetService("StudioService")
 local Ui = require(script.Ui)
 
-local PROTOCOL = 2
+local PROTOCOL = 3
 local PORT = 35768 -- keep in sync with blox.config.json panel.port
 local BASE = "http://127.0.0.1:" .. PORT .. "/api/v1"
 local MAX_LINES = 200
@@ -42,6 +43,30 @@ local function request(method: string, path: string, body: { [string]: any }?): 
 	local decoded
 	ok, decoded = pcall(HttpService.JSONDecode, HttpService, res.Body)
 	return if ok then decoded else nil
+end
+
+-- Image upload sends raw bytes with the media type in the Content-Type header;
+-- the CLI base64-encodes server-side (Luau has no base64 builtin).
+local function postBytes(path: string, contentType: string, body: string): boolean
+	local ok, res = pcall(function()
+		return HttpService:RequestAsync({
+			Url = BASE .. path,
+			Method = "POST",
+			Headers = { ["Content-Type"] = contentType },
+			Body = body,
+		})
+	end)
+	return ok and res ~= nil and res.Success == true
+end
+
+local function mediaForName(name: string): string?
+	local lower = string.lower(name)
+	if string.match(lower, "%.png$") then
+		return "image/png"
+	elseif string.match(lower, "%.jpe?g$") then
+		return "image/jpeg"
+	end
+	return nil
 end
 
 local logOrder = 0
@@ -175,6 +200,9 @@ local function handleEvent(e: { [string]: any })
 			activeResultInstance = nil
 		end
 		addLog(("asset %s — %s (%s)"):format(e.gateId:sub(1, 8), e.decision, e.source))
+	elseif e.type == "image_request" then
+		ui.imageStatus.Text = "blox wants a reference image"
+		ui.imageGate.Visible = true
 	elseif e.type == "run_finished" then
 		ui.status.Text = ("%s — %d turns, $%.4f"):format(e.status, e.turns, e.costUsd)
 		ui.status.TextColor3 = if e.status == "success"
@@ -221,6 +249,26 @@ end)
 ui.preview.InputBegan:Connect(function(io)
 	if io.UserInputType == Enum.UserInputType.MouseButton1 then
 		frameInViewport(activeResultInstance)
+	end
+end)
+
+ui.imageButton.MouseButton1Click:Connect(function()
+	local file = StudioService:PromptImportFile({ "png", "jpg", "jpeg" })
+	if not file then
+		return
+	end
+	local media = mediaForName(file.Name)
+	if not media then
+		ui.imageStatus.Text = "unsupported file type"
+		return
+	end
+	ui.imageStatus.Text = "sending " .. file.Name .. "…"
+	local bytes = file:GetBinaryContents()
+	if postBytes("/image", media, bytes) then
+		ui.imageStatus.Text = "sent: " .. file.Name
+		ui.imageGate.Visible = false
+	else
+		ui.imageStatus.Text = "send failed — is blox running?"
 	end
 end)
 
