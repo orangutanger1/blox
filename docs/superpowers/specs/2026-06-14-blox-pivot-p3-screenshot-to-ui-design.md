@@ -1,7 +1,7 @@
 # blox Pivot P3 — Screenshot→UI Multimodality
 
 **Date:** 2026-06-14
-**Status:** Spec
+**Status:** Implemented (P3) — merged to main `27d5ebc`; 249 unit tests + clean build. Manual live smoke (real `--image` build, dock upload, `--verify`) pending Studio access; gated harness at `tests/e2e/live-shot.test.ts` (`BLOX_LIVE_SHOT=1`). Spec refinement during build: dock upload sends raw bytes + `Content-Type` header (server base64-encodes) instead of a JSON `{mediaType,base64}` body — avoids implementing base64 in Luau.
 
 ## 1. Context
 
