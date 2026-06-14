@@ -96,3 +96,25 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(d)).toContain('Game map (0 scripts): (none)');
   });
 });
+
+describe('buildSystemPrompt — screenshot→UI addendum', () => {
+  it('omits the addendum on a normal run', () => {
+    const p = buildSystemPrompt(digest);
+    expect(p).not.toContain('Screenshot → UI');
+  });
+
+  it('adds the addendum when an image is present', () => {
+    const p = buildSystemPrompt(digest, { image: true });
+    expect(p).toContain('Screenshot → UI');
+    expect(p).toContain('ScreenGui');
+    expect(p).toContain('AnchorPoint');
+    expect(p).toContain('UDim2');
+    // verify sub-section gated separately
+    expect(p).not.toContain('screen_capture the running UI');
+  });
+
+  it('adds the verify sub-section only with verify', () => {
+    const p = buildSystemPrompt(digest, { image: true, verify: true });
+    expect(p).toContain('screen_capture the running UI');
+  });
+});

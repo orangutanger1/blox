@@ -31,8 +31,13 @@ function renderGameMap(digest: ProjectDigest): string[] {
   return lines;
 }
 
-export function buildSystemPrompt(digest: ProjectDigest): string {
-  return [
+export interface SystemPromptOpts {
+  image?: boolean;
+  verify?: boolean;
+}
+
+export function buildSystemPrompt(digest: ProjectDigest, opts: SystemPromptOpts = {}): string {
+  const lines = [
     'You are blox, an agentic coding assistant for Roblox games.',
     'You write idiomatic Luau and edit .luau files on disk. Files are canonical;',
     'Rojo one-way syncs them into Roblox Studio. Do NOT edit instances directly —',
@@ -111,5 +116,31 @@ export function buildSystemPrompt(digest: ProjectDigest): string {
     `Project: ${digest.name}`,
     `Top-level tree: ${digest.tree.join(', ') || '(none)'}`,
     ...renderGameMap(digest),
-  ].join('\n');
+  ];
+  if (opts.image) lines.push('', ...screenshotToUiAddendum(opts.verify ?? false));
+  return lines.join('\n');
+}
+
+function screenshotToUiAddendum(verify: boolean): string[] {
+  const lines = [
+    'Screenshot → UI (this run):',
+    '- A reference image is attached to the first message. Build a Roblox UI that',
+    '  matches it as closely as you can.',
+    '- Author the UI as a ScreenGui tree in .luau under the project (Rojo truth),',
+    '  e.g. under StarterGui. Build instances in code; never generate images to',
+    '  fake the UI.',
+    '- Use UDim2 *scale* (not only offset) plus AnchorPoint so the layout is',
+    '  responsive. Reproduce hierarchy, relative position/size, colors, text,',
+    '  fonts, and spacing from the reference.',
+    '- Recreate the structure: frames/containers, labels, buttons, images, lists.',
+    '  Give instances meaningful names.',
+  ];
+  if (verify) {
+    lines.push(
+      '- Verify visually: start play, screen_capture the running UI, and compare it',
+      '  to the reference image. If it differs, refine the .luau and repeat until it',
+      '  matches or you near the turn/budget cap. Stop play when done.',
+    );
+  }
+  return lines;
 }
