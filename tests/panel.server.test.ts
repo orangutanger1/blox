@@ -162,3 +162,47 @@ describe('PanelServer — result gates', () => {
     expect(ok.status).toBe(200);
   });
 });
+
+describe('PanelServer — image upload', () => {
+  it('emits image_request and resolves requestImage() from a POST /image', async () => {
+    const { s, base } = await start();
+    const pending = s.requestImage();
+    const events = (await (await fetch(`${base}/events?cursor=0`)).json()).events;
+    expect(events.some((e: { type: string }) => e.type === 'image_request')).toBe(true);
+    const res = await fetch(`${base}/image`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: Buffer.from([1, 2, 3]),
+    });
+    expect(res.status).toBe(200);
+    expect(await pending).toEqual({ mediaType: 'image/png', base64: Buffer.from([1, 2, 3]).toString('base64') });
+  });
+
+  it('409s when no image request is pending', async () => {
+    const { base } = await start();
+    const res = await fetch(`${base}/image`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: Buffer.from([1]),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it('400s a non-image content-type, leaving the request open', async () => {
+    const { s, base } = await start();
+    const pending = s.requestImage();
+    const bad = await fetch(`${base}/image`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: Buffer.from([1]),
+    });
+    expect(bad.status).toBe(400);
+    // still open — a good upload then settles it
+    await fetch(`${base}/image`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/jpeg' },
+      body: Buffer.from([9]),
+    });
+    expect((await pending).mediaType).toBe('image/jpeg');
+  });
+});

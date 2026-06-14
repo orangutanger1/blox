@@ -2,6 +2,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { EventBuffer } from './buffer.js';
 import { GateBroker } from './gates.js';
 import { PROTOCOL_VERSION, type PanelEvent } from './events.js';
+import { imageFromBytes, type ImageInput } from '../agent/imageInput.js';
 
 export interface PanelServerOptions {
   runId: string;
@@ -21,6 +22,7 @@ export class PanelServer {
   private buffer = new EventBuffer();
   private server: Server | null = null;
   private lastPollAt = 0;
+  private pendingImage: { resolve: (i: ImageInput) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   private opts: Required<Omit<PanelServerOptions, 'port'>> & { port: number };
 
   constructor(options: PanelServerOptions) {
@@ -52,6 +54,19 @@ export class PanelServer {
     return this.opts.now() - this.lastPollAt < this.opts.connectedWindowMs;
   }
 
+  // Park until the dock uploads an image (POST /api/v1/image) or the timeout
+  // fires. One image per run. Reuses the gate timeout knob.
+  requestImage(): Promise<ImageInput> {
+    this.emit({ type: 'image_request' });
+    return new Promise<ImageInput>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingImage = null;
+        reject(new Error('no image uploaded from the dock within the timeout'));
+      }, this.opts.gateTimeoutMs);
+      this.pendingImage = { resolve, timer };
+    });
+  }
+
   start(): Promise<number> {
     const server = createServer((req, res) => void this.route(req, res));
     this.server = server;
@@ -65,6 +80,10 @@ export class PanelServer {
   }
 
   stop(): Promise<void> {
+    if (this.pendingImage) {
+      clearTimeout(this.pendingImage.timer);
+      this.pendingImage = null;
+    }
     const server = this.server;
     this.server = null;
     if (!server) return Promise.resolve();
@@ -88,6 +107,21 @@ export class PanelServer {
           r = this.buffer.since(cursor);
         }
         return json(res, 200, r);
+      }
+      if (req.method === 'POST' && url.pathname === '/api/v1/image') {
+        if (!this.pendingImage) return json(res, 409, { error: 'no image request pending' });
+        const bytes = await readBytes(req);
+        let image: ImageInput;
+        try {
+          image = imageFromBytes(req.headers['content-type'], bytes);
+        } catch (e) {
+          return json(res, 400, { error: (e as Error).message });
+        }
+        const p = this.pendingImage;
+        this.pendingImage = null;
+        clearTimeout(p.timer);
+        p.resolve(image);
+        return json(res, 200, { ok: true });
       }
       const gateMatch = url.pathname.match(/^\/api\/v1\/gate\/([^/]+)$/);
       if (req.method === 'POST' && gateMatch) {
@@ -129,4 +163,10 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+async function readBytes(req: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  return Buffer.concat(chunks);
 }
