@@ -1,7 +1,36 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { QueryOptionsLike } from './buildOptions.js';
+import type { ImageInput } from './imageInput.js';
 import type { EventSink } from '../panel/events.js';
 import { eventsFromMessage } from '../panel/translate.js';
+
+// The SDK accepts either a string prompt or a stream of user messages. With an
+// image we send one user message carrying [text, image] content blocks; without
+// one we keep the plain string path (zero change for normal runs).
+export function buildPromptInput(
+  prompt: string,
+  image?: ImageInput,
+): string | AsyncIterable<SDKUserMessage> {
+  if (!image) return prompt;
+  const message = {
+    type: 'user' as const,
+    parent_tool_use_id: null,
+    message: {
+      role: 'user' as const,
+      content: [
+        { type: 'text' as const, text: prompt },
+        {
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: image.mediaType, data: image.base64 },
+        },
+      ],
+    },
+  };
+  return (async function* () {
+    yield message as SDKUserMessage;
+  })();
+}
 
 export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error';
 
@@ -80,6 +109,7 @@ export function summarizeResult(
 export interface RunAgentExtras {
   sink?: EventSink;
   dockDeniedTools?: () => string[];
+  image?: ImageInput;
 }
 
 export async function runAgent(
@@ -98,7 +128,8 @@ export async function runAgent(
     deniedByUser: [],
   };
   let turns = 0;
-  for await (const message of query({ prompt, options: options as never })) {
+  const input = buildPromptInput(prompt, extras.image);
+  for await (const message of query({ prompt: input, options: options as never })) {
     if (extras.sink) {
       // The panel is observability, never control flow: a throwing sink must
       // not take down the run (spec §7).
