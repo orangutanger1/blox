@@ -107,3 +107,36 @@ describe('panel command', () => {
     expect(a.prompt).toBe('install');
   });
 });
+
+describe('image flags', () => {
+  it('parses --image with a path', () => {
+    const a = parseArgs(['--image', 'ref.png', 'build', 'this']);
+    expect(a.imagePath).toBe('ref.png');
+    expect(a.imageFromDock).toBe(false);
+    expect(a.prompt).toBe('build this');
+  });
+
+  it('parses --image-from-dock and --verify', () => {
+    const a = parseArgs(['--image-from-dock', '--verify', 'build it']);
+    expect(a.imageFromDock).toBe(true);
+    expect(a.verify).toBe(true);
+    expect(a.imagePath).toBeNull();
+  });
+
+  it('defaults image flags off', () => {
+    const a = parseArgs(['hi']);
+    expect(a.imagePath).toBeNull();
+    expect(a.imageFromDock).toBe(false);
+    expect(a.verify).toBe(false);
+  });
+
+  it('rejects --image together with --image-from-dock', () => {
+    expect(() => parseArgs(['--image', 'r.png', '--image-from-dock', 'x'])).toThrow(
+      /--image and --image-from-dock are mutually exclusive/,
+    );
+  });
+
+  it('rejects --image with no path', () => {
+    expect(() => parseArgs(['--image'])).toThrow(/--image needs a file path/);
+  });
+});
