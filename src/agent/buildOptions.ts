@@ -10,6 +10,12 @@ import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permi
 // The dock panel's combined channel: P1 pre-call gates + P2 result gates.
 export type PanelGateChannel = GateChannel & ResultGateChannel;
 
+// Run-level context that shapes the system prompt (P3). Not persisted config.
+export interface PromptContext {
+  image?: boolean;
+  verify?: boolean;
+}
+
 export interface QueryOptionsLike {
   model: string;
   cwd: string;
@@ -40,13 +46,14 @@ export function buildQueryOptions(
   bridge: StudioBridge,
   digest: ProjectDigest,
   gate?: PanelGateChannel,
+  promptCtx: PromptContext = {},
 ): QueryOptionsLike {
   const allTools = [...FILE_TOOLS, ...bridge.allowedTools()];
   const ask = config.mode === 'ask';
   return {
     model: config.model,
     cwd: config.projectPath,
-    systemPrompt: buildSystemPrompt(digest),
+    systemPrompt: buildSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify }),
     maxTurns: config.maxTurns,
     maxBudgetUsd: config.maxBudgetUsd,
     permissionMode: ask ? 'default' : 'bypassPermissions',

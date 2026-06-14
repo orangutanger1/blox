@@ -8,6 +8,7 @@ import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
+import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
@@ -107,7 +108,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install',
     );
     process.exit(2);
   }
@@ -116,6 +117,17 @@ async function main(): Promise<void> {
   const config = loadConfig(cwd, overridesFromArgs(args));
   const digest = buildDigest(config.projectPath);
   const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
+
+  // --image: read from disk now so a bad path fails before any model call.
+  let image: ImageInput | undefined;
+  if (args.imagePath) {
+    try {
+      image = loadImageFromFile(args.imagePath);
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exit(2);
+    }
+  }
 
   // Panel server: a window into the run for the Studio dock plugin. Never
   // blocks or fails the run — startup errors degrade to a headless run with
@@ -137,6 +149,21 @@ async function main(): Promise<void> {
     }
   }
 
+  // --image-from-dock: ask the connected dock to upload a reference image.
+  if (args.imageFromDock) {
+    if (!panel) {
+      console.error('--image-from-dock needs the panel server (unavailable in --mock or after a panel start failure)');
+      process.exit(2);
+    }
+    console.log('waiting for a reference image — click "Pick image" in the blox Studio panel…');
+    try {
+      image = await panel.requestImage();
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exit(2);
+    }
+  }
+
   const gate = panel
     ? {
         isConnected: () => panel!.isConnected(),
@@ -146,7 +173,10 @@ async function main(): Promise<void> {
       }
     : undefined;
 
-  const options = buildQueryOptions(config, bridge, digest, gate);
+  const options = buildQueryOptions(config, bridge, digest, gate, {
+    image: !!image,
+    verify: args.verify,
+  });
 
   // Mock runs never touch real Studio/serve. Real runs ensure the rojo serve
   // sync channel is up (reuse-first); a serve failure is non-fatal — the run
@@ -176,6 +206,7 @@ async function main(): Promise<void> {
     const agent = await runAgent(prompt, options, {
       sink: panel ?? undefined,
       dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
+      image,
     });
     const sync = await syncProject(config.projectPath);
     const commit = sync.ok

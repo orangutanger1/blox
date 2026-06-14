@@ -117,3 +117,16 @@ describe('asset result hook wiring', () => {
     expect(buildQueryOptions(askConfig, createMockStudioBridge(), digest, undefined).hooks.PostToolUse).toBeUndefined();
   });
 });
+
+describe('buildQueryOptions — screenshot→UI context', () => {
+  it('includes the addendum in the system prompt when image context is set', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest, undefined, { image: true, verify: true });
+    expect(o.systemPrompt).toContain('Screenshot → UI');
+    expect(o.systemPrompt).toContain('screen_capture the running UI');
+  });
+
+  it('omits the addendum with no prompt context', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest);
+    expect(o.systemPrompt).not.toContain('Screenshot → UI');
+  });
+});

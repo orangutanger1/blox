@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { classifyStop, summarizeResult } from '../src/agent/runAgent.js';
+import { classifyStop, summarizeResult, buildPromptInput } from '../src/agent/runAgent.js';
+
+describe('buildPromptInput', () => {
+  it('returns the bare string when there is no image', () => {
+    expect(buildPromptInput('do a thing')).toBe('do a thing');
+  });
+
+  it('returns a one-message stream with [text, image] when an image is present', async () => {
+    const input = buildPromptInput('match this UI', { mediaType: 'image/png', base64: 'QUJD' });
+    expect(typeof input).not.toBe('string');
+    const msgs = [];
+    for await (const m of input as AsyncIterable<unknown>) msgs.push(m);
+    expect(msgs).toHaveLength(1);
+    const m = msgs[0] as { type: string; message: { role: string; content: unknown[] } };
+    expect(m.type).toBe('user');
+    expect(m.message.role).toBe('user');
+    expect(m.message.content).toEqual([
+      { type: 'text', text: 'match this UI' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } },
+    ]);
+  });
+});
 
 describe('classifyStop', () => {
   it('maps SDK result subtypes to stop reasons', () => {

@@ -31,10 +31,33 @@ function Ui.build(widget: DockWidgetPluginGui)
 	status.Text = "disconnected — run blox to start"
 	status.TextColor3 = Color3.fromRGB(255, 170, 0)
 
+	-- Image request card: hidden until an image_request arrives (P3).
+	local imageGate = Instance.new("Frame")
+	imageGate.Name = "ImageGate"
+	imageGate.LayoutOrder = 2
+	imageGate.Size = UDim2.new(1, -8, 0, 56)
+	imageGate.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
+	imageGate.Visible = false
+	imageGate.Parent = root
+
+	local imageStatus = label(imageGate, "ImageStatus", 1)
+	imageStatus.Position = UDim2.fromOffset(4, 4)
+	imageStatus.Size = UDim2.new(1, -8, 0, 18)
+	imageStatus.Text = "blox wants a reference image"
+
+	local imageButton = Instance.new("TextButton")
+	imageButton.Name = "PickImage"
+	imageButton.Text = "Pick image"
+	imageButton.Position = UDim2.new(0, 4, 1, -28)
+	imageButton.Size = UDim2.fromOffset(120, 24)
+	imageButton.BackgroundColor3 = Color3.fromRGB(40, 90, 140)
+	imageButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	imageButton.Parent = imageGate
+
 	-- Gate card: hidden until a gate_request arrives.
 	local gate = Instance.new("Frame")
 	gate.Name = "Gate"
-	gate.LayoutOrder = 2
+	gate.LayoutOrder = 3
 	gate.Size = UDim2.new(1, -8, 0, 76)
 	gate.BackgroundColor3 = Color3.fromRGB(60, 50, 20)
 	gate.Visible = false
@@ -80,7 +103,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 	-- Result card: hidden until a result_gate_request arrives (P2 spec §5).
 	local result = Instance.new("Frame")
 	result.Name = "ResultGate"
-	result.LayoutOrder = 3
+	result.LayoutOrder = 4
 	result.Size = UDim2.new(1, -8, 0, 210)
 	result.BackgroundColor3 = Color3.fromRGB(30, 50, 60)
 	result.Visible = false
@@ -125,8 +148,8 @@ function Ui.build(widget: DockWidgetPluginGui)
 	local approve = resultButton("Approve", 4, Color3.fromRGB(40, 120, 40))
 	local reject = resultButton("Reject", 92, Color3.fromRGB(140, 40, 40))
 
-	local diffs = scroller("Diffs", 4, 0.25)
-	local log = scroller("Log", 5, 0.6)
+	local diffs = scroller("Diffs", 5, 0.25)
+	local log = scroller("Log", 6, 0.6)
 
 	-- Log/diff lines are read-only TextBoxes (not TextLabels) so text can be
 	-- selected and copied with Ctrl+C.
@@ -149,6 +172,9 @@ function Ui.build(widget: DockWidgetPluginGui)
 
 	return {
 		status = status,
+		imageGate = imageGate,
+		imageStatus = imageStatus,
+		imageButton = imageButton,
 		gate = gate,
 		gateText = gateText,
 		allowButton = allow,
