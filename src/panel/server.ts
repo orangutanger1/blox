@@ -14,6 +14,13 @@ export interface PanelServerOptions {
   now?: () => number; // injectable clock for tests
 }
 
+export interface PanelController {
+  listModels(): { provider: string | null; models: string[]; current: string | null };
+  launch(prompt: string, model: string): { ok: true; runId: string } | { ok: false; status: number; error: string };
+  cancel(): { ok: boolean };
+  state(): 'idle' | 'running';
+}
+
 // The CLI-side half of the dock panel (spec §3.1, §4). Binds 127.0.0.1 only —
 // the same local trust model as the Rojo plugin. The panel must never block or
 // break a run: callers treat start() failures as a warning, not an error.
@@ -24,6 +31,8 @@ export class PanelServer {
   private lastPollAt = 0;
   private pendingImage: { resolve: (i: ImageInput) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   private opts: Required<Omit<PanelServerOptions, 'port'>> & { port: number };
+  private controller: PanelController | null = null;
+  private currentRunId: string;
 
   constructor(options: PanelServerOptions) {
     const holdMs = options.holdMs ?? 25_000;
@@ -41,11 +50,20 @@ export class PanelServer {
       connectedWindowMs: options.connectedWindowMs ?? holdMs + 10_000,
       now: options.now ?? Date.now,
     };
+    this.currentRunId = this.opts.runId;
     this.gates = new GateBroker({ emit: (e) => this.emit(e) }, this.opts.gateTimeoutMs);
   }
 
   emit(event: PanelEvent): void {
     this.buffer.append(event);
+  }
+
+  attachController(controller: PanelController): void {
+    this.controller = controller;
+  }
+
+  setRunId(runId: string): void {
+    this.currentRunId = runId;
   }
 
   // Connected = the plugin polled within the recency window. Gating uses this
@@ -95,7 +113,12 @@ export class PanelServer {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (req.method === 'GET' && url.pathname === '/api/v1/info') {
-        return json(res, 200, { protocol: PROTOCOL_VERSION, runId: this.opts.runId, project: this.opts.project });
+        return json(res, 200, {
+          protocol: PROTOCOL_VERSION,
+          runId: this.currentRunId,
+          project: this.opts.project,
+          ...(this.controller ? { state: this.controller.state() } : {}),
+        });
       }
       if (req.method === 'GET' && url.pathname === '/api/v1/events') {
         this.lastPollAt = this.opts.now();
@@ -137,6 +160,25 @@ export class PanelServer {
         return ok
           ? json(res, 200, { ok: true })
           : json(res, 400, { error: `decision "${decision}" does not match the gate kind "${kind}"` });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/v1/models') {
+        if (!this.controller) return json(res, 404, { error: 'not found' });
+        return json(res, 200, this.controller.listModels());
+      }
+      if (req.method === 'POST' && url.pathname === '/api/v1/run') {
+        if (!this.controller) return json(res, 404, { error: 'not found' });
+        const body = (await readJson(req)) as { prompt?: unknown; model?: unknown } | null;
+        const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
+        const model = typeof body?.model === 'string' ? body.model : '';
+        if (!prompt) return json(res, 400, { error: 'prompt required' });
+        if (!model) return json(res, 400, { error: 'model required' });
+        const r = this.controller.launch(prompt, model);
+        return r.ok ? json(res, 202, { runId: r.runId }) : json(res, r.status, { error: r.error });
+      }
+      if (req.method === 'POST' && url.pathname === '/api/v1/cancel') {
+        if (!this.controller) return json(res, 404, { error: 'not found' });
+        const r = this.controller.cancel();
+        return r.ok ? json(res, 200, { ok: true }) : json(res, 409, { error: 'no run active' });
       }
       return json(res, 404, { error: 'not found' });
     } catch {
