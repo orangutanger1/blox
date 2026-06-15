@@ -1,7 +1,7 @@
 # blox Agent Guardrails — Injection Resistance & Destructive-Action Limits
 
 **Date:** 2026-06-14
-**Status:** Designed — not started.
+**Status:** Implemented on branch `feat/agent-guardrails` (3 feat commits on top of plan `db2410c`/`5bf01e8`). 272 unit tests pass (+23), clean `tsc` build. No automated live test (hook logic is fully unit-covered); optional manual smoke noted in the plan. Pending merge to main.
 
 ## 1. Context
 
