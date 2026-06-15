@@ -2,17 +2,14 @@
 import { parseArgs, type ParsedArgs } from './args.js';
 import { loadConfig, overridesFromArgs } from './config.js';
 import { buildDigest } from './context/digest.js';
-import { syncProject } from './sync/rojo.js';
-import { commitChanges } from './git/commit.js';
 import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
-import { buildQueryOptions } from './agent/buildOptions.js';
-import { runAgent } from './agent/runAgent.js';
 import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
-import { formatReport, type RunReport } from './report.js';
+import { formatReport } from './report.js';
+import { runOnce } from './run.js';
 import { basename } from 'node:path';
 import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
@@ -173,11 +170,6 @@ async function main(): Promise<void> {
       }
     : undefined;
 
-  const options = buildQueryOptions(config, bridge, digest, gate, {
-    image: !!image,
-    verify: args.verify,
-  });
-
   // Mock runs never touch real Studio/serve. Real runs ensure the rojo serve
   // sync channel is up (reuse-first); a serve failure is non-fatal — the run
   // proceeds but the agent's verify loop may see stale files.
@@ -202,39 +194,24 @@ async function main(): Promise<void> {
       mode: config.mode,
       maxTurns: config.maxTurns,
       maxBudgetUsd: config.maxBudgetUsd,
+      model: config.model,
     });
-    const agent = await runAgent(prompt, options, {
+    const report = await runOnce(config, prompt, {
+      bridge,
+      digest,
+      gate,
       sink: panel ?? undefined,
-      dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
       image,
+      verify: args.verify,
+      dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
+      resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
     });
-    const sync = await syncProject(config.projectPath);
-    const commit = sync.ok
-      ? await commitChanges(config.projectPath, `blox: ${prompt}`.slice(0, 72))
-      : { sha: null, files: [] };
-
-    const report: RunReport = {
-      prompt,
-      changedFiles: commit.files,
-      commitSha: commit.sha,
-      numTurns: agent.numTurns,
-      costUsd: agent.costUsd,
-      status: agent.status === 'success' && sync.ok ? 'success' : 'error',
-      stopReason: agent.stopReason,
-      detail: sync.ok ? agent.detail : sync.detail,
-      mode: config.mode,
-      effort: config.effort,
-      sessionId: agent.sessionId,
-      gatedActions: agent.gatedActions,
-      deniedByUser: agent.deniedByUser,
-      assetDecisions: panel ? panel.gates.resultDecisions() : undefined,
-    };
     panel?.emit({
       type: 'run_finished',
       status: report.status,
-      stopReason: agent.stopReason,
-      turns: agent.numTurns,
-      costUsd: agent.costUsd,
+      stopReason: report.stopReason ?? '',
+      turns: report.numTurns,
+      costUsd: report.costUsd,
     });
     console.log(formatReport(report));
     process.exitCode = report.status === 'success' ? 0 : 1;
