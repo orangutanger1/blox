@@ -50,6 +50,7 @@ guardrails** only.
 | Write containment | Deny `Write`/`Edit` whose resolved path escapes the project directory **or** is not `.luau`/`.lua`. |
 | Read containment | **Contain reads too** — deny `Read`/`Grep`/`Glob` whose resolved path escapes the project. Closes the "read `~/.ssh` → write into a shipped `.luau`" exfil path. Low false-positive risk: the agent has no legitimate reason to read outside its project. |
 | execute_luau exfil | **Hard deny in both modes.** Deny any `execute_luau` payload referencing `HttpService` / `HttpGet` / `HttpGetAsync`. The agent's live verification probe has no business calling external endpoints. Clean line: *game code* the agent authors in a `.luau` file may still use HttpService (shipped code synced via Rojo, not a live probe). |
+| `http_get` tool | **Hard deny in both modes** (added during planning). The Roblox MCP server advertises an `http_get` tool that is *not* in blox's `TOOLS` allow-list — but `--auto`'s `bypassPermissions` allows any advertised tool, and `--ask`'s `canUseTool` allows anything non-gated, so the agent can still call it in either mode. It is a direct external-fetch channel (exfil via query string + untrusted-content ingestion). The PreToolUse hook fires on every tool call regardless of the allow-list, so it is the only place this can be blocked. |
 | Opt-out | **None in v1.** Always on. No config flag (YAGNI); revisit only if real false positives appear. |
 | Path comparison | `path.resolve` then prefix check with a separator boundary, so `/proj` does not match `/project-evil`. |
 
@@ -115,18 +116,24 @@ PreToolUse `HookCallback`. Fires in both `--ask` and `--auto`. Switches on
 - **`Read`, `Grep`, `Glob`** — resolve the path argument. Deny if it escapes the
   project. (Tools that take a directory/glob root resolve that root.)
 - **`execute_luau`** (`mcp__Roblox_Studio__execute_luau`) — read the Luau source
-  argument and deny if `referencesExternalHttp` matches
+  argument (`code`) and deny if `referencesExternalHttp` matches
   (`HttpService` / `HttpGet` / `HttpGetAsync`, case-insensitive).
+- **`http_get`** (`mcp__Roblox_Studio__http_get`, or any `__http_get` suffix) —
+  deny outright. External-fetch channel, not on blox's allow-list but reachable
+  in both modes.
 - any other tool — `{ continue: true }`.
 
-Deny return shape: PreToolUse `hookSpecificOutput` with
-`permissionDecision: 'deny'` and a `permissionDecisionReason` explaining the
-block and what to do instead (e.g. "writes are limited to .luau files inside the
-project"; "put HTTP calls in a .luau file rather than a live execute_luau probe").
-**The exact field names are verified against `@anthropic-ai/claude-agent-sdk`'s
-`sdk.d.ts` at plan time** before coding — the existing hooks in `hooks.ts` only
-exercise the `{ continue }` and PostToolUse `{ decision: 'block' }` shapes, so the
-PreToolUse deny shape is the one unverified SDK detail in this design.
+Tool-argument field names (confirmed against `sdk-tools.d.ts` and the MCP
+reference at plan time): `Write`/`Edit`/`Read` use `file_path`; `Grep`/`Glob` use
+an optional `path` (absent ⇒ defaults to `cwd`, which is the project, so only a
+present path is checked); `execute_luau` uses `code`.
+
+Deny return shape (verified against `sdk.d.ts`):
+`{ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
+permissionDecisionReason: '<reason>' } }`. Continue: `{ continue: true }`. The
+reason explains the block and what to do instead (e.g. "writes are limited to
+.luau files inside the project"; "put HTTP calls in a .luau file rather than a
+live execute_luau probe").
 
 Pure helpers (unit-testable without the SDK):
 - `isPathContained(projectPath, target): boolean` — `path.resolve` both, then
