@@ -38,12 +38,22 @@ describe('buildQueryOptions', () => {
     expect(o.mcpServers).toHaveProperty('Roblox_Studio');
   });
 
-  it('registers a PreToolUse sync hook for execute_luau', () => {
+  it('registers the guardrail hook first, then the execute_luau sync hook', () => {
     const o = buildQueryOptions(config, createMockStudioBridge(), digest);
     const pre = o.hooks.PreToolUse;
     expect(pre).toBeDefined();
-    expect(pre?.[0].matcher).toBe('mcp__Roblox_Studio__execute_luau');
+    // guardrail is a catch-all (no matcher) and runs first
+    expect(pre?.[0].matcher).toBeUndefined();
     expect(pre?.[0].hooks).toHaveLength(1);
+    // sync hook still present, now second, still matched to execute_luau
+    expect(pre?.[1].matcher).toBe('mcp__Roblox_Studio__execute_luau');
+    expect(pre?.[1].hooks).toHaveLength(1);
+  });
+
+  it('registers the guardrail hook in ask mode too', () => {
+    const o = buildQueryOptions(askConfig, createMockStudioBridge(), digest);
+    expect(o.hooks.PreToolUse?.[0].matcher).toBeUndefined();
+    expect(o.hooks.PreToolUse?.[0].hooks).toHaveLength(1);
   });
 });
 

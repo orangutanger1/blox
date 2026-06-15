@@ -6,6 +6,7 @@ import { buildSystemPrompt } from './systemPrompt.js';
 import { buildSyncHook, buildAssetResultHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL } from './hooks.js';
 import type { ResultGateChannel } from './hooks.js';
 import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permission.js';
+import { buildGuardrailHook } from './guardrail.js';
 
 // The dock panel's combined channel: P1 pre-call gates + P2 result gates.
 export type PanelGateChannel = GateChannel & ResultGateChannel;
@@ -67,6 +68,7 @@ export function buildQueryOptions(
     mcpServers: bridge.mcpServers(),
     hooks: {
       PreToolUse: [
+        { hooks: [buildGuardrailHook(config.projectPath)] },
         { matcher: EXECUTE_LUAU_TOOL, hooks: [buildSyncHook(config.projectPath)] },
       ],
       ...(ask && gate
