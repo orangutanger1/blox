@@ -74,6 +74,7 @@ async function main(): Promise<void> {
       scripts = mock ? mockPulledScripts() : await pullScripts(studioLauncher());
     } catch (e) {
       console.error(`blox init failed: ${(e as Error).message}`);
+      console.error('hint: open Roblox Studio with a place loaded, then re-run. `blox doctor` checks the connection.');
       process.exit(1);
     }
     const plan = planLayout(scripts, strategy, name);

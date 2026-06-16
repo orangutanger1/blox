@@ -23,7 +23,9 @@ export function formatOnboardReport(d: OnboardReportData): string {
     `blox init — onboarded ${d.written.length} scripts`,
     ...(d.renamed.length ? [`renamed ${d.renamed.length} to avoid collisions:`, ...d.renamed.map((r) => `  ${r.from} → ${r.to}`)] : []),
     `baseline: ${d.baselineSha ?? '(no commit)'}`,
-    `→ next: run \`rojo serve\` and click Connect in Studio's Rojo plugin, then \`blox "<prompt>"\``,
+    `→ next: \`blox doctor\` to verify Studio, then either:`,
+    `    • CLI:  \`rojo serve\` + click Connect in Studio's Rojo plugin, then \`blox "<prompt>"\``,
+    `    • dock: \`blox panel serve\` + open the blox Studio panel (BYO models via CCR run here)`,
   ];
   return lines.join('\n');
 }
