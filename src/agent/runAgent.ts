@@ -6,10 +6,21 @@ import type { EventSink } from '../panel/events.js';
 import { eventsFromMessage } from '../panel/translate.js';
 import { noticeFromStderr } from './notices.js';
 
-// How often to remind the dock the run is alive while waiting on the model's
-// first message. Covers the case where the SDK retries silently (e.g. a 429 the
-// CLI didn't print to stderr) — without this the dock looks dead for minutes.
+// Idle-watchdog cadence: emit a "still working" heartbeat after this much stream
+// silence so the dock never looks dead (covers silent SDK retries + slow models).
 const HEARTBEAT_MS = 15_000;
+
+// Abort a run after this much continuous stream silence — a wedged non-Claude
+// turn (CCR/OpenRouter request that never returns) would otherwise hang forever,
+// since maxTurns only caps completed turns. 0 (via BLOX_IDLE_ABORT_SECONDS=0)
+// disables. Generous default so a legitimately slow turn isn't killed.
+export function computeIdleAbortMs(): number {
+  const raw = process.env.BLOX_IDLE_ABORT_SECONDS;
+  if (raw === undefined) return 120_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n * 1000 : 120_000;
+}
+const IDLE_ABORT_MS = computeIdleAbortMs();
 
 // The SDK accepts either a string prompt or a stream of user messages. With an
 // image we send one user message carrying [text, image] content blocks; without
@@ -38,7 +49,7 @@ export function buildPromptInput(
   })();
 }
 
-export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error';
+export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error' | 'idle-timeout';
 
 // Map an SDK result-message subtype to a coarse stop reason for the report.
 export function classifyStop(subtype: string): StopReason {
@@ -168,19 +179,34 @@ export async function runAgent(
       }
     : undefined;
 
-  // Heartbeat until the first message arrives, so even a silent retry never
-  // leaves the dock looking dead. Cleared on the first message and in finally.
-  let firstSeen = false;
-  const heartbeat =
-    sink &&
-    setInterval(() => {
-      if (firstSeen) return;
+  // Idle watchdog. Fires on ANY gap with no stream activity — before the first
+  // message AND between turns (a non-Claude model often wedges mid-run, e.g. a
+  // CCR/OpenRouter request that never returns). maxTurns can't catch that: a hung
+  // turn never advances the counter. So: emit a heartbeat past HEARTBEAT_MS of
+  // silence, and abort the run past idleAbortMs so a wedge doesn't hang forever.
+  let lastActivity = Date.now();
+  let aborted = false;
+  const watchdog = setInterval(() => {
+    const idleMs = Date.now() - lastActivity;
+    if (idleMs < HEARTBEAT_MS) return;
+    const secs = Math.round(idleMs / 1000);
+    if (IDLE_ABORT_MS > 0 && idleMs >= IDLE_ABORT_MS && extras.abortController) {
+      aborted = true;
+      clearInterval(watchdog);
       try {
-        sink.emit({ type: 'log', text: '…still waiting for the model (slow or rate-limited)' });
+        sink?.emit({ type: 'log', text: `no model activity for ${secs}s — aborting wedged run (BLOX_IDLE_ABORT_SECONDS=0 disables)` });
       } catch {
         /* swallow */
       }
-    }, HEARTBEAT_MS);
+      extras.abortController.abort();
+      return;
+    }
+    try {
+      sink?.emit({ type: 'log', text: `…still working — ${secs}s since last model activity` });
+    } catch {
+      /* swallow */
+    }
+  }, HEARTBEAT_MS);
 
   const queryOptions = {
     ...options,
@@ -190,10 +216,7 @@ export async function runAgent(
   };
   try {
     for await (const message of query({ prompt: input, options: queryOptions as never })) {
-      if (!firstSeen) {
-        firstSeen = true;
-        if (heartbeat) clearInterval(heartbeat);
-      }
+      lastActivity = Date.now();
       if (sink) {
         // The panel is observability, never control flow: a throwing sink must
         // not take down the run (spec §7).
@@ -215,7 +238,12 @@ export async function runAgent(
       }
     }
   } finally {
-    if (heartbeat) clearInterval(heartbeat);
+    clearInterval(watchdog);
+  }
+  // An idle-abort surfaces as a thrown/empty result; tag it so the report reads
+  // "idle-timeout" instead of a generic error.
+  if (aborted && result.detail === 'no result') {
+    result = { ...result, stopReason: 'idle-timeout', detail: 'aborted: no model activity' };
   }
   return result;
 }

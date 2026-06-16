@@ -1,5 +1,24 @@
-import { describe, it, expect } from 'vitest';
-import { classifyStop, summarizeResult, buildPromptInput } from '../src/agent/runAgent.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import { classifyStop, summarizeResult, buildPromptInput, computeIdleAbortMs } from '../src/agent/runAgent.js';
+
+describe('computeIdleAbortMs', () => {
+  afterEach(() => { delete process.env.BLOX_IDLE_ABORT_SECONDS; });
+  it('defaults to 120s when unset', () => {
+    expect(computeIdleAbortMs()).toBe(120_000);
+  });
+  it('honors a positive override', () => {
+    process.env.BLOX_IDLE_ABORT_SECONDS = '45';
+    expect(computeIdleAbortMs()).toBe(45_000);
+  });
+  it('0 disables (returns 0)', () => {
+    process.env.BLOX_IDLE_ABORT_SECONDS = '0';
+    expect(computeIdleAbortMs()).toBe(0);
+  });
+  it('falls back to default on garbage', () => {
+    process.env.BLOX_IDLE_ABORT_SECONDS = 'nope';
+    expect(computeIdleAbortMs()).toBe(120_000);
+  });
+});
 
 describe('buildPromptInput', () => {
   it('returns the bare string when there is no image', () => {
