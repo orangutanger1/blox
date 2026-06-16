@@ -13,6 +13,28 @@ interface BlockLike {
   input?: unknown;
 }
 
+// One-line summary of a tool call's input for the dock log, so "tool: execute_luau"
+// reads as e.g. "tool: execute_luau — game.Workspace:FindFirstChild(…)". Prefer a
+// human-meaningful field; fall back to compact JSON. Whitespace-collapsed, capped.
+const SUMMARY_LIMIT = 90;
+function toolSummary(input: Record<string, unknown>): string {
+  const pick =
+    input.file_path ?? input.command ?? input.script ?? input.prompt ?? input.query ?? input.path ?? input.name;
+  let s: string;
+  if (typeof pick === 'string') {
+    s = pick;
+  } else {
+    try {
+      s = JSON.stringify(input);
+    } catch {
+      s = '';
+    }
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  if (s === '{}' || s === '') return '';
+  return s.length > SUMMARY_LIMIT ? s.slice(0, SUMMARY_LIMIT) + '…' : s;
+}
+
 // File-diff summaries are derived from the tool inputs, not a real diff: good
 // enough for the dock's "what changed" list (spec defers hunk rendering, §9).
 function fileDiff(name: string, input: Record<string, unknown>): PanelEvent | null {
@@ -37,8 +59,9 @@ export function eventsFromMessage(message: unknown): PanelEvent[] {
     if (block?.type === 'text' && typeof block.text === 'string') {
       events.push({ type: 'log', text: block.text.slice(0, LOG_LIMIT) });
     } else if (block?.type === 'tool_use' && typeof block.name === 'string') {
-      events.push({ type: 'log', text: `tool: ${block.name}` });
       const input = (block.input ?? {}) as Record<string, unknown>;
+      const summary = toolSummary(input);
+      events.push({ type: 'log', text: summary ? `tool: ${block.name} — ${summary}` : `tool: ${block.name}` });
       const diff = fileDiff(block.name, input);
       if (diff) events.push(diff);
     }

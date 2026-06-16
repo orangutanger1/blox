@@ -14,11 +14,24 @@ describe('eventsFromMessage', () => {
     if (long[0].type === 'log') expect(long[0].text.length).toBe(500);
   });
 
-  it('turns tool_use blocks into tool log lines', () => {
+  it('turns tool_use blocks into tool log lines with an input summary', () => {
     const events = eventsFromMessage(
       assistant([{ type: 'tool_use', name: 'mcp__Roblox_Studio__execute_luau', input: { script: 'print(1)' } }]),
     );
-    expect(events).toEqual([{ type: 'log', text: 'tool: mcp__Roblox_Studio__execute_luau' }]);
+    expect(events).toEqual([{ type: 'log', text: 'tool: mcp__Roblox_Studio__execute_luau — print(1)' }]);
+  });
+
+  it('collapses whitespace and caps the input summary at 90 chars', () => {
+    const events = eventsFromMessage(
+      assistant([{ type: 'tool_use', name: 'X', input: { script: 'a\n  b\t' + 'z'.repeat(200) } }]),
+    );
+    expect(events[0].type).toBe('log');
+    if (events[0].type === 'log') {
+      expect(events[0].text.startsWith('tool: X — a b')).toBe(true);
+      expect(events[0].text.endsWith('…')).toBe(true);
+      // "tool: X — " (10) + 90 summary chars + "…"
+      expect(events[0].text.length).toBe(10 + 90 + 1);
+    }
   });
 
   it('adds a file_diff event for Edit with line counts from old/new strings', () => {

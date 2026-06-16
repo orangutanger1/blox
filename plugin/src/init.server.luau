@@ -114,6 +114,9 @@ local function rebuildModelList()
 		row.Text = " " .. name
 		row.ZIndex = 11
 		row.Parent = ui.modelList
+		local rc = Instance.new("UICorner")
+		rc.CornerRadius = UDim.new(0, 4)
+		rc.Parent = row
 		row.MouseButton1Click:Connect(function()
 			selectModel(i)
 		end)
@@ -254,7 +257,7 @@ local function handleEvent(e: { [string]: any })
 			then Color3.fromRGB(120, 200, 120)
 			else Color3.fromRGB(220, 120, 120)
 		ui.launchButton.Active = true
-		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
 	end
 end
 
@@ -335,11 +338,18 @@ ui.launchButton.MouseButton1Click:Connect(function()
 	end
 	ui.launchButton.Active = false
 	ui.launchButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	-- Instant feedback: the run setup (CCR + serve + first model call) can take
+	-- seconds before the first event arrives, so don't leave the dock looking dead.
+	ui.status.Text = "launching…"
+	ui.status.TextColor3 = Color3.fromRGB(120, 200, 120)
+	addLog("▶ launching: " .. prompt)
 	local res = request("POST", "/run", { prompt = prompt, model = model })
 	if not res then
 		ui.status.Text = "launch failed — is blox panel serve running?"
+		ui.status.TextColor3 = Color3.fromRGB(255, 170, 0)
+		addLog("✖ launch failed — no response from blox panel serve")
 		ui.launchButton.Active = true
-		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
 	end
 end)
 
@@ -390,7 +400,7 @@ task.spawn(function()
 				-- wedged button (run that never emitted run_finished) recovers. The
 				-- daemon 409s a concurrent launch anyway, so this is safe.
 				ui.launchButton.Active = true
-				ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+				ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
 				ui.status.Text = "connected — " .. tostring(info.project)
 				ui.status.TextColor3 = Color3.fromRGB(120, 200, 120)
 			end

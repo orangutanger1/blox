@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, ccrEndpoint, type CcrModels } from '../ccr.js';
+import { ensureCcr } from '../ccrServe.js';
 import { runOnce } from '../run.js';
 import { buildDigest } from '../context/digest.js';
 import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
@@ -107,23 +108,11 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     const ccr = readCcrModels();
     const modelString = resolveModel(ccr.provider, slug);
     const runConfig: BloxConfig = { ...config, model: modelString };
-    // A CCR-routed model (`provider,slug`) only routes if the SDK talks to CCR,
-    // not api.anthropic.com. Point ANTHROPIC_BASE_URL at CCR for this run. The
-    // x-api-key path (ANTHROPIC_API_KEY) is what CCR accepts; clear any inherited
-    // AUTH_TOKEN so the SDK doesn't send a competing bearer.
-    const env = ccrRunEnv(ccr.provider !== null);
-    const bridge = createStudioMcpBridge();
-    try {
-      await ensureServe(config.projectPath);
-    } catch {
-      /* serve is non-fatal; the verify loop may see stale files */
-    }
-    const gate = {
-      isConnected: () => server.isConnected(),
-      request: (tool: string, input: Record<string, unknown>) => server.gates.request(tool, input),
-      requestResult: (tool: string, tag: string | null, inputSummary: string) =>
-        server.gates.requestResult(tool, tag, inputSummary),
-    };
+    const log = (text: string) => server.emit({ type: 'log', text });
+
+    // Emit run_started first so the dock shows the prompt + spinner immediately,
+    // before the (possibly slow) CCR/serve setup below — otherwise the dock looks
+    // dead for seconds after the user clicks Launch.
     server.emit({
       type: 'run_started',
       runId,
@@ -133,6 +122,30 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
       maxBudgetUsd: runConfig.maxBudgetUsd,
       model: modelString,
     });
+
+    // A CCR-routed model (`provider,slug`) only routes if the SDK talks to CCR,
+    // not api.anthropic.com. Point ANTHROPIC_BASE_URL at CCR for this run. The
+    // x-api-key path (ANTHROPIC_API_KEY) is what CCR accepts; clear any inherited
+    // AUTH_TOKEN so the SDK doesn't send a competing bearer.
+    const useCcr = ccr.provider !== null;
+    if (useCcr) await ensureCcr(log);
+    const env = ccrRunEnv(useCcr);
+    const bridge = createStudioMcpBridge();
+    log('Syncing project to Studio (rojo serve)…');
+    try {
+      const session = await ensureServe(config.projectPath);
+      log(session.mode === 'reused' ? 'rojo serve already running.' : 'rojo serve started.');
+    } catch {
+      /* serve is non-fatal; the verify loop may see stale files */
+      log('rojo serve unavailable — continuing (Studio may see stale files).');
+    }
+    const gate = {
+      isConnected: () => server.isConnected(),
+      request: (tool: string, input: Record<string, unknown>) => server.gates.request(tool, input),
+      requestResult: (tool: string, tag: string | null, inputSummary: string) =>
+        server.gates.requestResult(tool, tag, inputSummary),
+    };
+    log(`Calling model ${modelString} — waiting for first response…`);
     let report;
     try {
       report = await runOnce(runConfig, prompt, {

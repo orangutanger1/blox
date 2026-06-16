@@ -1,0 +1,65 @@
+import { spawn as nodeSpawn } from 'node:child_process';
+import { ccrEndpoint } from './ccr.js';
+
+// Probe CCR's inbound endpoint. Any HTTP response (even a 404) means the router
+// is up; only a refused connection / timeout throws. `ccr status` is unreliable
+// (reports "Not Running" while the port is live), so we check the port directly.
+export type CcrFetchFn = (url: string) => Promise<unknown>;
+const defaultFetch: CcrFetchFn = (url) => fetch(url, { signal: AbortSignal.timeout(2000) });
+
+export async function ccrReachable(baseUrl: string, fetchFn: CcrFetchFn = defaultFetch): Promise<boolean> {
+  try {
+    await fetchFn(baseUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Fire-and-forget launcher for the CCR service. Detached + unref'd so the router
+// outlives this run (it's a shared process). Injected for tests.
+export type CcrSpawnFn = () => void;
+const realCcrSpawn: CcrSpawnFn = () => {
+  const child = nodeSpawn('ccr', ['start'], { detached: true, stdio: 'ignore' });
+  // Swallow spawn errors (e.g. ENOENT when ccr isn't installed) — an unhandled
+  // child 'error' would throw and crash the daemon. The poll loop times out and
+  // reports failure instead.
+  child.on('error', () => {});
+  child.unref();
+};
+
+export interface EnsureCcrOptions {
+  fetchFn?: CcrFetchFn;
+  spawn?: CcrSpawnFn;
+  attempts?: number;
+  delayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Ensure CCR is up before a routed run: reachable → done; otherwise spawn
+// `ccr start` and poll until the port answers (~10s). Returns false if it never
+// comes up — the caller logs and proceeds (the run will surface the real error).
+// `log` mirrors progress to the dock so the user sees why launch is paused.
+export async function ensureCcr(log: (msg: string) => void = () => {}, opts: EnsureCcrOptions = {}): Promise<boolean> {
+  const ep = ccrEndpoint();
+  const fetchFn = opts.fetchFn ?? defaultFetch;
+  if (await ccrReachable(ep.baseUrl, fetchFn)) return true;
+
+  log(`CCR router down at ${ep.baseUrl} — starting it…`);
+  (opts.spawn ?? realCcrSpawn)();
+
+  const attempts = opts.attempts ?? 20;
+  const delayMs = opts.delayMs ?? 500;
+  const sleep = opts.sleep ?? defaultSleep;
+  for (let i = 0; i < attempts; i++) {
+    if (await ccrReachable(ep.baseUrl, fetchFn)) {
+      log('CCR router ready.');
+      return true;
+    }
+    await sleep(delayMs);
+  }
+  log('CCR router did not come up — is claude-code-router installed (npm i -g @musistudio/claude-code-router)?');
+  return false;
+}
