@@ -43,3 +43,30 @@ export function readCcrModels(path: string = ccrConfigPath()): CcrModels {
 export function resolveModel(provider: string | null, slug: string): string {
   return provider ? `${provider},${slug}` : slug;
 }
+
+export interface CcrEndpoint {
+  baseUrl: string;
+  apiKey: string;
+}
+
+// CCR's own inbound endpoint — where the Agent SDK must send requests
+// (ANTHROPIC_BASE_URL) so CCR routes them per-request to the chosen provider.
+// Without this the SDK hits api.anthropic.com and a `provider,slug` model 404s.
+// Defaults match CCR's own defaults; HOST/PORT/APIKEY in the config override. A
+// 0.0.0.0 bind host is rewritten to 127.0.0.1 (you can't connect TO 0.0.0.0).
+// When no APIKEY is set CCR accepts any non-empty token, so we send a placeholder.
+export function ccrEndpoint(path: string = ccrConfigPath()): CcrEndpoint {
+  let cfg: { HOST?: unknown; PORT?: unknown; APIKEY?: unknown } = {};
+  if (existsSync(path)) {
+    try {
+      cfg = JSON.parse(readFileSync(path, 'utf8')) as typeof cfg;
+    } catch {
+      /* fall through to defaults */
+    }
+  }
+  const rawHost = typeof cfg.HOST === 'string' && cfg.HOST ? cfg.HOST : '127.0.0.1';
+  const host = rawHost === '0.0.0.0' ? '127.0.0.1' : rawHost;
+  const port = typeof cfg.PORT === 'number' ? cfg.PORT : 3456;
+  const apiKey = typeof cfg.APIKEY === 'string' && cfg.APIKEY ? cfg.APIKEY : 'sk-blox-ccr';
+  return { baseUrl: `http://${host}:${port}`, apiKey };
+}

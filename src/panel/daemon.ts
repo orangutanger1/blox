@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
-import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
+import { readCcrModels, resolveModel, ccrEndpoint, type CcrModels } from '../ccr.js';
 import { runOnce } from '../run.js';
 import { buildDigest } from '../context/digest.js';
 import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
@@ -73,6 +73,23 @@ export function createController(
   };
 }
 
+// Env for a daemon run's model call. For a CCR-routed model, point the Agent
+// SDK at CCR (ANTHROPIC_BASE_URL) with the x-api-key path and no competing
+// bearer token. For a bare model (no CCR provider) return undefined so the run
+// uses the inherited env unchanged (same as the one-shot CLI).
+export function ccrRunEnv(useCcr: boolean): Record<string, string> | undefined {
+  if (!useCcr) return undefined;
+  const ep = ccrEndpoint();
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string') env[k] = v;
+  }
+  env.ANTHROPIC_BASE_URL = ep.baseUrl;
+  env.ANTHROPIC_API_KEY = ep.apiKey;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}
+
 // Persistent control server. Builds the digest once, then serves the dock and
 // launches a run per POST /api/v1/run. rojo serve is reuse-first per run; CCR
 // config is read fresh each time so dropdown + routing reflect edits.
@@ -90,6 +107,11 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     const ccr = readCcrModels();
     const modelString = resolveModel(ccr.provider, slug);
     const runConfig: BloxConfig = { ...config, model: modelString };
+    // A CCR-routed model (`provider,slug`) only routes if the SDK talks to CCR,
+    // not api.anthropic.com. Point ANTHROPIC_BASE_URL at CCR for this run. The
+    // x-api-key path (ANTHROPIC_API_KEY) is what CCR accepts; clear any inherited
+    // AUTH_TOKEN so the SDK doesn't send a competing bearer.
+    const env = ccrRunEnv(ccr.provider !== null);
     const bridge = createStudioMcpBridge();
     try {
       await ensureServe(config.projectPath);
@@ -119,9 +141,17 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         gate,
         sink: server,
         abortController,
+        env,
         dockDeniedTools: () => server.gates.dockDeniedTools(),
         resultDecisions: () => server.gates.resultDecisions(),
       });
+    } catch (e) {
+      // Don't let a run failure die silently — the dock would just show
+      // "error — 0 turns" with no reason. Surface it to the daemon terminal and
+      // the dock log; run_finished(error) still fires in the finally below.
+      const msg = (e as Error)?.message ?? String(e);
+      console.error(`[blox] run ${runId.slice(0, 8)} failed: ${msg}`);
+      server.emit({ type: 'log', text: `run error: ${msg}` });
     } finally {
       // Close out the run's gates (a cancel may have left one parked) before the
       // terminal event, so a stale timer can't fire into the next run, and clear

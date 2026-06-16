@@ -22,6 +22,9 @@ export interface RunOnceDeps {
   dockDeniedTools?: () => string[];
   resultDecisions?: () => ResultRecord[];
   abortController?: AbortController;
+  // Env overrides for the agent's model call (the daemon points ANTHROPIC_BASE_URL
+  // at CCR so a `provider,slug` model routes per-request). Merged over process.env.
+  env?: Record<string, string>;
 }
 
 // The shared run pipeline: build options → run the agent → sync to disk →
@@ -38,6 +41,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     dockDeniedTools: deps.dockDeniedTools,
     image: deps.image,
     abortController: deps.abortController,
+    env: deps.env,
   });
   const sync = await syncProject(config.projectPath);
   const commit = sync.ok
