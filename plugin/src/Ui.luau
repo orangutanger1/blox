@@ -16,6 +16,28 @@ local function label(parent: Instance, name: string, order: number): TextLabel
 	return l
 end
 
+-- Like label() but a read-only multiline TextBox, so the text can be selected
+-- and copied (Ctrl+C). Used for the gate/result prompt text.
+local function selectableLabel(parent: Instance, name: string, order: number): TextBox
+	local b = Instance.new("TextBox")
+	b.Name = name
+	b.LayoutOrder = order
+	b.Size = UDim2.new(1, -8, 0, 18)
+	b.BackgroundTransparency = 1
+	b.TextXAlignment = Enum.TextXAlignment.Left
+	b.TextYAlignment = Enum.TextYAlignment.Top
+	b.TextColor3 = Color3.fromRGB(204, 204, 204)
+	b.TextSize = 14
+	b.Font = Enum.Font.Code
+	b.MultiLine = true
+	b.TextEditable = false
+	b.ClearTextOnFocus = false
+	b.TextWrapped = true
+	b.Text = ""
+	b.Parent = parent
+	return b
+end
+
 -- Rounded corners on a frame/button/box.
 local function corner(inst: Instance, radius: number)
 	local c = Instance.new("UICorner")
@@ -189,7 +211,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 	corner(gate, 6)
 	stroke(gate, Color3.fromRGB(110, 92, 40))
 
-	local gateText = label(gate, "GateText", 1)
+	local gateText = selectableLabel(gate, "GateText", 1)
 	gateText.Position = UDim2.fromOffset(4, 4)
 	gateText.Size = UDim2.new(1, -8, 0, 36)
 	gateText.TextWrapped = true
@@ -262,7 +284,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 	corner(result, 6)
 	stroke(result, Color3.fromRGB(55, 90, 110))
 
-	local resultText = label(result, "ResultText", 1)
+	local resultText = selectableLabel(result, "ResultText", 1)
 	resultText.Position = UDim2.fromOffset(4, 4)
 	resultText.Size = UDim2.new(1, -8, 0, 36)
 	resultText.TextWrapped = true
