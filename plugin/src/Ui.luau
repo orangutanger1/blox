@@ -212,8 +212,10 @@ function Ui.build(widget: DockWidgetPluginGui)
 	local allow = button("Allow", 4, Color3.fromRGB(40, 120, 40))
 	local deny = button("Deny", 92, Color3.fromRGB(140, 40, 40))
 
-	-- Diff list + log share a scrolling frame each.
-	local function scroller(name: string, order: number, heightScale: number): ScrollingFrame
+	-- Diff list + log each render into ONE read-only multiline TextBox inside a
+	-- scrolling frame, so a selection spans lines (highlight + Ctrl+C across many
+	-- rows, not one row at a time). Long lines wrap instead of truncating.
+	local function scroller(name: string, order: number, heightScale: number): TextBox
 		local s = Instance.new("ScrollingFrame")
 		s.Name = name
 		s.LayoutOrder = order
@@ -227,13 +229,27 @@ function Ui.build(widget: DockWidgetPluginGui)
 		corner(s, 5)
 		local sp = Instance.new("UIPadding")
 		sp.PaddingLeft = UDim.new(0, 6)
+		sp.PaddingRight = UDim.new(0, 6)
 		sp.PaddingTop = UDim.new(0, 4)
 		sp.PaddingBottom = UDim.new(0, 4)
 		sp.Parent = s
-		local ll = Instance.new("UIListLayout")
-		ll.SortOrder = Enum.SortOrder.LayoutOrder
-		ll.Parent = s
-		return s
+		local box = Instance.new("TextBox")
+		box.Name = "Text"
+		box.Size = UDim2.new(1, 0, 0, 0)
+		box.AutomaticSize = Enum.AutomaticSize.Y
+		box.BackgroundTransparency = 1
+		box.MultiLine = true
+		box.TextEditable = false
+		box.ClearTextOnFocus = false
+		box.TextWrapped = true
+		box.TextXAlignment = Enum.TextXAlignment.Left
+		box.TextYAlignment = Enum.TextYAlignment.Top
+		box.TextColor3 = Color3.fromRGB(204, 204, 204)
+		box.TextSize = 14
+		box.Font = Enum.Font.Code
+		box.Text = ""
+		box.Parent = s
+		return box
 	end
 	-- Result card: hidden until a result_gate_request arrives (P2 spec §5).
 	local result = Instance.new("Frame")
@@ -297,23 +313,17 @@ function Ui.build(widget: DockWidgetPluginGui)
 	local diffs = scroller("Diffs", 5, 0.25)
 	local log = scroller("Log", 6, 0.6)
 
-	-- Log/diff lines are read-only TextBoxes (not TextLabels) so text can be
-	-- selected and copied with Ctrl+C.
-	local function line(parent: ScrollingFrame, text: string, order: number)
-		local b = Instance.new("TextBox")
-		b.Name = "Line" .. order
-		b.LayoutOrder = order
-		b.Size = UDim2.new(1, -8, 0, 18)
-		b.BackgroundTransparency = 1
-		b.TextXAlignment = Enum.TextXAlignment.Left
-		b.TextColor3 = Color3.fromRGB(204, 204, 204)
-		b.TextSize = 14
-		b.Font = Enum.Font.Code
-		b.TextTruncate = Enum.TextTruncate.AtEnd
-		b.TextEditable = false
-		b.ClearTextOnFocus = false
-		b.Text = text
-		b.Parent = parent
+	-- Append one line to a scroller's TextBox, capping history to the last
+	-- MAX_LINES so the box never grows unbounded. Whole box stays one selectable
+	-- block (highlight across lines).
+	local MAX_LINES = 200
+	local function appendLine(box: TextBox, text: string)
+		local combined = if box.Text == "" then text else box.Text .. "\n" .. text
+		local lines = string.split(combined, "\n")
+		if #lines > MAX_LINES then
+			combined = table.concat(lines, "\n", #lines - MAX_LINES + 1)
+		end
+		box.Text = combined
 	end
 
 	return {
@@ -338,7 +348,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 		rejectButton = reject,
 		diffs = diffs,
 		log = log,
-		addLine = line,
+		addLine = appendLine,
 	}
 end
 

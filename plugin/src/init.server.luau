@@ -12,7 +12,6 @@ local Ui = require(script.Ui)
 local PROTOCOL = 4
 local PORT = 35768 -- keep in sync with blox.config.json panel.port
 local BASE = "http://127.0.0.1:" .. PORT .. "/api/v1"
-local MAX_LINES = 200
 
 local toolbar = plugin:CreateToolbar("blox")
 local button = toolbar:CreateButton("blox panel", "Show the blox run panel", "")
@@ -69,8 +68,6 @@ local function mediaForName(name: string): string?
 	return nil
 end
 
-local logOrder = 0
-local diffOrder = 0
 local activeGateId: string? = nil
 local activeResultGateId: string? = nil
 local activeResultInstance: Instance? = nil
@@ -197,14 +194,7 @@ local function stashRejected(instance: Instance?)
 end
 
 local function addLog(text: string)
-	logOrder += 1
-	if logOrder > MAX_LINES then
-		local oldest = ui.log:FindFirstChild("Line" .. (logOrder - MAX_LINES))
-		if oldest then
-			oldest:Destroy()
-		end
-	end
-	ui.addLine(ui.log, text, logOrder)
+	ui.addLine(ui.log, text)
 end
 
 local function handleEvent(e: { [string]: any })
@@ -217,8 +207,7 @@ local function handleEvent(e: { [string]: any })
 	elseif e.type == "log" then
 		addLog(e.text)
 	elseif e.type == "file_diff" then
-		diffOrder += 1
-		ui.addLine(ui.diffs, ("%s  +%d −%d"):format(e.path, e.added, e.removed), diffOrder)
+		ui.addLine(ui.diffs, ("%s  +%d −%d"):format(e.path, e.added, e.removed))
 	elseif e.type == "gate_request" then
 		activeGateId = e.gateId
 		ui.gateText.Text = ("Approve %s?\n%s"):format(e.tool, e.inputSummary)
