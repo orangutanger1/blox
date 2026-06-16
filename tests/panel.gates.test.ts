@@ -78,6 +78,30 @@ describe('GateBroker', () => {
     expect(broker.resultDecisions()).toEqual([]);
   });
 
+  it('reset() closes a still-pending gate (run cancelled mid-gate) without leaking its timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const { sink, events } = collector();
+      const broker = new GateBroker(sink, 60_000);
+      const rp = broker.requestResult('mcp__Roblox_Studio__generate_mesh', null, '{}');
+      const rreq = events.find((e) => e.type === 'result_gate_request');
+      if (rreq?.type !== 'result_gate_request') throw new Error('unreachable');
+
+      // Run is cancelled with the gate still parked: reset settles it.
+      broker.reset();
+      expect(await rp).toEqual({ decision: 'approve', source: 'timeout' });
+      expect(events.some((e) => e.type === 'result_gate_resolved')).toBe(true);
+      // Report state cleared, and the timer is gone — advancing past the timeout
+      // must NOT fire a second resolution into the (now next-run) broker.
+      expect(broker.resultDecisions()).toEqual([]);
+      const resolvedCount = events.filter((e) => e.type === 'result_gate_resolved').length;
+      vi.advanceTimersByTime(120_000);
+      expect(events.filter((e) => e.type === 'result_gate_resolved').length).toBe(resolvedCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('truncates huge input summaries', async () => {
     const { sink, events } = collector();
     const broker = new GateBroker(sink, 60_000);

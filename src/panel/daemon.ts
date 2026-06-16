@@ -87,8 +87,6 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
   await server.start();
 
   const run: RunFn = async (prompt, slug, runId, abortController) => {
-    // Reused server → reused gate broker; clear last run's denials/decisions.
-    server.gates.reset();
     const ccr = readCcrModels();
     const modelString = resolveModel(ccr.provider, slug);
     const runConfig: BloxConfig = { ...config, model: modelString };
@@ -125,6 +123,10 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         resultDecisions: () => server.gates.resultDecisions(),
       });
     } finally {
+      // Close out the run's gates (a cancel may have left one parked) before the
+      // terminal event, so a stale timer can't fire into the next run, and clear
+      // per-run report state on this reused broker.
+      server.gates.reset();
       // Always close the run on the dock, even on a thrown runOnce.
       server.emit({
         type: 'run_finished',

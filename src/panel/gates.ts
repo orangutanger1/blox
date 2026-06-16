@@ -26,6 +26,7 @@ const VALID: Record<GateKind, readonly string[]> = {
 interface Pending {
   kind: GateKind;
   finish: (decision: string, source: GateSource, feedback?: string) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 // Pending-gate registry. request()/requestResult() publish a *_gate_request
@@ -97,7 +98,7 @@ export class GateBroker {
       onFinish(decision, source, feedback);
     };
     const timer = setTimeout(() => finish(timeoutDecision, 'timeout'), this.timeoutMs);
-    this.pending.set(gateId, { kind, finish });
+    this.pending.set(gateId, { kind, finish, timer });
   }
 
   kindOf(gateId: string): GateKind | undefined {
@@ -122,12 +123,19 @@ export class GateBroker {
     return [...this.results];
   }
 
-  // Clear per-run report state. The one-shot CLI gets a fresh broker per
-  // process, but the daemon reuses one server (hence one broker) across runs —
-  // without this, run N+1 inherits run N's denials/result decisions. Pending
-  // gates are not cleared: they never outlive their tool call, so the map is
-  // empty at run boundaries.
+  // Close out a run so a reused broker (the daemon's long-lived server) doesn't
+  // bleed into the next run. The one-shot CLI gets a fresh broker per process,
+  // so this is a no-op there. Called at run end:
+  //  - Cancelling a run (AbortController) leaves any gate the agent was parked
+  //    on still in `pending` with a live timeout timer. Fire each one to deny
+  //    (tool) / approve (result) so the timer dies, the parked promise settles,
+  //    and the dock sees a closing *_gate_resolved event — otherwise a stale
+  //    timer would fire into a LATER run's report and event stream.
+  //  - Then drop the per-run report state (denials, result decisions).
   reset(): void {
+    for (const p of [...this.pending.values()]) {
+      p.finish(p.kind === 'tool' ? 'deny' : 'approve', 'timeout');
+    }
     this.denied = [];
     this.results = [];
   }
