@@ -34,13 +34,28 @@ export interface QueryOptionsLike {
   // Reasoning effort; omitted when unset so the SDK default ('high') applies.
   effort?: EffortLevel;
   settingSources: never[];
-  thinking: { type: 'adaptive' };
+  // Omitted for CCR-routed models: the openrouter transformer maps adaptive
+  // thinking to reasoning-disabled, which 400s any model that mandates reasoning
+  // (e.g. gemini-2.5-pro). Native Claude keeps it.
+  thinking?: { type: 'adaptive' };
   allowedTools: string[];
   mcpServers: Record<string, McpServerConfig>;
   hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  // Set per-run by runAgent (not here) to forward CLI stderr — used to surface
+  // rate-limit/retry notices to the dock instead of a silent stall.
+  stderr?: (data: string) => void;
 }
 
 const FILE_TOOLS = ['Read', 'Write', 'Edit', 'Grep', 'Glob'];
+
+// Turn cap for CCR-routed (non-Claude) runs. They tend to loop past completion
+// instead of emitting a clean stop, so cap them tighter than native Claude.
+// WARNING: low values truncate genuinely multi-step builds (a run that needs >N
+// turns ends as error_max_turns). Raise via BLOX_ROUTED_MAX_TURNS.
+function routedMaxTurns(): number {
+  const raw = Number(process.env.BLOX_ROUTED_MAX_TURNS);
+  return Number.isInteger(raw) && raw > 0 ? raw : 12;
+}
 
 export function buildQueryOptions(
   config: BloxConfig,
@@ -51,11 +66,13 @@ export function buildQueryOptions(
 ): QueryOptionsLike {
   const allTools = [...FILE_TOOLS, ...bridge.allowedTools()];
   const ask = config.mode === 'ask';
+  // A CCR-routed model is "provider,slug" (has a comma); native Claude isn't.
+  const routed = config.model.includes(',');
   return {
     model: config.model,
     cwd: config.projectPath,
     systemPrompt: buildSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify }),
-    maxTurns: config.maxTurns,
+    maxTurns: routed ? Math.min(config.maxTurns, routedMaxTurns()) : config.maxTurns,
     maxBudgetUsd: config.maxBudgetUsd,
     permissionMode: ask ? 'default' : 'bypassPermissions',
     ...(ask
@@ -63,7 +80,7 @@ export function buildQueryOptions(
       : { allowDangerouslySkipPermissions: true as const }),
     ...(config.effort ? { effort: config.effort } : {}),
     settingSources: [],
-    thinking: { type: 'adaptive' },
+    ...(routed ? {} : { thinking: { type: 'adaptive' as const } }),
     allowedTools: ask ? nonGatedAllowedTools(allTools) : allTools,
     mcpServers: bridge.mcpServers(),
     hooks: {

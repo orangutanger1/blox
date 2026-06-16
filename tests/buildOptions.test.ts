@@ -30,6 +30,23 @@ describe('buildQueryOptions', () => {
     expect(typeof o.systemPrompt).toBe('string');
   });
 
+  it('omits thinking for a CCR-routed model (provider,slug) so reasoning-mandatory models do not 400', () => {
+    const routed = buildQueryOptions(
+      { ...config, model: 'openrouter,google/gemini-2.5-pro' },
+      createMockStudioBridge(),
+      digest,
+    );
+    expect(routed.model).toBe('openrouter,google/gemini-2.5-pro');
+    expect(routed.thinking).toBeUndefined();
+  });
+
+  it('clamps routed maxTurns to 12 (default) but leaves native at config value', () => {
+    const routed = buildQueryOptions({ ...config, model: 'openrouter,openai/gpt-4o' }, createMockStudioBridge(), digest);
+    expect(routed.maxTurns).toBe(12); // min(40, 12)
+    const native = buildQueryOptions(config, createMockStudioBridge(), digest);
+    expect(native.maxTurns).toBe(40);
+  });
+
   it('whitelists file tools plus bridge tools and no Bash', () => {
     const o = buildQueryOptions(config, createMockStudioBridge(), digest);
     expect(o.allowedTools).toEqual(expect.arrayContaining(['Read', 'Write', 'Edit', 'Grep', 'Glob']));

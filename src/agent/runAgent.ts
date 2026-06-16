@@ -4,6 +4,12 @@ import type { QueryOptionsLike } from './buildOptions.js';
 import type { ImageInput } from './imageInput.js';
 import type { EventSink } from '../panel/events.js';
 import { eventsFromMessage } from '../panel/translate.js';
+import { noticeFromStderr } from './notices.js';
+
+// How often to remind the dock the run is alive while waiting on the model's
+// first message. Covers the case where the SDK retries silently (e.g. a 429 the
+// CLI didn't print to stderr) — without this the dock looks dead for minutes.
+const HEARTBEAT_MS = 15_000;
 
 // The SDK accepts either a string prompt or a stream of user messages. With an
 // image we send one user message carrying [text, image] content blocks; without
@@ -135,32 +141,81 @@ export async function runAgent(
     deniedByUser: [],
   };
   let turns = 0;
+  const sink = extras.sink;
   const input = buildPromptInput(prompt, extras.image);
+
+  // Forward only rate-limit/retry lines from the CLI's stderr to the dock, so a
+  // 429 surfaces instead of a silent stall. Stderr arrives in arbitrary chunks;
+  // buffer and split on newlines. Throttle repeats so a retry storm doesn't spam.
+  let stderrTail = '';
+  let lastNotice = '';
+  const stderr = sink
+    ? (data: string) => {
+        stderrTail += data;
+        const lines = stderrTail.split('\n');
+        stderrTail = lines.pop() ?? '';
+        for (const line of lines) {
+          const notice = noticeFromStderr(line);
+          if (notice && notice !== lastNotice) {
+            lastNotice = notice;
+            try {
+              sink.emit({ type: 'log', text: notice });
+            } catch {
+              /* degraded panel beats a dead run */
+            }
+          }
+        }
+      }
+    : undefined;
+
+  // Heartbeat until the first message arrives, so even a silent retry never
+  // leaves the dock looking dead. Cleared on the first message and in finally.
+  let firstSeen = false;
+  const heartbeat =
+    sink &&
+    setInterval(() => {
+      if (firstSeen) return;
+      try {
+        sink.emit({ type: 'log', text: '…still waiting for the model (slow or rate-limited)' });
+      } catch {
+        /* swallow */
+      }
+    }, HEARTBEAT_MS);
+
   const queryOptions = {
     ...options,
     ...(extras.abortController ? { abortController: extras.abortController } : {}),
     ...(extras.env ? { env: extras.env } : {}),
+    ...(stderr ? { stderr } : {}),
   };
-  for await (const message of query({ prompt: input, options: queryOptions as never })) {
-    if (extras.sink) {
-      // The panel is observability, never control flow: a throwing sink must
-      // not take down the run (spec §7).
-      try {
-        for (const e of eventsFromMessage(message)) extras.sink.emit(e);
-        if (message.type === 'assistant') {
-          turns += 1;
-          extras.sink.emit({ type: 'status', turns });
+  try {
+    for await (const message of query({ prompt: input, options: queryOptions as never })) {
+      if (!firstSeen) {
+        firstSeen = true;
+        if (heartbeat) clearInterval(heartbeat);
+      }
+      if (sink) {
+        // The panel is observability, never control flow: a throwing sink must
+        // not take down the run (spec §7).
+        try {
+          for (const e of eventsFromMessage(message)) sink.emit(e);
+          if (message.type === 'assistant') {
+            turns += 1;
+            sink.emit({ type: 'status', turns });
+          }
+        } catch {
+          // swallow — degraded panel beats a dead run
         }
-      } catch {
-        // swallow — degraded panel beats a dead run
+      }
+      if (message.type === 'result') {
+        result = summarizeResult(
+          message as unknown as ResultMessageLike,
+          extras.dockDeniedTools?.() ?? [],
+        );
       }
     }
-    if (message.type === 'result') {
-      result = summarizeResult(
-        message as unknown as ResultMessageLike,
-        extras.dockDeniedTools?.() ?? [],
-      );
-    }
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
   }
   return result;
 }
