@@ -31,6 +31,57 @@ function Ui.build(widget: DockWidgetPluginGui)
 	status.Text = "disconnected — run blox to start"
 	status.TextColor3 = Color3.fromRGB(255, 170, 0)
 
+	-- Controls card: model picker + prompt + launch/cancel (protocol v4).
+	local controls = Instance.new("Frame")
+	controls.Name = "Controls"
+	controls.LayoutOrder = 1.5
+	controls.Size = UDim2.new(1, -8, 0, 96)
+	controls.BackgroundColor3 = Color3.fromRGB(30, 36, 46)
+	controls.Parent = root
+
+	local modelButton = Instance.new("TextButton")
+	modelButton.Name = "Model"
+	modelButton.Text = "model: (loading…)"
+	modelButton.Position = UDim2.fromOffset(4, 4)
+	modelButton.Size = UDim2.new(1, -8, 0, 22)
+	modelButton.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+	modelButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+	modelButton.TextXAlignment = Enum.TextXAlignment.Left
+	modelButton.Font = Enum.Font.Code
+	modelButton.TextSize = 14
+	modelButton.Parent = controls
+
+	local promptBox = Instance.new("TextBox")
+	promptBox.Name = "Prompt"
+	promptBox.PlaceholderText = "what should blox build?"
+	promptBox.Text = ""
+	promptBox.Position = UDim2.fromOffset(4, 30)
+	promptBox.Size = UDim2.new(1, -8, 0, 30)
+	promptBox.TextWrapped = true
+	promptBox.ClearTextOnFocus = false
+	promptBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	promptBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+	promptBox.TextXAlignment = Enum.TextXAlignment.Left
+	promptBox.Parent = controls
+
+	local launchButton = Instance.new("TextButton")
+	launchButton.Name = "Launch"
+	launchButton.Text = "Launch"
+	launchButton.Position = UDim2.new(0, 4, 1, -28)
+	launchButton.Size = UDim2.fromOffset(100, 24)
+	launchButton.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+	launchButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	launchButton.Parent = controls
+
+	local cancelButton = Instance.new("TextButton")
+	cancelButton.Name = "Cancel"
+	cancelButton.Text = "Cancel"
+	cancelButton.Position = UDim2.new(0, 112, 1, -28)
+	cancelButton.Size = UDim2.fromOffset(80, 24)
+	cancelButton.BackgroundColor3 = Color3.fromRGB(90, 70, 30)
+	cancelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	cancelButton.Parent = controls
+
 	-- Image request card: hidden until an image_request arrives (P3).
 	local imageGate = Instance.new("Frame")
 	imageGate.Name = "ImageGate"
@@ -172,6 +223,10 @@ function Ui.build(widget: DockWidgetPluginGui)
 
 	return {
 		status = status,
+		modelButton = modelButton,
+		promptBox = promptBox,
+		launchButton = launchButton,
+		cancelButton = cancelButton,
 		imageGate = imageGate,
 		imageStatus = imageStatus,
 		imageButton = imageButton,
