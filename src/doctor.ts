@@ -34,6 +34,11 @@ export const defaultClientFactory: McpClientFactory = async (launch) => {
     command: launch.command,
     args: launch.args,
     ...(launch.cwd ? { cwd: launch.cwd } : {}),
+    // Silence the proxy's cmd.exe/mcp.bat chatter ("'else' is not recognized",
+    // StudioMCP.exe lines, "No studio available" WARNs) — pure noise that made
+    // a healthy `blox doctor` look broken. Real connect failures still surface
+    // via the connect() rejection.
+    stderr: 'ignore',
   });
   const client = new Client({ name: 'blox-doctor', version: '0.0.0' }, { capabilities: {} });
   await client.connect(transport);

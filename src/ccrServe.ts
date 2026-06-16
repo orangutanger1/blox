@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { ccrEndpoint } from './ccr.js';
+import { ccrEndpoint, readCcrModels } from './ccr.js';
 
 // Probe CCR's inbound endpoint. Any HTTP response (even a 404) means the router
 // is up; only a refused connection / timeout throws. `ccr status` is unreliable
@@ -62,4 +62,46 @@ export async function ensureCcr(log: (msg: string) => void = () => {}, opts: Ens
   }
   log('CCR router did not come up — is claude-code-router installed (npm i -g @musistudio/claude-code-router)?');
   return false;
+}
+
+// Doctor snapshot of CCR: is it reachable, and what does its config advertise.
+export interface CcrStatus {
+  reachable: boolean;
+  baseUrl: string;
+  provider: string | null;
+  modelCount: number;
+  current: string | null;
+}
+
+export async function ccrStatus(fetchFn: CcrFetchFn = defaultFetch): Promise<CcrStatus> {
+  const ep = ccrEndpoint();
+  const models = readCcrModels();
+  return {
+    reachable: await ccrReachable(ep.baseUrl, fetchFn),
+    baseUrl: ep.baseUrl,
+    provider: models.provider,
+    modelCount: models.models.length,
+    current: models.current,
+  };
+}
+
+export function formatCcrStatus(s: CcrStatus): string {
+  // No provider configured → blox runs native Claude; CCR is irrelevant.
+  if (!s.provider && s.modelCount === 0) {
+    return [
+      `  router:  NO CCR CONFIG (${s.baseUrl})`,
+      '  detail:  native Claude only (no ~/.claude-code-router provider) — fine unless you want BYO models',
+    ].join('\n');
+  }
+  const head = s.reachable
+    ? `  router:  CCR REACHABLE (${s.baseUrl})`
+    : `  router:  CCR CONFIGURED, DOWN (${s.baseUrl})`;
+  return [
+    head,
+    `  provider: ${s.provider ?? '?'}`,
+    `  models:   ${s.modelCount} (default ${s.current ?? '?'})`,
+    s.reachable
+      ? '  detail:  routed runs ready'
+      : '  detail:  the daemon auto-starts it on a routed run (ensureCcr); or `ccr start`',
+  ].join('\n');
 }

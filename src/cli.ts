@@ -6,6 +6,8 @@ import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
+import { ccrStatus, formatCcrStatus } from './ccrServe.js';
+import { checkPanel, formatPanelStatus } from './panel/status.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
 import { formatReport } from './report.js';
@@ -35,6 +37,11 @@ async function main(): Promise<void> {
     console.log(formatDoctorReport(report));
     const serve = await checkRojoServe(rojoServeUrl());
     console.log(formatServeCheck(serve));
+    // BYO-model + dock readiness: CCR router and the panel daemon. Both optional
+    // (native Claude + CLI-only runs need neither), so neither affects exit code.
+    console.log(formatCcrStatus(await ccrStatus()));
+    const port = loadConfig(projectPath ?? process.cwd(), projectPath ? { projectPath } : {}).panel.port;
+    console.log(formatPanelStatus(await checkPanel(port)));
     process.exit(report.connected ? 0 : 1);
   }
 

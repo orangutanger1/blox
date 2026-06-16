@@ -1,5 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { ccrReachable, ensureCcr } from '../src/ccrServe.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus } from '../src/ccrServe.js';
 
 const noSleep = () => Promise.resolve();
 
@@ -49,5 +52,44 @@ describe('ensureCcr', () => {
     expect(ok).toBe(false);
     expect(spawn).toHaveBeenCalledOnce();
     expect(logs.some((l) => l.includes('did not come up'))).toBe(true);
+  });
+});
+
+describe('ccrStatus', () => {
+  const cfgPath = join(tmpdir(), `blox-ccr-${process.pid}.json`);
+  afterEach(() => {
+    delete process.env.CCR_CONFIG;
+    rmSync(cfgPath, { force: true });
+  });
+
+  it('reads provider/models from CCR_CONFIG and reflects reachability', async () => {
+    writeFileSync(cfgPath, JSON.stringify({
+      Providers: [{ name: 'openrouter', models: ['a', 'b'] }],
+      Router: { default: 'openrouter,b' },
+    }));
+    process.env.CCR_CONFIG = cfgPath;
+    const s = await ccrStatus(async () => ({}));
+    expect(s).toMatchObject({ reachable: true, provider: 'openrouter', modelCount: 2, current: 'b' });
+  });
+
+  it('marks down when the probe throws', async () => {
+    process.env.CCR_CONFIG = cfgPath; // no file → empty config
+    const s = await ccrStatus(async () => { throw new Error('refused'); });
+    expect(s).toMatchObject({ reachable: false, provider: null, modelCount: 0 });
+  });
+});
+
+describe('formatCcrStatus', () => {
+  it('reports native-only when no provider', () => {
+    const out = formatCcrStatus({ reachable: false, baseUrl: 'http://x', provider: null, modelCount: 0, current: null });
+    expect(out).toContain('NO CCR CONFIG');
+    expect(out).toContain('native Claude only');
+  });
+  it('reports reachable + configured-but-down', () => {
+    const base = { baseUrl: 'http://x', provider: 'openrouter', modelCount: 3, current: 'gpt-4o' };
+    expect(formatCcrStatus({ ...base, reachable: true })).toContain('CCR REACHABLE');
+    const down = formatCcrStatus({ ...base, reachable: false });
+    expect(down).toContain('CCR CONFIGURED, DOWN');
+    expect(down).toContain('auto-starts');
   });
 });
