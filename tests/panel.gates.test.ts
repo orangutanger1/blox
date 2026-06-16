@@ -60,6 +60,24 @@ describe('GateBroker', () => {
     expect(broker.resolve(req.gateId, 'deny')).toBe(false);
   });
 
+  it('reset() clears denials and result decisions for daemon run reuse', async () => {
+    const { sink, events } = collector();
+    const broker = new GateBroker(sink, 60_000);
+    const tp = broker.request('mcp__Roblox_Studio__start_stop_play', {});
+    const rp = broker.requestResult('mcp__Roblox_Studio__generate_mesh', null, '{}');
+    const treq = events.find((e) => e.type === 'gate_request');
+    const rreq = events.find((e) => e.type === 'result_gate_request');
+    if (treq?.type !== 'gate_request' || rreq?.type !== 'result_gate_request') throw new Error('unreachable');
+    broker.resolve(treq.gateId, 'deny');
+    broker.resolve(rreq.gateId, 'reject', 'nope');
+    await Promise.all([tp, rp]);
+    expect(broker.dockDeniedTools()).toHaveLength(1);
+    expect(broker.resultDecisions()).toHaveLength(1);
+    broker.reset();
+    expect(broker.dockDeniedTools()).toEqual([]);
+    expect(broker.resultDecisions()).toEqual([]);
+  });
+
   it('truncates huge input summaries', async () => {
     const { sink, events } = collector();
     const broker = new GateBroker(sink, 60_000);

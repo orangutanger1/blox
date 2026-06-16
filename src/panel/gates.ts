@@ -121,4 +121,14 @@ export class GateBroker {
   resultDecisions(): ResultRecord[] {
     return [...this.results];
   }
+
+  // Clear per-run report state. The one-shot CLI gets a fresh broker per
+  // process, but the daemon reuses one server (hence one broker) across runs —
+  // without this, run N+1 inherits run N's denials/result decisions. Pending
+  // gates are not cleared: they never outlive their tool call, so the map is
+  // empty at run boundaries.
+  reset(): void {
+    this.denied = [];
+    this.results = [];
+  }
 }

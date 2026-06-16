@@ -17,6 +17,7 @@ import { writePlan } from './onboard/write.js';
 import { formatOnboardReport } from './onboard/report.js';
 import { PanelServer } from './panel/server.js';
 import { studioPluginsDir, installPanel } from './panel/install.js';
+import { startDaemon } from './panel/daemon.js';
 import { randomUUID } from 'node:crypto';
 
 async function main(): Promise<void> {
@@ -86,8 +87,22 @@ async function main(): Promise<void> {
   }
 
   if (command === 'panel') {
+    if (prompt === 'serve') {
+      const cwd = projectPath ?? process.cwd();
+      const config = loadConfig(cwd, projectPath ? { projectPath } : {});
+      const server = await startDaemon(config);
+      console.log(`blox panel daemon on :${config.panel.port} — open the blox dock in Studio`);
+      console.log('   (Ctrl-C to stop)');
+      await new Promise<void>((resolve) => {
+        const done = () => resolve();
+        process.on('SIGINT', done);
+        process.on('SIGTERM', done);
+      });
+      await server.stop();
+      process.exit(0);
+    }
     if (prompt !== 'install') {
-      console.error('usage: blox panel install');
+      console.error('usage: blox panel install | blox panel serve');
       process.exit(2);
     }
     try {
@@ -105,7 +120,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve',
     );
     process.exit(2);
   }
