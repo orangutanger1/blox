@@ -3,20 +3,22 @@ import { classifyStop, summarizeResult, buildPromptInput, computeIdleAbortMs } f
 
 describe('computeIdleAbortMs', () => {
   afterEach(() => { delete process.env.BLOX_IDLE_ABORT_SECONDS; });
-  it('defaults to 120s when unset', () => {
-    expect(computeIdleAbortMs()).toBe(120_000);
+  it('defaults to 0 (auto-abort off) when unset', () => {
+    expect(computeIdleAbortMs()).toBe(0);
   });
   it('honors a positive override', () => {
     process.env.BLOX_IDLE_ABORT_SECONDS = '45';
     expect(computeIdleAbortMs()).toBe(45_000);
   });
-  it('0 disables (returns 0)', () => {
+  it('0 and negatives stay off', () => {
     process.env.BLOX_IDLE_ABORT_SECONDS = '0';
     expect(computeIdleAbortMs()).toBe(0);
+    process.env.BLOX_IDLE_ABORT_SECONDS = '-5';
+    expect(computeIdleAbortMs()).toBe(0);
   });
-  it('falls back to default on garbage', () => {
+  it('garbage stays off', () => {
     process.env.BLOX_IDLE_ABORT_SECONDS = 'nope';
-    expect(computeIdleAbortMs()).toBe(120_000);
+    expect(computeIdleAbortMs()).toBe(0);
   });
 });
 

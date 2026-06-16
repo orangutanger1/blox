@@ -10,15 +10,15 @@ import { noticeFromStderr } from './notices.js';
 // silence so the dock never looks dead (covers silent SDK retries + slow models).
 const HEARTBEAT_MS = 15_000;
 
-// Abort a run after this much continuous stream silence — a wedged non-Claude
-// turn (CCR/OpenRouter request that never returns) would otherwise hang forever,
-// since maxTurns only caps completed turns. 0 (via BLOX_IDLE_ABORT_SECONDS=0)
-// disables. Generous default so a legitimately slow turn isn't killed.
+// Optional auto-abort after this much continuous stream silence — a wedged
+// non-Claude turn would otherwise hang forever (maxTurns only caps COMPLETED
+// turns). OFF by default: a legitimately quiet turn (a blocking wait_job_finished
+// on a multi-minute asset generation) emits no stream activity and must NOT be
+// killed. The heartbeat already keeps the dock alive, and a real wedge is
+// human-cancellable. Opt in with BLOX_IDLE_ABORT_SECONDS=<seconds>.
 export function computeIdleAbortMs(): number {
-  const raw = process.env.BLOX_IDLE_ABORT_SECONDS;
-  if (raw === undefined) return 120_000;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n * 1000 : 120_000;
+  const n = Number(process.env.BLOX_IDLE_ABORT_SECONDS);
+  return Number.isFinite(n) && n > 0 ? n * 1000 : 0;
 }
 const IDLE_ABORT_MS = computeIdleAbortMs();
 
