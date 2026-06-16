@@ -82,6 +82,25 @@ function Ui.build(widget: DockWidgetPluginGui)
 	cancelButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 	cancelButton.Parent = controls
 
+	-- Dropdown list: overlays the controls below the model button when open.
+	-- High ZIndex so it renders over the prompt box; init.server.luau fills it
+	-- with one button per model and toggles Visible.
+	local modelList = Instance.new("ScrollingFrame")
+	modelList.Name = "ModelList"
+	modelList.Visible = false
+	modelList.Position = UDim2.fromOffset(4, 26)
+	modelList.Size = UDim2.new(1, -8, 0, 88)
+	modelList.BackgroundColor3 = Color3.fromRGB(40, 44, 54)
+	modelList.BorderSizePixel = 1
+	modelList.CanvasSize = UDim2.new()
+	modelList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	modelList.ScrollBarThickness = 4
+	modelList.ZIndex = 10
+	modelList.Parent = controls
+	local modelListLayout = Instance.new("UIListLayout")
+	modelListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	modelListLayout.Parent = modelList
+
 	-- Image request card: hidden until an image_request arrives (P3).
 	local imageGate = Instance.new("Frame")
 	imageGate.Name = "ImageGate"
@@ -224,6 +243,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 	return {
 		status = status,
 		modelButton = modelButton,
+		modelList = modelList,
 		promptBox = promptBox,
 		launchButton = launchButton,
 		cancelButton = cancelButton,

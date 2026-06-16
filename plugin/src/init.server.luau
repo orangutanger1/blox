@@ -84,7 +84,40 @@ end
 
 local function refreshModelButton()
 	local m = currentModel()
-	ui.modelButton.Text = if m then "model: " .. m else "model: (none — check CCR)"
+	ui.modelButton.Text = if m then "model: " .. m .. "  ▼" else "model: (none — check CCR)"
+end
+
+local function selectModel(i: number)
+	modelIndex = i
+	ui.modelList.Visible = false
+	refreshModelButton()
+end
+
+-- Rebuild the dropdown rows from the current model list. Called on (re)connect
+-- after /models is fetched.
+local function rebuildModelList()
+	for _, child in ui.modelList:GetChildren() do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+	for i, name in models do
+		local row = Instance.new("TextButton")
+		row.Name = "Model" .. i
+		row.LayoutOrder = i
+		row.Size = UDim2.new(1, 0, 0, 20)
+		row.BackgroundColor3 = Color3.fromRGB(50, 54, 64)
+		row.TextColor3 = Color3.fromRGB(220, 220, 220)
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.Font = Enum.Font.Code
+		row.TextSize = 13
+		row.Text = " " .. name
+		row.ZIndex = 11
+		row.Parent = ui.modelList
+		row.MouseButton1Click:Connect(function()
+			selectModel(i)
+		end)
+	end
 end
 
 -- Find the generated instance. generate_mesh's "tag" is a CollectionService
@@ -290,8 +323,7 @@ ui.modelButton.MouseButton1Click:Connect(function()
 	if #models == 0 then
 		return
 	end
-	modelIndex = (modelIndex % #models) + 1
-	refreshModelButton()
+	ui.modelList.Visible = not ui.modelList.Visible
 end)
 
 ui.launchButton.MouseButton1Click:Connect(function()
@@ -351,6 +383,7 @@ task.spawn(function()
 							end
 						end
 					end
+					rebuildModelList()
 					refreshModelButton()
 				end
 				-- Fresh connection → any prior run is gone; re-enable Launch so a
