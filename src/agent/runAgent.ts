@@ -110,6 +110,13 @@ export interface RunAgentExtras {
   sink?: EventSink;
   dockDeniedTools?: () => string[];
   image?: ImageInput;
+  // Aborting this controller's signal cancels the in-flight query (the dock's
+  // Cancel button). Plumbed straight into the SDK's Options.abortController.
+  abortController?: AbortController;
+  // Env for the model call (SDK Options.env). The daemon sets ANTHROPIC_BASE_URL
+  // to CCR here so a `provider,slug` model routes per-request instead of 404ing
+  // at api.anthropic.com.
+  env?: Record<string, string>;
 }
 
 export async function runAgent(
@@ -129,7 +136,12 @@ export async function runAgent(
   };
   let turns = 0;
   const input = buildPromptInput(prompt, extras.image);
-  for await (const message of query({ prompt: input, options: options as never })) {
+  const queryOptions = {
+    ...options,
+    ...(extras.abortController ? { abortController: extras.abortController } : {}),
+    ...(extras.env ? { env: extras.env } : {}),
+  };
+  for await (const message of query({ prompt: input, options: queryOptions as never })) {
     if (extras.sink) {
       // The panel is observability, never control flow: a throwing sink must
       // not take down the run (spec §7).

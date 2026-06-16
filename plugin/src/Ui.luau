@@ -16,20 +16,139 @@ local function label(parent: Instance, name: string, order: number): TextLabel
 	return l
 end
 
+-- Rounded corners on a frame/button/box.
+local function corner(inst: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = inst
+end
+
+-- Thin border to lift a card off the background.
+local function stroke(inst: Instance, color: Color3)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = 1
+	s.Transparency = 0.4
+	s.Parent = inst
+end
+
 function Ui.build(widget: DockWidgetPluginGui)
 	local root = Instance.new("Frame")
 	root.Size = UDim2.fromScale(1, 1)
-	root.BackgroundColor3 = Color3.fromRGB(36, 36, 36)
+	root.BackgroundColor3 = Color3.fromRGB(28, 29, 33)
 	root.Parent = widget
+
+	local rootPad = Instance.new("UIPadding")
+	rootPad.PaddingLeft = UDim.new(0, 8)
+	rootPad.PaddingRight = UDim.new(0, 8)
+	rootPad.PaddingTop = UDim.new(0, 8)
+	rootPad.PaddingBottom = UDim.new(0, 8)
+	rootPad.Parent = root
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 4)
+	layout.Padding = UDim.new(0, 6)
 	layout.Parent = root
 
 	local status = label(root, "Status", 1)
+	status.Size = UDim2.new(1, -8, 0, 22)
 	status.Text = "disconnected — run blox to start"
+	status.TextSize = 15
 	status.TextColor3 = Color3.fromRGB(255, 170, 0)
+
+	-- Controls card: model picker + prompt + launch/cancel (protocol v4).
+	local controls = Instance.new("Frame")
+	controls.Name = "Controls"
+	controls.LayoutOrder = 1.5
+	controls.Size = UDim2.new(1, -8, 0, 100)
+	controls.BackgroundColor3 = Color3.fromRGB(34, 38, 48)
+	controls.Parent = root
+	corner(controls, 6)
+	stroke(controls, Color3.fromRGB(60, 66, 80))
+
+	local modelButton = Instance.new("TextButton")
+	modelButton.Name = "Model"
+	modelButton.Text = "model: (loading…)"
+	modelButton.Position = UDim2.fromOffset(6, 6)
+	modelButton.Size = UDim2.new(1, -12, 0, 22)
+	modelButton.BackgroundColor3 = Color3.fromRGB(48, 52, 64)
+	modelButton.TextColor3 = Color3.fromRGB(220, 220, 220)
+	modelButton.TextXAlignment = Enum.TextXAlignment.Left
+	modelButton.Font = Enum.Font.Code
+	modelButton.TextSize = 14
+	modelButton.Parent = controls
+	corner(modelButton, 4)
+	local modelPad = Instance.new("UIPadding")
+	modelPad.PaddingLeft = UDim.new(0, 6)
+	modelPad.Parent = modelButton
+
+	local promptBox = Instance.new("TextBox")
+	promptBox.Name = "Prompt"
+	promptBox.PlaceholderText = "what should blox build?"
+	promptBox.Text = ""
+	promptBox.Position = UDim2.fromOffset(6, 32)
+	promptBox.Size = UDim2.new(1, -12, 0, 32)
+	promptBox.TextWrapped = true
+	promptBox.ClearTextOnFocus = false
+	promptBox.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
+	promptBox.PlaceholderColor3 = Color3.fromRGB(130, 132, 138)
+	promptBox.TextColor3 = Color3.fromRGB(225, 227, 231)
+	promptBox.TextSize = 14
+	promptBox.Font = Enum.Font.Code
+	promptBox.TextXAlignment = Enum.TextXAlignment.Left
+	promptBox.TextYAlignment = Enum.TextYAlignment.Top
+	promptBox.Parent = controls
+	corner(promptBox, 4)
+	stroke(promptBox, Color3.fromRGB(60, 66, 80))
+	local promptPad = Instance.new("UIPadding")
+	promptPad.PaddingLeft = UDim.new(0, 6)
+	promptPad.PaddingTop = UDim.new(0, 3)
+	promptPad.Parent = promptBox
+
+	local launchButton = Instance.new("TextButton")
+	launchButton.Name = "Launch"
+	launchButton.Text = "▶ Launch"
+	launchButton.Position = UDim2.new(0, 6, 1, -30)
+	launchButton.Size = UDim2.fromOffset(104, 26)
+	launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
+	launchButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	launchButton.Font = Enum.Font.GothamMedium
+	launchButton.TextSize = 14
+	launchButton.Parent = controls
+	corner(launchButton, 5)
+
+	local cancelButton = Instance.new("TextButton")
+	cancelButton.Name = "Cancel"
+	cancelButton.Text = "Cancel"
+	cancelButton.Position = UDim2.new(0, 118, 1, -30)
+	cancelButton.Size = UDim2.fromOffset(82, 26)
+	cancelButton.BackgroundColor3 = Color3.fromRGB(70, 64, 44)
+	cancelButton.TextColor3 = Color3.fromRGB(235, 230, 220)
+	cancelButton.Font = Enum.Font.GothamMedium
+	cancelButton.TextSize = 14
+	cancelButton.Parent = controls
+	corner(cancelButton, 5)
+
+	-- Dropdown list: overlays the controls below the model button when open.
+	-- High ZIndex so it renders over the prompt box; init.server.luau fills it
+	-- with one button per model and toggles Visible.
+	local modelList = Instance.new("ScrollingFrame")
+	modelList.Name = "ModelList"
+	modelList.Visible = false
+	modelList.Position = UDim2.fromOffset(6, 30)
+	modelList.Size = UDim2.new(1, -12, 0, 88)
+	modelList.BackgroundColor3 = Color3.fromRGB(40, 44, 54)
+	modelList.BorderSizePixel = 0
+	modelList.CanvasSize = UDim2.new()
+	modelList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	modelList.ScrollBarThickness = 4
+	modelList.ZIndex = 10
+	modelList.Parent = controls
+	corner(modelList, 4)
+	stroke(modelList, Color3.fromRGB(70, 76, 92))
+	local modelListLayout = Instance.new("UIListLayout")
+	modelListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	modelListLayout.Parent = modelList
 
 	-- Image request card: hidden until an image_request arrives (P3).
 	local imageGate = Instance.new("Frame")
@@ -39,6 +158,8 @@ function Ui.build(widget: DockWidgetPluginGui)
 	imageGate.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
 	imageGate.Visible = false
 	imageGate.Parent = root
+	corner(imageGate, 6)
+	stroke(imageGate, Color3.fromRGB(60, 80, 110))
 
 	local imageStatus = label(imageGate, "ImageStatus", 1)
 	imageStatus.Position = UDim2.fromOffset(4, 4)
@@ -52,7 +173,10 @@ function Ui.build(widget: DockWidgetPluginGui)
 	imageButton.Size = UDim2.fromOffset(120, 24)
 	imageButton.BackgroundColor3 = Color3.fromRGB(40, 90, 140)
 	imageButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	imageButton.Font = Enum.Font.GothamMedium
+	imageButton.TextSize = 14
 	imageButton.Parent = imageGate
+	corner(imageButton, 5)
 
 	-- Gate card: hidden until a gate_request arrives.
 	local gate = Instance.new("Frame")
@@ -62,6 +186,8 @@ function Ui.build(widget: DockWidgetPluginGui)
 	gate.BackgroundColor3 = Color3.fromRGB(60, 50, 20)
 	gate.Visible = false
 	gate.Parent = root
+	corner(gate, 6)
+	stroke(gate, Color3.fromRGB(110, 92, 40))
 
 	local gateText = label(gate, "GateText", 1)
 	gateText.Position = UDim2.fromOffset(4, 4)
@@ -77,7 +203,10 @@ function Ui.build(widget: DockWidgetPluginGui)
 		b.Size = UDim2.fromOffset(80, 24)
 		b.BackgroundColor3 = color
 		b.TextColor3 = Color3.fromRGB(255, 255, 255)
+		b.Font = Enum.Font.GothamMedium
+		b.TextSize = 14
 		b.Parent = gate
+		corner(b, 5)
 		return b
 	end
 	local allow = button("Allow", 4, Color3.fromRGB(40, 120, 40))
@@ -91,10 +220,16 @@ function Ui.build(widget: DockWidgetPluginGui)
 		s.Size = UDim2.new(1, -8, heightScale, -8)
 		s.CanvasSize = UDim2.new()
 		s.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		s.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+		s.BackgroundColor3 = Color3.fromRGB(22, 23, 26)
 		s.BorderSizePixel = 0
 		s.ScrollBarThickness = 6
 		s.Parent = root
+		corner(s, 5)
+		local sp = Instance.new("UIPadding")
+		sp.PaddingLeft = UDim.new(0, 6)
+		sp.PaddingTop = UDim.new(0, 4)
+		sp.PaddingBottom = UDim.new(0, 4)
+		sp.Parent = s
 		local ll = Instance.new("UIListLayout")
 		ll.SortOrder = Enum.SortOrder.LayoutOrder
 		ll.Parent = s
@@ -108,6 +243,8 @@ function Ui.build(widget: DockWidgetPluginGui)
 	result.BackgroundColor3 = Color3.fromRGB(30, 50, 60)
 	result.Visible = false
 	result.Parent = root
+	corner(result, 6)
+	stroke(result, Color3.fromRGB(55, 90, 110))
 
 	local resultText = label(result, "ResultText", 1)
 	resultText.Position = UDim2.fromOffset(4, 4)
@@ -121,6 +258,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 	viewport.Size = UDim2.new(1, -8, 0, 100)
 	viewport.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 	viewport.Parent = result
+	corner(viewport, 5)
 
 	local feedbackBox = Instance.new("TextBox")
 	feedbackBox.Name = "Feedback"
@@ -128,11 +266,16 @@ function Ui.build(widget: DockWidgetPluginGui)
 	feedbackBox.Text = ""
 	feedbackBox.Position = UDim2.new(0, 4, 1, -62)
 	feedbackBox.Size = UDim2.new(1, -8, 0, 24)
-	feedbackBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	feedbackBox.TextColor3 = Color3.fromRGB(220, 220, 220)
+	feedbackBox.BackgroundColor3 = Color3.fromRGB(24, 25, 29)
+	feedbackBox.PlaceholderColor3 = Color3.fromRGB(130, 132, 138)
+	feedbackBox.TextColor3 = Color3.fromRGB(225, 227, 231)
 	feedbackBox.TextXAlignment = Enum.TextXAlignment.Left
 	feedbackBox.ClearTextOnFocus = false
 	feedbackBox.Parent = result
+	corner(feedbackBox, 4)
+	local fbPad = Instance.new("UIPadding")
+	fbPad.PaddingLeft = UDim.new(0, 6)
+	fbPad.Parent = feedbackBox
 
 	local function resultButton(name: string, x: number, color: Color3): TextButton
 		local b = Instance.new("TextButton")
@@ -142,7 +285,10 @@ function Ui.build(widget: DockWidgetPluginGui)
 		b.Size = UDim2.fromOffset(80, 24)
 		b.BackgroundColor3 = color
 		b.TextColor3 = Color3.fromRGB(255, 255, 255)
+		b.Font = Enum.Font.GothamMedium
+		b.TextSize = 14
 		b.Parent = result
+		corner(b, 5)
 		return b
 	end
 	local approve = resultButton("Approve", 4, Color3.fromRGB(40, 120, 40))
@@ -172,6 +318,11 @@ function Ui.build(widget: DockWidgetPluginGui)
 
 	return {
 		status = status,
+		modelButton = modelButton,
+		modelList = modelList,
+		promptBox = promptBox,
+		launchButton = launchButton,
+		cancelButton = cancelButton,
 		imageGate = imageGate,
 		imageStatus = imageStatus,
 		imageButton = imageButton,

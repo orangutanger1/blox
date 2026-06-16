@@ -9,7 +9,7 @@ local CollectionService = game:GetService("CollectionService")
 local StudioService = game:GetService("StudioService")
 local Ui = require(script.Ui)
 
-local PROTOCOL = 3
+local PROTOCOL = 4
 local PORT = 35768 -- keep in sync with blox.config.json panel.port
 local BASE = "http://127.0.0.1:" .. PORT .. "/api/v1"
 local MAX_LINES = 200
@@ -74,6 +74,54 @@ local diffOrder = 0
 local activeGateId: string? = nil
 local activeResultGateId: string? = nil
 local activeResultInstance: Instance? = nil
+
+local models: { string } = {}
+local modelIndex = 1
+
+local function currentModel(): string?
+	return models[modelIndex]
+end
+
+local function refreshModelButton()
+	local m = currentModel()
+	ui.modelButton.Text = if m then "model: " .. m .. "  ▼" else "model: (none — check CCR)"
+end
+
+local function selectModel(i: number)
+	modelIndex = i
+	ui.modelList.Visible = false
+	refreshModelButton()
+end
+
+-- Rebuild the dropdown rows from the current model list. Called on (re)connect
+-- after /models is fetched.
+local function rebuildModelList()
+	for _, child in ui.modelList:GetChildren() do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+	for i, name in models do
+		local row = Instance.new("TextButton")
+		row.Name = "Model" .. i
+		row.LayoutOrder = i
+		row.Size = UDim2.new(1, 0, 0, 20)
+		row.BackgroundColor3 = Color3.fromRGB(50, 54, 64)
+		row.TextColor3 = Color3.fromRGB(220, 220, 220)
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.Font = Enum.Font.Code
+		row.TextSize = 13
+		row.Text = " " .. name
+		row.ZIndex = 11
+		row.Parent = ui.modelList
+		local rc = Instance.new("UICorner")
+		rc.CornerRadius = UDim.new(0, 4)
+		rc.Parent = row
+		row.MouseButton1Click:Connect(function()
+			selectModel(i)
+		end)
+	end
+end
 
 -- Find the generated instance. generate_mesh's "tag" is a CollectionService
 -- tag on the inserted Model (live-probed: the instance itself is NAMED from
@@ -161,7 +209,7 @@ end
 
 local function handleEvent(e: { [string]: any })
 	if e.type == "run_started" then
-		ui.status.Text = ("run %s — %s mode"):format(e.runId, e.mode)
+		ui.status.Text = ("run %s — %s — %s"):format(e.runId:sub(1, 8), e.model or "?", e.mode)
 		ui.status.TextColor3 = Color3.fromRGB(120, 200, 120)
 		addLog("▶ " .. e.prompt)
 	elseif e.type == "status" then
@@ -208,6 +256,8 @@ local function handleEvent(e: { [string]: any })
 		ui.status.TextColor3 = if e.status == "success"
 			then Color3.fromRGB(120, 200, 120)
 			else Color3.fromRGB(220, 120, 120)
+		ui.launchButton.Active = true
+		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
 	end
 end
 
@@ -272,6 +322,41 @@ ui.imageButton.MouseButton1Click:Connect(function()
 	end
 end)
 
+ui.modelButton.MouseButton1Click:Connect(function()
+	if #models == 0 then
+		return
+	end
+	ui.modelList.Visible = not ui.modelList.Visible
+end)
+
+ui.launchButton.MouseButton1Click:Connect(function()
+	local prompt = ui.promptBox.Text
+	local model = currentModel()
+	if prompt == "" or not model then
+		ui.status.Text = "enter a prompt and pick a model"
+		return
+	end
+	ui.launchButton.Active = false
+	ui.launchButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	-- Instant feedback: the run setup (CCR + serve + first model call) can take
+	-- seconds before the first event arrives, so don't leave the dock looking dead.
+	ui.status.Text = "launching…"
+	ui.status.TextColor3 = Color3.fromRGB(120, 200, 120)
+	addLog("▶ launching: " .. prompt)
+	local res = request("POST", "/run", { prompt = prompt, model = model })
+	if not res then
+		ui.status.Text = "launch failed — is blox panel serve running?"
+		ui.status.TextColor3 = Color3.fromRGB(255, 170, 0)
+		addLog("✖ launch failed — no response from blox panel serve")
+		ui.launchButton.Active = true
+		ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
+	end
+end)
+
+ui.cancelButton.MouseButton1Click:Connect(function()
+	request("POST", "/cancel", nil)
+end)
+
 -- Poll loop. The server long-polls (~25s) so a healthy loop is mostly idle.
 task.spawn(function()
 	local cursor = 0
@@ -296,6 +381,26 @@ task.spawn(function()
 				if info.protocol ~= PROTOCOL then
 					addLog("⚠ blox CLI speaks protocol " .. tostring(info.protocol) .. " — update this plugin")
 				end
+				local ml = request("GET", "/models")
+				if ml and ml.models then
+					models = ml.models
+					modelIndex = 1
+					if ml.current then
+						for i, name in models do
+							if name == ml.current then
+								modelIndex = i
+								break
+							end
+						end
+					end
+					rebuildModelList()
+					refreshModelButton()
+				end
+				-- Fresh connection → any prior run is gone; re-enable Launch so a
+				-- wedged button (run that never emitted run_finished) recovers. The
+				-- daemon 409s a concurrent launch anyway, so this is safe.
+				ui.launchButton.Active = true
+				ui.launchButton.BackgroundColor3 = Color3.fromRGB(40, 130, 64)
 				ui.status.Text = "connected — " .. tostring(info.project)
 				ui.status.TextColor3 = Color3.fromRGB(120, 200, 120)
 			end
