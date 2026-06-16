@@ -110,6 +110,9 @@ export interface RunAgentExtras {
   sink?: EventSink;
   dockDeniedTools?: () => string[];
   image?: ImageInput;
+  // Aborting this controller's signal cancels the in-flight query (the dock's
+  // Cancel button). Plumbed straight into the SDK's Options.abortController.
+  abortController?: AbortController;
 }
 
 export async function runAgent(
@@ -129,7 +132,10 @@ export async function runAgent(
   };
   let turns = 0;
   const input = buildPromptInput(prompt, extras.image);
-  for await (const message of query({ prompt: input, options: options as never })) {
+  const queryOptions = extras.abortController
+    ? { ...options, abortController: extras.abortController }
+    : options;
+  for await (const message of query({ prompt: input, options: queryOptions as never })) {
     if (extras.sink) {
       // The panel is observability, never control flow: a throwing sink must
       // not take down the run (spec §7).

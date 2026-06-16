@@ -21,6 +21,7 @@ export interface RunOnceDeps {
   verify?: boolean;
   dockDeniedTools?: () => string[];
   resultDecisions?: () => ResultRecord[];
+  abortController?: AbortController;
 }
 
 // The shared run pipeline: build options → run the agent → sync to disk →
@@ -36,6 +37,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     sink: deps.sink,
     dockDeniedTools: deps.dockDeniedTools,
     image: deps.image,
+    abortController: deps.abortController,
   });
   const sync = await syncProject(config.projectPath);
   const commit = sync.ok

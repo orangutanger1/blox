@@ -45,4 +45,19 @@ describe('createController', () => {
     await new Promise((res) => setTimeout(res, 0));
     expect(c.state()).toBe('idle');
   });
+
+  it('cancel() aborts the active run and returns ok; no-ops when idle', () => {
+    let captured!: AbortController;
+    const run: RunFn = (_p, _s, _r, ac) => {
+      captured = ac;
+      return new Promise<void>(() => {}); // never settles — stays running
+    };
+    const c = createController(server() as never, { listModels: () => models, run, newRunId: () => 'x' });
+
+    expect(c.cancel()).toEqual({ ok: false }); // nothing running yet
+    c.launch('a', 'google/gemini-2.5-pro');
+    expect(captured.signal.aborted).toBe(false);
+    expect(c.cancel()).toEqual({ ok: true });
+    expect(captured.signal.aborted).toBe(true);
+  });
 });

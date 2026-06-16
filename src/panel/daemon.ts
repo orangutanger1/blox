@@ -14,9 +14,10 @@ import { ensureServe } from '../sync/serve.js';
 import type { BloxConfig } from '../config.js';
 
 // The daemon's run launcher: emits run_started/run_finished around runOnce.
-// Injected so the state machine is unit-testable without a real run.
+// Injected so the state machine is unit-testable without a real run. The
+// AbortController is owned by the controller; aborting it cancels the run.
 export interface RunFn {
-  (prompt: string, slug: string, runId: string): Promise<void>;
+  (prompt: string, slug: string, runId: string, abortController: AbortController): Promise<void>;
 }
 
 export interface ControllerDeps {
@@ -34,11 +35,18 @@ export function createController(
   deps: ControllerDeps,
 ): PanelController {
   let state: 'idle' | 'running' = 'idle';
+  let activeAbort: AbortController | null = null;
   const newRunId = deps.newRunId ?? (() => randomUUID());
   return {
     listModels: deps.listModels,
     state: () => state,
-    cancel: () => ({ ok: false }), // Phase-1 stretch — see Task 8
+    cancel: () => {
+      // Abort the in-flight run's signal; the SDK ends the query, runOnce
+      // throws, and the RunFn's finally emits run_finished. No active run → no-op.
+      if (!activeAbort) return { ok: false };
+      activeAbort.abort();
+      return { ok: true };
+    },
     launch(prompt, slug) {
       if (state === 'running') {
         return { ok: false, status: 409, error: 'a run is already in progress' };
@@ -47,15 +55,18 @@ export function createController(
         return { ok: false, status: 400, error: `unknown model: ${slug}` };
       }
       const runId = newRunId();
+      const abort = new AbortController();
       state = 'running';
+      activeAbort = abort;
       server.setRunId(runId);
       void deps
-        .run(prompt, slug, runId)
+        .run(prompt, slug, runId, abort)
         .catch(() => {
           /* run failure is reported via run_finished in the RunFn; swallow here */
         })
         .finally(() => {
           state = 'idle';
+          activeAbort = null;
         });
       return { ok: true, runId };
     },
@@ -75,7 +86,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
   });
   await server.start();
 
-  const run: RunFn = async (prompt, slug, runId) => {
+  const run: RunFn = async (prompt, slug, runId, abortController) => {
     // Reused server → reused gate broker; clear last run's denials/decisions.
     server.gates.reset();
     const ccr = readCcrModels();
@@ -109,6 +120,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         digest,
         gate,
         sink: server,
+        abortController,
         dockDeniedTools: () => server.gates.dockDeniedTools(),
         resultDecisions: () => server.gates.resultDecisions(),
       });
