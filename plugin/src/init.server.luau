@@ -370,6 +370,15 @@ task.spawn(function()
 				if info.protocol ~= PROTOCOL then
 					addLog("⚠ blox CLI speaks protocol " .. tostring(info.protocol) .. " — update this plugin")
 				end
+				if info.auth then
+					ui.authChip.Visible = true
+					ui.authChip.Text = "auth: " .. tostring(info.auth.label)
+					ui.authChip.TextColor3 = if info.auth.mode == "apiKey"
+						then Color3.fromRGB(150, 170, 210)
+						else Color3.fromRGB(150, 200, 150)
+				else
+					ui.authChip.Visible = false
+				end
 				local ml = request("GET", "/models")
 				if ml and ml.models then
 					models = ml.models

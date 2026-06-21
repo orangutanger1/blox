@@ -78,6 +78,15 @@ function Ui.build(widget: DockWidgetPluginGui)
 	status.TextSize = 15
 	status.TextColor3 = Color3.fromRGB(255, 170, 0)
 
+	-- Read-only active-credential chip (subscription vs API key). Populated from
+	-- /info.auth on connect; hidden when the CLI doesn't report it.
+	local authChip = label(root, "AuthChip", 1.2)
+	authChip.Size = UDim2.new(1, -8, 0, 16)
+	authChip.Text = ""
+	authChip.TextSize = 12
+	authChip.TextColor3 = Color3.fromRGB(150, 152, 158)
+	authChip.Visible = false
+
 	-- Controls card: model picker + prompt + launch/cancel (protocol v4).
 	local controls = Instance.new("Frame")
 	controls.Name = "Controls"
@@ -350,6 +359,7 @@ function Ui.build(widget: DockWidgetPluginGui)
 
 	return {
 		status = status,
+		authChip = authChip,
 		modelButton = modelButton,
 		modelList = modelList,
 		promptBox = promptBox,

@@ -8,7 +8,7 @@ import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, ccrEndpoint, type CcrModels } from '../ccr.js';
 import { ensureCcr } from '../ccrServe.js';
-import { buildAuthEnv } from '../auth.js';
+import { buildAuthEnv, authInfo } from '../auth.js';
 import { runOnce } from '../run.js';
 import { buildDigest } from '../context/digest.js';
 import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
@@ -103,6 +103,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     port: config.panel.port,
     gateTimeoutMs: config.panel.gateTimeoutSeconds * 1000,
   });
+  server.attachAuth(() => authInfo());
   await server.start();
 
   const run: RunFn = async (prompt, slug, runId, abortController) => {

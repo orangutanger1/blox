@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   loadAuthStore, saveAuthStore, setApiKey, clearApiKey, setMode,
   effectiveAuthMode, buildAuthEnv, authConfigDir, authStorePath,
-  runClaudeAuth, readSubscriptionStatus, formatAuthStatus, type ClaudeRunner,
+  runClaudeAuth, readSubscriptionStatus, formatAuthStatus, authInfo, type ClaudeRunner,
 } from '../src/auth.js';
 
 const enoent: ClaudeRunner = () => {
@@ -137,5 +137,26 @@ describe('formatAuthStatus', () => {
     const s = formatAuthStatus({ loggedIn: false }, {});
     expect(s).toMatch(/blox auth login/);
     expect(s).toMatch(/blox auth key set/);
+  });
+});
+
+describe('authInfo (dock chip)', () => {
+  const loggedIn: ClaudeRunner = () => ({ status: 0, stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'pro' }) });
+  const notLoggedIn: ClaudeRunner = () => ({ status: 0, stdout: JSON.stringify({ loggedIn: false }) });
+
+  it('apiKey mode → "API key" without consulting claude', () => {
+    const ran = { called: false };
+    const spy: ClaudeRunner = (a, o) => { ran.called = true; return loggedIn(a, o); };
+    expect(authInfo({ store: { mode: 'apiKey', apiKey: 'k' }, runner: spy })).toEqual({ mode: 'apiKey', label: 'API key' });
+    expect(ran.called).toBe(false);
+  });
+  it('subscription linked → label includes the plan', () => {
+    expect(authInfo({ store: {}, runner: loggedIn })).toEqual({ mode: 'subscription', label: 'Subscription (pro)' });
+  });
+  it('subscription not linked → "not linked"', () => {
+    expect(authInfo({ store: {}, runner: notLoggedIn })).toEqual({ mode: 'subscription', label: 'Subscription — not linked' });
+  });
+  it('override apiKey with no stored key falls back to the subscription label', () => {
+    expect(authInfo({ store: {}, override: 'apiKey', runner: loggedIn })).toEqual({ mode: 'subscription', label: 'Subscription (pro)' });
   });
 });
