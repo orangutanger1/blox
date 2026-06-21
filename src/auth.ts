@@ -117,6 +117,9 @@ const defaultRunner: ClaudeRunner = (args, opts) => {
   const res = spawnSync('claude', args, {
     stdio: opts.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
     encoding: 'utf8',
+    // Windows: npm installs `claude.cmd`; spawn won't resolve a .cmd without a
+    // shell. Args are static literals (no user input), so shell is safe here.
+    shell: process.platform === 'win32',
   });
   if (res.error) return { status: null, stdout: '', error: res.error as NodeJS.ErrnoException };
   return { status: res.status, stdout: res.stdout ?? '' };
