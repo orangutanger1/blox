@@ -1,6 +1,7 @@
 export interface ParsedArgs {
-  command: 'doctor' | 'serve' | 'init' | 'panel' | null;
+  command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | null;
   prompt: string | null;
+  authMode: 'subscription' | 'apiKey' | null;
   mock: boolean;
   projectPath: string | null;
   maxTurns: number | null;
@@ -17,7 +18,8 @@ export interface ParsedArgs {
 export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
-  let command: 'doctor' | 'serve' | 'init' | 'panel' | null = null;
+  let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | null = null;
+  let authMode: 'subscription' | 'apiKey' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
   let effort: 'high' | 'xhigh' | null = null;
@@ -57,10 +59,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
       imagePath = v;
     } else if (a === '--image-from-dock') imageFromDock = true;
     else if (a === '--verify') verify = true;
-    else if (a === 'init' && command === null && positional.length === 0) command = 'init';
+    else if (a === '--auth') {
+      const v = argv[++i];
+      if (v === 'key') authMode = 'apiKey';
+      else if (v === 'subscription') authMode = 'subscription';
+      else throw new Error('--auth must be subscription or key');
+    } else if (a === 'init' && command === null && positional.length === 0) command = 'init';
     else if (a === 'doctor' && command === null && positional.length === 0) command = 'doctor';
     else if (a === 'serve' && command === null && positional.length === 0) command = 'serve';
     else if (a === 'panel' && command === null && positional.length === 0) command = 'panel';
+    else if (a === 'auth' && command === null && positional.length === 0) command = 'auth';
     else positional.push(a);
   }
   if (imagePath !== null && imageFromDock) {
@@ -69,6 +77,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return {
     command,
     prompt: positional.join(' ').trim() || null,
+    authMode,
     mock,
     projectPath,
     maxTurns,
