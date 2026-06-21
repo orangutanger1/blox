@@ -20,6 +20,10 @@ import { formatOnboardReport } from './onboard/report.js';
 import { PanelServer } from './panel/server.js';
 import { studioPluginsDir, installPanel } from './panel/install.js';
 import { startDaemon } from './panel/daemon.js';
+import {
+  runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore,
+  setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv,
+} from './auth.js';
 import { randomUUID } from 'node:crypto';
 
 async function main(): Promise<void> {
@@ -126,9 +130,49 @@ async function main(): Promise<void> {
     }
   }
 
+  if (command === 'auth') {
+    const parts = (prompt ?? '').split(' ').filter(Boolean);
+    const sub = parts[0];
+    if (sub === 'login' || sub === 'logout') {
+      const res = runClaudeAuth(sub);
+      if (!res.ok) {
+        console.error(res.error ?? `claude auth ${sub} failed`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+    if (sub === 'status') {
+      console.log(formatAuthStatus(readSubscriptionStatus(), loadAuthStore()));
+      process.exit(0);
+    }
+    if (sub === 'key' && parts[1] === 'set') {
+      const key = await promptSecret('paste API key (input hidden): ');
+      if (!key) {
+        console.error('no key entered');
+        process.exit(2);
+      }
+      setApiKey(key);
+      console.log('API key stored (mode 0600). Activate it with `blox auth use key`.');
+      process.exit(0);
+    }
+    if (sub === 'key' && parts[1] === 'clear') {
+      clearApiKey();
+      console.log('API key removed.');
+      process.exit(0);
+    }
+    if (sub === 'use' && (parts[1] === 'subscription' || parts[1] === 'key')) {
+      const mode = parts[1] === 'key' ? 'apiKey' : 'subscription';
+      setMode(mode);
+      console.log(`active auth mode: ${mode}`);
+      process.exit(0);
+    }
+    console.error('usage: blox auth login | logout | status | key set | key clear | use subscription|key');
+    process.exit(2);
+  }
+
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key',
     );
     process.exit(2);
   }
@@ -226,6 +270,9 @@ async function main(): Promise<void> {
       sink: panel ?? undefined,
       image,
       verify: args.verify,
+      // Direct-Anthropic one-shot: inject the linked credential (subscription
+      // vs API key), honoring a per-run --auth override.
+      env: buildAuthEnv({ override: args.authMode }),
       dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
       resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
     });

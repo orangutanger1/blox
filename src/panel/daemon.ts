@@ -8,6 +8,7 @@ import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, ccrEndpoint, type CcrModels } from '../ccr.js';
 import { ensureCcr } from '../ccrServe.js';
+import { buildAuthEnv } from '../auth.js';
 import { runOnce } from '../run.js';
 import { buildDigest } from '../context/digest.js';
 import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
@@ -129,7 +130,9 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     // AUTH_TOKEN so the SDK doesn't send a competing bearer.
     const useCcr = ccr.provider !== null;
     if (useCcr) await ensureCcr(log);
-    const env = ccrRunEnv(useCcr);
+    // Direct-Anthropic runs pick the linked credential (subscription vs API key);
+    // CCR/BYO-model runs keep their own endpoint + key override.
+    const env = useCcr ? ccrRunEnv(true) : buildAuthEnv();
     const bridge = createStudioMcpBridge();
     log('Syncing project to Studio (rojo serve)…');
     try {

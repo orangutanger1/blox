@@ -139,4 +139,19 @@ describe('image flags', () => {
   it('rejects --image with no path', () => {
     expect(() => parseArgs(['--image'])).toThrow(/--image needs a file path/);
   });
+
+  it('parses the auth command and its subcommand words', () => {
+    const a = parseArgs(['auth', 'key', 'set']);
+    expect(a.command).toBe('auth');
+    expect(a.prompt).toBe('key set');
+  });
+
+  it('maps --auth key to apiKey and --auth subscription', () => {
+    expect(parseArgs(['--auth', 'key', 'do it']).authMode).toBe('apiKey');
+    expect(parseArgs(['--auth', 'subscription', 'do it']).authMode).toBe('subscription');
+  });
+
+  it('rejects a bad --auth value', () => {
+    expect(() => parseArgs(['--auth', 'nope'])).toThrow(/--auth/);
+  });
 });
