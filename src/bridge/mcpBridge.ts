@@ -15,7 +15,11 @@ export function studioLauncher(): StudioLaunch {
     return { command: '/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP', args: [] };
   }
   // Windows and WSL (linux) both reach the Windows batch launcher via cmd.exe.
-  const cwd = process.env.BLOX_STUDIO_MCP_CWD ?? '/mnt/c';
+  // The cwd must be a path the OS can actually chdir into, else spawn throws
+  // `spawn cmd.exe ENOENT`. WSL uses /mnt/c; native Windows has no /mnt/c, so
+  // default to a real Windows dir there.
+  const defaultCwd = process.platform === 'win32' ? (process.env.SystemRoot ?? 'C:\\') : '/mnt/c';
+  const cwd = process.env.BLOX_STUDIO_MCP_CWD ?? defaultCwd;
   return { command: 'cmd.exe', args: ['/c', '%LOCALAPPDATA%\\Roblox\\mcp.bat'], cwd };
 }
 
