@@ -185,6 +185,24 @@ export function formatAuthStatus(sub: SubscriptionStatus | { error: string }, st
   return lines.join('\n');
 }
 
+export interface AuthInfo {
+  mode: AuthMode;
+  label: string;
+}
+
+// Compact active-credential summary for the dock chip. Reads the store (cheap)
+// and only shells `claude auth status` when subscription mode is active.
+export function authInfo(
+  opts: { override?: AuthMode | null; store?: AuthStore; runner?: ClaudeRunner } = {},
+): AuthInfo {
+  const store = opts.store ?? loadAuthStore();
+  const mode = effectiveAuthMode(store, opts.override);
+  if (mode === 'apiKey') return { mode, label: 'API key' };
+  const sub = readSubscriptionStatus(opts.runner ?? defaultRunner);
+  if ('error' in sub || !sub.loggedIn) return { mode: 'subscription', label: 'Subscription — not linked' };
+  return { mode: 'subscription', label: sub.plan ? `Subscription (${sub.plan})` : 'Subscription' };
+}
+
 // Interactive hidden input for `blox auth key set`. I/O only — not unit-tested.
 export function promptSecret(label: string): Promise<string> {
   return new Promise((resolve) => {

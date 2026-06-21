@@ -3,6 +3,7 @@ import { EventBuffer } from './buffer.js';
 import { GateBroker } from './gates.js';
 import { PROTOCOL_VERSION, type PanelEvent } from './events.js';
 import { imageFromBytes, type ImageInput } from '../agent/imageInput.js';
+import type { AuthInfo } from '../auth.js';
 
 export interface PanelServerOptions {
   runId: string;
@@ -32,6 +33,8 @@ export class PanelServer {
   private pendingImage: { resolve: (i: ImageInput) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   private opts: Required<Omit<PanelServerOptions, 'port'>> & { port: number };
   private controller: PanelController | null = null;
+  private authProvider: (() => AuthInfo) | null = null;
+  private authCache: AuthInfo | null = null;
   private currentRunId: string;
 
   constructor(options: PanelServerOptions) {
@@ -60,6 +63,20 @@ export class PanelServer {
 
   attachController(controller: PanelController): void {
     this.controller = controller;
+  }
+
+  // Read-only active-credential summary for the dock chip. Computed lazily and
+  // memoized — the provider may shell `claude auth status`, so call it once per
+  // server lifetime rather than on every /info poll.
+  // ponytail: memoized for the server's life; a `blox auth use` mid-daemon won't
+  // refresh the chip until restart — fine for a read-only indicator.
+  attachAuth(provider: () => AuthInfo): void {
+    this.authProvider = provider;
+  }
+
+  private auth(): AuthInfo | undefined {
+    if (!this.authProvider) return undefined;
+    return (this.authCache ??= this.authProvider());
   }
 
   setRunId(runId: string): void {
@@ -113,11 +130,13 @@ export class PanelServer {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (req.method === 'GET' && url.pathname === '/api/v1/info') {
+        const auth = this.auth();
         return json(res, 200, {
           protocol: PROTOCOL_VERSION,
           runId: this.currentRunId,
           project: this.opts.project,
           ...(this.controller ? { state: this.controller.state() } : {}),
+          ...(auth ? { auth } : {}),
         });
       }
       if (req.method === 'GET' && url.pathname === '/api/v1/events') {

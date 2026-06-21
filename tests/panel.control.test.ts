@@ -71,4 +71,21 @@ describe('panel control routes', () => {
     const base = await start();
     expect((await fetch(`${base}/models`)).status).toBe(404);
   });
+
+  it('GET /info includes the auth chip when attached, computed once (memoized)', async () => {
+    server = new PanelServer({ runId: 'idle', project: 'g', port: 0, holdMs: 50 });
+    let calls = 0;
+    server.attachAuth(() => { calls++; return { mode: 'apiKey', label: 'API key' }; });
+    const port = await server.start();
+    const base = `http://127.0.0.1:${port}/api/v1`;
+    const first = await (await fetch(`${base}/info`)).json();
+    await (await fetch(`${base}/info`)).json();
+    expect(first.auth).toEqual({ mode: 'apiKey', label: 'API key' });
+    expect(calls).toBe(1);
+  });
+
+  it('GET /info omits auth when none is attached', async () => {
+    const base = await start();
+    expect((await (await fetch(`${base}/info`)).json()).auth).toBeUndefined();
+  });
 });

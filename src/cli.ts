@@ -22,7 +22,7 @@ import { studioPluginsDir, installPanel } from './panel/install.js';
 import { startDaemon } from './panel/daemon.js';
 import {
   runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore,
-  setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv,
+  setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv, authInfo,
 } from './auth.js';
 import { randomUUID } from 'node:crypto';
 
@@ -206,6 +206,7 @@ async function main(): Promise<void> {
         port: config.panel.port,
         gateTimeoutMs: config.panel.gateTimeoutSeconds * 1000,
       });
+      p.attachAuth(() => authInfo({ override: args.authMode }));
       await p.start();
       panel = p;
     } catch (e) {
