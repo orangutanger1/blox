@@ -57,7 +57,7 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1100,
     height: 760,
-    webPreferences: { preload: resolve(here, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: { preload: resolve(here, 'preload.cjs'), contextIsolation: true, nodeIntegration: false },
   });
   void win.loadFile(resolve(here, '../renderer/index.html'));
 
