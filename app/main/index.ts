@@ -66,6 +66,8 @@ function createWindow(): void {
       win.webContents.send(IPC.runLog, 'initializing project (no default.project.json found)…');
       const init = await host.runCli(['init', '--project', p.projectPath]);
       win.webContents.send(IPC.runLog, init.stdout.trim());
+      // `blox init` exits 1 both on real failure AND on success-with-conflicts;
+      // for the fresh-folder target a conflict can't occur, so abort on any non-zero.
       if (init.code !== 0) {
         win.webContents.send(IPC.runExited, { code: init.code ?? 1 });
         return false;
