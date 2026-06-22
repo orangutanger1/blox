@@ -8,6 +8,7 @@ declare global {
       runStart(p: unknown): Promise<boolean>;
       runCancel(): Promise<boolean>;
       onRunExited(cb: (r: { code: number | null }) => void): void;
+      onRunLog(cb: (text: string) => void): void;
     };
   }
 }
@@ -49,7 +50,8 @@ async function pollLoop(base: string): Promise<void> {
 }
 
 document.getElementById('run')!.addEventListener('click', async () => {
-  const projectPath = (document.getElementById('project') as HTMLInputElement).value.trim();
+  const projectPath = (document.getElementById('project') as HTMLInputElement)
+    .value.trim().replace(/^["']|["']$/g, '');
   const prompt = (document.getElementById('prompt') as HTMLTextAreaElement).value.trim();
   if (!projectPath || !prompt) { append('need a project path and a prompt'); return; }
   append('▶ starting run…');
@@ -58,3 +60,4 @@ document.getElementById('run')!.addEventListener('click', async () => {
 });
 document.getElementById('cancel')!.addEventListener('click', () => window.blox.runCancel());
 window.blox.onRunExited((r) => append(`run exited (${r.code})`));
+window.blox.onRunLog((text) => { if (text) append(text); });

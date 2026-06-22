@@ -14,6 +14,9 @@ const IPC = {
   authSave: 'auth:save',
   authStatus: 'auth:status',
   authClear: 'auth:clear',
+  authLoginSubscription: 'auth:loginSubscription',
+  authSubscriptionStatus: 'auth:subscriptionStatus',
+  runLog: 'run:log',
   setupDetectRojo: 'setup:detectRojo',
   setupInstallRojo: 'setup:installRojo',
   setupInstallPlugin: 'setup:installPlugin',
@@ -27,11 +30,14 @@ contextBridge.exposeInMainWorld('blox', {
   runStart: (p) => ipcRenderer.invoke(IPC.runStart, p),
   runCancel: () => ipcRenderer.invoke(IPC.runCancel),
   onRunExited: (cb) => ipcRenderer.on(IPC.runExited, (_e, r) => cb(r)),
+  onRunLog: (cb) => ipcRenderer.on(IPC.runLog, (_e, text) => cb(text)),
 });
 
 contextBridge.exposeInMainWorld('bloxSetup', {
   authSave: (k) => ipcRenderer.invoke(IPC.authSave, k),
   authStatus: () => ipcRenderer.invoke(IPC.authStatus),
+  authLoginSubscription: () => ipcRenderer.invoke(IPC.authLoginSubscription),
+  authSubscriptionStatus: () => ipcRenderer.invoke(IPC.authSubscriptionStatus),
   detectRojo: () => ipcRenderer.invoke(IPC.setupDetectRojo),
   installRojo: () => ipcRenderer.invoke(IPC.setupInstallRojo),
   installPlugin: () => ipcRenderer.invoke(IPC.setupInstallPlugin),

@@ -1,11 +1,11 @@
 // app/main/index.ts
-import { app, BrowserWindow, ipcMain, utilityProcess, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { writeFileSync, existsSync } from 'node:fs';
 import { createEngineHost, type EngineChild } from './engine.js';
-import { createKeyVault } from './auth.js';
+import { createCredStore, parseSubscriptionLinked } from './auth.js';
 import { createSetup } from './setup.js';
 import { createOnboardState } from './onboardState.js';
 import { IPC, type RunStartPayload } from '../shared/ipc.js';
@@ -23,14 +23,10 @@ const PANEL_BASE = 'http://127.0.0.1:35768';
 const packagedRojo = app.isPackaged ? resolve(process.resourcesPath, 'engine/rojo.exe') : undefined;
 if (packagedRojo) process.env.BLOX_ROJO_BIN = packagedRojo;
 
-const vault = createKeyVault({
-  storage: safeStorage,
-  filePath: resolve(app.getPath('userData'), 'key.bin'),
-});
+const cred = createCredStore();
 
 const host = createEngineHost({
   enginePath,
-  loadKey: () => vault.loadKey(),
   rojoDir: process.env.BLOX_ROJO_DIR,
   fork: (entry, args, env) =>
     utilityProcess.fork(entry, args, { env, stdio: ['ignore', 'pipe', 'pipe'] }) as unknown as EngineChild,
@@ -63,7 +59,20 @@ function createWindow(): void {
 
   // Run lifecycle.
   ipcMain.handle(IPC.panelBase, () => PANEL_BASE);
-  ipcMain.handle(IPC.runStart, (_e, p: RunStartPayload) => {
+  ipcMain.handle(IPC.runStart, async (_e, p: RunStartPayload) => {
+    // A run needs a blox/Rojo project. Fresh folder → scaffold one first.
+    // `blox init` pulls scripts from the open Studio place (step 4 verified it).
+    if (!existsSync(resolve(p.projectPath, 'default.project.json'))) {
+      win.webContents.send(IPC.runLog, 'initializing project (no default.project.json found)…');
+      const init = await host.runCli(['init', '--project', p.projectPath]);
+      win.webContents.send(IPC.runLog, init.stdout.trim());
+      // `blox init` exits 1 both on real failure AND on success-with-conflicts;
+      // for the fresh-folder target a conflict can't occur, so abort on any non-zero.
+      if (init.code !== 0) {
+        win.webContents.send(IPC.runExited, { code: init.code ?? 1 });
+        return false;
+      }
+    }
     const handle = host.run(p.prompt, p.projectPath, {
       mode: p.mode, maxTurns: p.maxTurns, budgetUsd: p.budgetUsd, effort: p.effort,
     });
@@ -73,10 +82,41 @@ function createWindow(): void {
   });
   ipcMain.handle(IPC.runCancel, () => { current?.cancel(); current = null; return true; });
 
-  // Auth vault.
-  ipcMain.handle(IPC.authSave, (_e, key: string) => { vault.saveKey(key); return true; });
-  ipcMain.handle(IPC.authStatus, () => vault.hasKey());
-  ipcMain.handle(IPC.authClear, () => { vault.clearKey(); return true; });
+  // API key → shared auth.json (engine reads it via buildAuthEnv).
+  ipcMain.handle(IPC.authSave, (_e, key: string) => { cred.saveApiKey(key); return true; });
+  ipcMain.handle(IPC.authStatus, () => cred.hasApiKey());
+  ipcMain.handle(IPC.authClear, () => true); // no-op: first-run wizard never clears
+
+  // Subscription: check current link state via the engine (parses claude auth status).
+  ipcMain.handle(IPC.authSubscriptionStatus, async () => {
+    const { stdout } = await host.runCli(['auth', 'status']);
+    return parseSubscriptionLinked(stdout);
+  });
+
+  // Subscription sign-in: claude's OAuth is interactive (browser), so open a real
+  // console window for it — the forked engine has piped stdio and can't host it.
+  // Then poll `blox auth status` until linked (~3 min cap) and pin mode.
+  ipcMain.handle(IPC.authLoginSubscription, async () => {
+    const pre = await host.runCli(['auth', 'status']);
+    if (/not found on PATH|failed to run claude/i.test(pre.stdout)) {
+      return { linked: false, error: 'Claude CLI not found. Install Claude Code: https://claude.com/claude-code' };
+    }
+    // ponytail: `cmd /c start` is the reliable way to pop a console from a GUI
+    // app. Title has no spaces so it isn't mis-parsed as a quoted path. If no
+    // window appears on the live box, try detached:true + windowsHide:false.
+    spawn(process.env.ComSpec || 'cmd.exe',
+      ['/c', 'start', 'blox-sign-in', 'cmd', '/k', 'claude', 'auth', 'login'],
+      { windowsHide: false, detached: true, stdio: 'ignore' }).unref();
+
+    const deadline = Date.now() + 3 * 60_000;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const { stdout } = await host.runCli(['auth', 'status']);
+      const res = parseSubscriptionLinked(stdout);
+      if (res.linked) { await host.runCli(['auth', 'use', 'subscription']); return res; }
+      if (Date.now() > deadline) return { linked: false, error: 'timed out waiting for sign-in' };
+    }
+  });
 
   // Onboarding setup actions + persisted state.
   ipcMain.handle(IPC.setupDetectRojo, () => setup.detectRojo());

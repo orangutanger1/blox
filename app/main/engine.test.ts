@@ -15,14 +15,13 @@ describe('buildRunArgs', () => {
 });
 
 describe('buildChildEnv', () => {
-  it('injects the key and prepends rojo dir to PATH', () => {
-    const env = buildChildEnv({ PATH: '/usr/bin' }, 'sk-123', '/opt/rojo', ':');
-    expect(env.ANTHROPIC_API_KEY).toBe('sk-123');
+  it('prepends rojo dir to PATH and injects no key', () => {
+    const env = buildChildEnv({ PATH: '/usr/bin' }, '/opt/rojo', ':');
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(env.PATH).toBe('/opt/rojo:/usr/bin');
   });
-  it('omits the key when null and leaves PATH alone with no rojo dir', () => {
-    const env = buildChildEnv({ PATH: '/usr/bin' }, null, undefined, ':');
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  it('leaves PATH alone with no rojo dir', () => {
+    const env = buildChildEnv({ PATH: '/usr/bin' }, undefined, ':');
     expect(env.PATH).toBe('/usr/bin');
   });
 });
@@ -39,13 +38,11 @@ describe('createEngineHost.run', () => {
     const host = createEngineHost({
       enginePath: '/app/dist/cli.js',
       rojoDir: '/opt/rojo',
-      loadKey: () => 'sk-9',
       fork: (entry, args, env) => { calls.push({ args, env }); expect(entry).toBe('/app/dist/cli.js'); return fakeChild; },
       pathSep: ':',
     });
     const handle = host.run('build it', '/proj', { mode: 'auto' });
     expect(calls[0].args).toEqual(['build it', '--project', '/proj', '--auto']);
-    expect(calls[0].env.ANTHROPIC_API_KEY).toBe('sk-9');
     handle.cancel();
     expect(killed).toBe(true);
     exitCb(0);
