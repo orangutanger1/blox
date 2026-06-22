@@ -71,7 +71,9 @@ npm install -D electron     # throwaway, on the spike branch
 mkdir spike
 ```
 
-Create `spike\main.js`:
+Create `spike\main.cjs` (the `.cjs` extension matters — the repo root
+`package.json` is `"type": "module"`, so a `.js` file is treated as ESM and
+`require`/`__dirname` throw `require is not defined in ES module scope`):
 
 ```js
 const { app, utilityProcess } = require('electron');
@@ -79,7 +81,9 @@ const path = require('node:path');
 app.whenReady().then(() => {
   const child = utilityProcess.fork(
     path.resolve(__dirname, '..', 'dist', 'cli.js'),
-    ['add a comment', '--ask', '--project', process.env.SPIKE_PROJECT],
+    // --auto, not --ask: the forked engine has no dock and no stdin, so --ask
+    // gates on the first tool and the build never completes (false NO-GO).
+    ['add a comment', '--auto', '--project', process.env.SPIKE_PROJECT],
     { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   child.stdout.on('data', (d) => process.stdout.write('[engine] ' + d.toString()));
@@ -89,7 +93,7 @@ app.whenReady().then(() => {
 
 ```powershell
 # Studio + rojo connected, auth (key or subscription) + SPIKE_PROJECT still set in this shell
-npx electron spike\main.js
+npx electron spike\main.cjs
 ```
 
 **Look for:** engine output streams under `[engine]`; run completes; `engine exited 0`.
