@@ -67,7 +67,7 @@ function createWindow(): void {
       const init = await host.runCli(['init', '--project', p.projectPath]);
       win.webContents.send(IPC.runLog, init.stdout.trim());
       if (init.code !== 0) {
-        win.webContents.send(IPC.runExited, { code: init.code });
+        win.webContents.send(IPC.runExited, { code: init.code ?? 1 });
         return false;
       }
     }
