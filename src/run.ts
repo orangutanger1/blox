@@ -61,6 +61,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     sessionId: agent.sessionId,
     gatedActions: agent.gatedActions,
     deniedByUser: agent.deniedByUser,
+    nonGatedDenials: agent.nonGatedDenials,
     assetDecisions: deps.resultDecisions?.(),
   };
 }

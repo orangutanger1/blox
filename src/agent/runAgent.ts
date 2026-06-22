@@ -5,6 +5,7 @@ import type { ImageInput } from './imageInput.js';
 import type { EventSink } from '../panel/events.js';
 import { eventsFromMessage } from '../panel/translate.js';
 import { noticeFromStderr } from './notices.js';
+import { isGated } from './permission.js';
 
 // Idle-watchdog cadence: emit a "still working" heartbeat after this much stream
 // silence so the dock never looks dead (covers silent SDK retries + slow models).
@@ -79,6 +80,7 @@ export interface AgentRunResult {
   sessionId: string | null;
   gatedActions: GatedAction[];
   deniedByUser: string[];
+  nonGatedDenials: string[];
 }
 
 interface ResultMessageLike {
@@ -89,10 +91,15 @@ interface ResultMessageLike {
   permission_denials?: { tool_name: string; tool_input: Record<string, unknown> }[];
 }
 
-// Build the run result from an SDK 'result' message. Denials split two ways:
-// dock-denied tools were resolved BY the user (listed informationally, run not
-// failed for them); the rest are unresolved gates which override the stop
-// reason and force a non-zero status, exactly as before the panel existed.
+// Build the run result from an SDK 'result' message. Denials split three ways:
+//   1. dock-denied tools — resolved BY the user, informational, run not failed.
+//   2. blox autonomy gates (isGated: asset/play/input-sim) denied without a
+//      dock-allow — unresolved gates that override the stop reason and force a
+//      non-zero status, exactly as before the panel existed.
+//   3. everything else (AskUserQuestion in a headless run, guardrail
+//      path-containment blocks) — denials the agent typically recovers from.
+//      These are surfaced informationally but must NOT fail a run the agent went
+//      on to complete (issue #11).
 export function summarizeResult(
   message: ResultMessageLike,
   dockDeniedTools: string[] = [],
@@ -100,13 +107,16 @@ export function summarizeResult(
   const remainingDenied = [...dockDeniedTools];
   const gatedActions: GatedAction[] = [];
   const deniedByUser: string[] = [];
+  const nonGatedDenials: string[] = [];
   for (const d of message.permission_denials ?? []) {
     const i = remainingDenied.indexOf(d.tool_name);
     if (i >= 0) {
       remainingDenied.splice(i, 1);
       deniedByUser.push(d.tool_name);
-    } else {
+    } else if (isGated(d.tool_name)) {
       gatedActions.push({ tool: d.tool_name, input: d.tool_input });
+    } else {
+      nonGatedDenials.push(d.tool_name);
     }
   }
   const gated = gatedActions.length > 0;
@@ -120,6 +130,7 @@ export function summarizeResult(
     sessionId: message.session_id,
     gatedActions,
     deniedByUser,
+    nonGatedDenials,
   };
 }
 
@@ -150,6 +161,7 @@ export async function runAgent(
     sessionId: null,
     gatedActions: [],
     deniedByUser: [],
+    nonGatedDenials: [],
   };
   let turns = 0;
   const sink = extras.sink;

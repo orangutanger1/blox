@@ -120,6 +120,36 @@ describe('summarizeResult — dock-denied split', () => {
   });
 });
 
+describe('summarizeResult — non-gated denials (issue #11)', () => {
+  it('does not fail a completed run for AskUserQuestion / guardrail-blocked Read', () => {
+    const r = summarizeResult({
+      ...base,
+      permission_denials: [
+        { tool_name: 'AskUserQuestion', tool_input: {} },
+        { tool_name: 'Read', tool_input: { file_path: '/Users/x/outside/file.luau' } },
+      ],
+    });
+    expect(r.status).toBe('success');
+    expect(r.stopReason).toBe('completed');
+    expect(r.gatedActions).toEqual([]);
+    expect(r.nonGatedDenials).toEqual(['AskUserQuestion', 'Read']);
+  });
+
+  it('still gates when a gated tool is denied alongside non-gated ones', () => {
+    const r = summarizeResult({
+      ...base,
+      permission_denials: [
+        { tool_name: 'AskUserQuestion', tool_input: {} },
+        { tool_name: 'mcp__Roblox_Studio__generate_mesh', tool_input: { prompt: 'rock' } },
+      ],
+    });
+    expect(r.stopReason).toBe('gated');
+    expect(r.status).toBe('error');
+    expect(r.gatedActions).toEqual([{ tool: 'mcp__Roblox_Studio__generate_mesh', input: { prompt: 'rock' } }]);
+    expect(r.nonGatedDenials).toEqual(['AskUserQuestion']);
+  });
+});
+
 describe('summarizeResult — duplicate denials', () => {
   it('consumes one dockDenied entry per matching denial (multiset)', () => {
     const r = summarizeResult(
