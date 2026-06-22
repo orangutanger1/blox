@@ -114,12 +114,18 @@ export type ClaudeRunner = (
 ) => { status: number | null; stdout: string; error?: NodeJS.ErrnoException };
 
 const defaultRunner: ClaudeRunner = (args, opts) => {
-  const res = spawnSync('claude', args, {
+  // Windows: npm installs `claude.cmd`; plain spawn can't resolve a .cmd. Using
+  // `shell: true` works but, with an args array, Node emits DEP0190 ("Passing
+  // args to a child process with shell option true…") which leaks into the
+  // engine output stream. Instead invoke cmd.exe directly (no shell) and let it
+  // resolve claude(.cmd) via PATH. Args are static literals (auth/login/…), no
+  // user input. Non-Windows is unchanged: spawn `claude` directly.
+  const win = process.platform === 'win32';
+  const command = win ? process.env.ComSpec || 'cmd.exe' : 'claude';
+  const spawnArgs = win ? ['/d', '/s', '/c', 'claude', ...args] : args;
+  const res = spawnSync(command, spawnArgs, {
     stdio: opts.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
     encoding: 'utf8',
-    // Windows: npm installs `claude.cmd`; spawn won't resolve a .cmd without a
-    // shell. Args are static literals (no user input), so shell is safe here.
-    shell: process.platform === 'win32',
   });
   if (res.error) return { status: null, stdout: '', error: res.error as NodeJS.ErrnoException };
   return { status: res.status, stdout: res.stdout ?? '' };
