@@ -19,7 +19,6 @@ export interface RunOptions {
 
 export interface EngineDeps {
   enginePath: string;
-  loadKey: () => string | null;
   fork: (entry: string, args: string[], env: NodeJS.ProcessEnv) => EngineChild;
   rojoDir?: string;
   pathSep?: string; // injectable for tests; defaults to the OS delimiter
@@ -41,12 +40,10 @@ export function buildRunArgs(prompt: string, projectPath: string, o: RunOptions 
 
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
-  key: string | null,
   rojoDir: string | undefined,
   sep: string,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
-  if (key) env.ANTHROPIC_API_KEY = key;
   if (rojoDir) env.PATH = `${rojoDir}${sep}${base.PATH ?? ''}`;
   return env;
 }
@@ -54,7 +51,7 @@ export function buildChildEnv(
 export function createEngineHost(deps: EngineDeps) {
   const sep = deps.pathSep ?? (process.platform === 'win32' ? ';' : ':');
   function spawn(args: string[], collectStdout?: (s: string) => void): RunHandle {
-    const env = buildChildEnv(process.env, deps.loadKey(), deps.rojoDir, sep);
+    const env = buildChildEnv(process.env, deps.rojoDir, sep);
     const child = deps.fork(deps.enginePath, args, env);
     if (collectStdout && child.stdout) child.stdout.on('data', (c) => collectStdout(c.toString()));
     const done = new Promise<{ code: number | null }>((resolve) => {
