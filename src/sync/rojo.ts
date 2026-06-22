@@ -20,6 +20,12 @@ export const realSpawn: SpawnFn = (cmd, args, opts) =>
     child.on('close', (code) => resolveP({ code: code ?? 1, stdout, stderr }));
   });
 
+// The rojo binary to invoke. The desktop app sets BLOX_ROJO_BIN to a bundled
+// absolute path so it need not mutate PATH; the CLI default stays "rojo".
+export function rojoBin(): string {
+  return process.env.BLOX_ROJO_BIN || 'rojo';
+}
+
 export interface SyncResult {
   ok: boolean;
   detail: string;
@@ -29,7 +35,7 @@ export async function syncProject(
   projectPath: string,
   spawn: SpawnFn = realSpawn,
 ): Promise<SyncResult> {
-  const res = await spawn('rojo', ['sourcemap'], { cwd: projectPath });
+  const res = await spawn(rojoBin(), ['sourcemap'], { cwd: projectPath });
   if (res.code === 0) return { ok: true, detail: 'rojo sourcemap ok' };
   return { ok: false, detail: `rojo sourcemap failed: ${res.stderr.trim() || res.stdout.trim()}` };
 }

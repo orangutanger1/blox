@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { syncProject, type SpawnFn } from '../src/sync/rojo.js';
+import { syncProject, rojoBin, type SpawnFn } from '../src/sync/rojo.js';
 
 const okSpawn: SpawnFn = async () => ({ code: 0, stdout: '{}', stderr: '' });
 const failSpawn: SpawnFn = async () => ({ code: 1, stdout: '', stderr: 'bad project' });
@@ -24,5 +24,17 @@ describe('syncProject', () => {
     };
     await syncProject('/game', spy);
     expect(calls[0]).toEqual({ cmd: 'rojo', args: ['sourcemap'], cwd: '/game' });
+  });
+});
+
+describe('rojoBin', () => {
+  it('defaults to "rojo"', () => {
+    delete process.env.BLOX_ROJO_BIN;
+    expect(rojoBin()).toBe('rojo');
+  });
+  it('honors BLOX_ROJO_BIN', () => {
+    process.env.BLOX_ROJO_BIN = '/opt/rojo/rojo';
+    expect(rojoBin()).toBe('/opt/rojo/rojo');
+    delete process.env.BLOX_ROJO_BIN;
   });
 });
