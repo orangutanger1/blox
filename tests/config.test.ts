@@ -42,10 +42,14 @@ describe('mode + effort schema', () => {
 
 describe('overridesFromArgs', () => {
   it('includes only the flags that were set', () => {
-    expect(overridesFromArgs({ projectPath: null, maxTurns: null, maxBudgetUsd: null, effort: null, mode: null })).toEqual({});
+    expect(overridesFromArgs({ projectPath: null, maxTurns: null, maxBudgetUsd: null, effort: null, mode: null, model: null })).toEqual({});
     expect(
-      overridesFromArgs({ projectPath: '/g', maxTurns: 10, maxBudgetUsd: 2.5, effort: 'high', mode: 'ask' }),
+      overridesFromArgs({ projectPath: '/g', maxTurns: 10, maxBudgetUsd: 2.5, effort: 'high', mode: 'ask', model: null }),
     ).toEqual({ projectPath: '/g', maxTurns: 10, maxBudgetUsd: 2.5, effort: 'high', mode: 'ask' });
+  });
+  it('overridesFromArgs passes the run model through', () => {
+    const o = overridesFromArgs({ projectPath: null, maxTurns: null, maxBudgetUsd: null, effort: null, mode: null, model: 'openrouter,x' });
+    expect(o.model).toBe('openrouter,x');
   });
 });
 

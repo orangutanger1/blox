@@ -155,3 +155,18 @@ describe('image flags', () => {
     expect(() => parseArgs(['--auth', 'nope'])).toThrow(/--auth/);
   });
 });
+
+describe('model command and model/key/baseUrl flags', () => {
+  it('parses the model command with positional slugs and --key', () => {
+    const a = parseArgs(['model', 'add', 'openrouter', 'deepseek/deepseek-chat', '--key', 'sk-or-x']);
+    expect(a.command).toBe('model');
+    expect(a.prompt).toBe('add openrouter deepseek/deepseek-chat');
+    expect(a.key).toBe('sk-or-x');
+  });
+  it('--model sets the run model; --base-url is captured', () => {
+    const a = parseArgs(['build a tower', '--model', 'openrouter,deepseek/deepseek-chat', '--base-url', 'http://h/v1']);
+    expect(a.command).toBeNull();
+    expect(a.model).toBe('openrouter,deepseek/deepseek-chat');
+    expect(a.baseUrl).toBe('http://h/v1');
+  });
+});

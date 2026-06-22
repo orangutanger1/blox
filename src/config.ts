@@ -42,6 +42,7 @@ export function overridesFromArgs(a: {
   maxBudgetUsd: number | null;
   effort: 'high' | 'xhigh' | null;
   mode: 'auto' | 'ask' | null;
+  model: string | null;
 }): Partial<BloxConfig> {
   const o: Partial<BloxConfig> = {};
   if (a.projectPath) o.projectPath = a.projectPath;
@@ -49,5 +50,6 @@ export function overridesFromArgs(a: {
   if (a.maxBudgetUsd != null) o.maxBudgetUsd = a.maxBudgetUsd;
   if (a.effort != null) o.effort = a.effort;
   if (a.mode != null) o.mode = a.mode;
+  if (a.model != null) o.model = a.model;
   return o;
 }
