@@ -105,3 +105,19 @@ export function formatCcrStatus(s: CcrStatus): string {
       : '  detail:  the daemon auto-starts it on a routed run (ensureCcr); or `ccr start`',
   ].join('\n');
 }
+
+// Env for a routed run's model call. For a CCR-routed model, point the Agent SDK
+// at CCR (ANTHROPIC_BASE_URL) with the x-api-key path and no competing bearer
+// token. For a bare model return undefined so the run uses inherited env unchanged.
+export function ccrRunEnv(useCcr: boolean): Record<string, string> | undefined {
+  if (!useCcr) return undefined;
+  const ep = ccrEndpoint();
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string') env[k] = v;
+  }
+  env.ANTHROPIC_BASE_URL = ep.baseUrl;
+  env.ANTHROPIC_API_KEY = ep.apiKey;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}

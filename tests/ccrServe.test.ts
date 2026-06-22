@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus } from '../src/ccrServe.js';
+import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv } from '../src/ccrServe.js';
 
 const noSleep = () => Promise.resolve();
 
@@ -91,5 +91,19 @@ describe('formatCcrStatus', () => {
     const down = formatCcrStatus({ ...base, reachable: false });
     expect(down).toContain('CCR CONFIGURED, DOWN');
     expect(down).toContain('auto-starts');
+  });
+});
+
+describe('ccrRunEnv', () => {
+  it('useCcr=false returns undefined (inherit env unchanged)', () => {
+    expect(ccrRunEnv(false)).toBeUndefined();
+  });
+  it('useCcr=true points the SDK at CCR and drops a competing bearer token', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'leftover';
+    const env = ccrRunEnv(true)!;
+    expect(env.ANTHROPIC_BASE_URL).toMatch(/^http:\/\//);
+    expect(env.ANTHROPIC_API_KEY).toBeTruthy();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
   });
 });
