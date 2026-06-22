@@ -1,0 +1,23 @@
+# app/electron-builder.yml — unsigned Windows installer for testing.
+appId: gg.blox.desktop
+productName: blox
+directories:
+  output: release
+files:
+  - dist/**/*
+  - renderer/**/*
+extraResources:
+  # Bundle the engine (built dist + node_modules incl. the SDK runtime),
+  # the pinned rojo binary, and the Studio plugin source.
+  - from: ../dist
+    to: engine/dist
+  - from: ../node_modules
+    to: engine/node_modules
+  - from: ../plugin
+    to: engine/plugin
+win:
+  target: nsis
+  signAndEditExecutable: false
+nsis:
+  oneClick: true
+  perMachine: false
