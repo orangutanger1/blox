@@ -15,10 +15,12 @@ export interface DumpPage {
   next: number;
 }
 
-// Byte budget per page. execute_luau output is capped by the transport (~100KB
-// observed), which truncates a single full dump mid-string on large places.
-// Staying well under that lets each page round-trip whole.
-export const DUMP_PAGE_BUDGET = 60000;
+// Encoded-byte budget per page. execute_luau output is capped by the transport
+// (~100KB observed), which truncates a single full dump mid-string on large
+// places. The budget is compared against an *estimate of JSON-encoded* size
+// (see dumpPageLuau), so it must stay well under the cap once envelope + key
+// overhead is added.
+export const DUMP_PAGE_BUDGET = 80000;
 
 // Luau run inside Studio (edit mode). Walks game:GetDescendants() counting only
 // LuaSourceContainer instances; skips the first `start`, then collects until the
@@ -36,7 +38,12 @@ for _, inst in ipairs(game:GetDescendants()) do
   if inst:IsA("LuaSourceContainer") then
     if idx >= start then
       local src = inst.Source
-      local cost = #src + #inst:GetFullName() + #inst.ClassName + 64
+      -- *2 approximates worst-case JSON escaping (every char -> \\x) so a page's
+      -- encoded size stays under the transport cap; +64 covers key/quote overhead.
+      -- ponytail: a single script whose encoded source alone exceeds the ~100KB
+      -- cap still truncates (it's emitted whole to guarantee progress). Chunk a
+      -- single Source across pages if such places turn up.
+      local cost = #src * 2 + #inst:GetFullName() + #inst.ClassName + 64
       if #scripts > 0 and used + cost > budget then
         nextStart = idx
         break
