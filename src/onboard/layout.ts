@@ -43,6 +43,17 @@ function stripGamePrefix(fullName: string): string {
   return fullName.replace(/^game\./i, '');
 }
 
+// Top-level services Rojo can't sync a Script into. PluginDebugService only
+// accepts Plugin instances, so onboarding a plugin's debug script there makes
+// `rojo serve` reject the whole patch ("Child of PluginDebugService must be a
+// Plugin") and nothing syncs. These are transient/editor-only anyway, never
+// game content. ponytail: add others here if they surface.
+const UNSYNCABLE_SERVICES = new Set(['PluginDebugService']);
+
+function topService(fullName: string): string {
+  return stripGamePrefix(fullName).split('.')[0];
+}
+
 // Build the POSIX file path for a script. A script that is itself an ancestor of
 // another script becomes a directory holding init<suffix>.luau (Rojo convention).
 function filePathFor(script: PulledScript, allFullNames: Set<string>): string {
@@ -63,9 +74,12 @@ export function planLayout(
   strategy: ConflictStrategy,
   name: string,
 ): LayoutPlan {
-  const allFullNames = new Set(scripts.map((s) => s.fullName));
+  // Drop scripts under services Rojo can't sync into (e.g. PluginDebugService),
+  // else the generated project.json maps them and `rojo serve` rejects the patch.
+  const syncable = scripts.filter((s) => !UNSYNCABLE_SERVICES.has(topService(s.fullName)));
+  const allFullNames = new Set(syncable.map((s) => s.fullName));
   // Pair each script with its desired path, in stable input order.
-  const desired = scripts.map((s) => ({ script: s, path: filePathFor(s, allFullNames) }));
+  const desired = syncable.map((s) => ({ script: s, path: filePathFor(s, allFullNames) }));
 
   // Group by path to find collisions.
   const byPath = new Map<string, typeof desired>();

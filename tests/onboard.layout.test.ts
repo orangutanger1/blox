@@ -25,6 +25,20 @@ describe('planLayout — paths', () => {
     expect(plan.conflicts).toEqual([]);
   });
 
+  it('drops scripts under unsyncable services (PluginDebugService)', () => {
+    const plan = planLayout(
+      [s('PluginDebugService.DebugScript', 'Script'), s('StarterGui.ShopUI', 'LocalScript')],
+      'abort',
+      'g',
+    );
+    expect(plan.files).toEqual([{ path: 'src/StarterGui/ShopUI.client.luau', source: 'x' }]);
+    expect(plan.project.tree).toEqual({
+      $className: 'DataModel',
+      StarterGui: { $path: 'src/StarterGui' },
+    });
+    expect(plan.project.tree).not.toHaveProperty('PluginDebugService');
+  });
+
   it('nests ancestor instances as directories', () => {
     const plan = planLayout([s('ReplicatedStorage.Systems.Combat', 'ModuleScript')], 'abort', 'g');
     expect(plan.files[0].path).toBe('src/ReplicatedStorage/Systems/Combat.luau');
