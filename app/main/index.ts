@@ -65,10 +65,13 @@ function createWindow(): void {
     if (!existsSync(resolve(p.projectPath, 'default.project.json'))) {
       win.webContents.send(IPC.runLog, 'initializing project (no default.project.json found)…');
       const init = await host.runCli(['init', '--project', p.projectPath]);
-      win.webContents.send(IPC.runLog, init.stdout.trim());
+      if (init.stdout.trim()) win.webContents.send(IPC.runLog, init.stdout.trim());
       // `blox init` exits 1 both on real failure AND on success-with-conflicts;
       // for the fresh-folder target a conflict can't occur, so abort on any non-zero.
       if (init.code !== 0) {
+        // init's real cause + hint ("open Studio with a place loaded…") is on stderr.
+        const why = init.stderr.trim() || `init exited ${init.code}`;
+        win.webContents.send(IPC.runLog, why);
         win.webContents.send(IPC.runExited, { code: init.code ?? 1 });
         return false;
       }
@@ -102,11 +105,14 @@ function createWindow(): void {
       return { linked: false, error: 'Claude CLI not found. Install Claude Code: https://claude.com/claude-code' };
     }
     // ponytail: `cmd /c start` is the reliable way to pop a console from a GUI
-    // app. Title has no spaces so it isn't mis-parsed as a quoted path. If no
-    // window appears on the live box, try detached:true + windowsHide:false.
+    // app. `start`'s first token is the *command* unless quoted — an unquoted
+    // "blox-sign-in" makes Windows try to RUN it ("cannot find blox-sign-in"),
+    // so the window title MUST be quoted. windowsVerbatimArguments keeps Node
+    // from re-escaping those quotes. If no window appears on the live box, the
+    // detached:true + windowsHide:false combo is already set.
     spawn(process.env.ComSpec || 'cmd.exe',
-      ['/c', 'start', 'blox-sign-in', 'cmd', '/k', 'claude', 'auth', 'login'],
-      { windowsHide: false, detached: true, stdio: 'ignore' }).unref();
+      ['/c', 'start', '"blox-sign-in"', 'cmd', '/k', 'claude', 'auth', 'login'],
+      { windowsHide: false, detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref();
 
     const deadline = Date.now() + 3 * 60_000;
     for (;;) {

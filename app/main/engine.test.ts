@@ -36,6 +36,31 @@ describe('buildChildEnv', () => {
   });
 });
 
+describe('createEngineHost.runCli', () => {
+  it('collects stderr so init failures surface to the caller', async () => {
+    let exitCb: (code: number | null) => void = () => {};
+    let errCb: (c: Buffer) => void = () => {};
+    const fakeChild: EngineChild = {
+      on: (_e, cb) => { exitCb = cb; },
+      kill: () => {},
+      stderr: { on: (_e, cb) => { errCb = cb; } },
+    };
+    const host = createEngineHost({
+      enginePath: '/app/dist/cli.js',
+      fork: () => fakeChild,
+      pathSep: ':',
+    });
+    const p = host.runCli(['init', '--project', '/proj']);
+    errCb(Buffer.from('blox init failed: could not read scripts from Studio'));
+    exitCb(1);
+    expect(await p).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'blox init failed: could not read scripts from Studio',
+    });
+  });
+});
+
 describe('createEngineHost.run', () => {
   it('forks the engine, resolves done on exit, and cancel kills the child', async () => {
     let killed = false;
