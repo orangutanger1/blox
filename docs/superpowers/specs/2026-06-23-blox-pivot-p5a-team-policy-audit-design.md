@@ -50,7 +50,7 @@ Extend `BloxConfigSchema` with an optional `policy` object:
     "maxTurns": 60,                     // per-run ceiling
     "mode": "ask",                      // floor: can't downgrade ask -> auto
     "rollingBudget": { "windowDays": 30, "maxUsd": 200 },  // team cumulative cap
-    "commitConvention": "blox: {prompt}" // optional commit msg template
+    "commitConvention": "blox({user}): {prompt}" // optional commit msg template
   }
 }
 ```
@@ -76,7 +76,10 @@ know their run was constrained. The CLI prints it and exits non-zero; the daemon
 surfaces it as a run error to the dock.
 
 `commitConvention`, when set, replaces the default commit message template used
-in `runOnce` (`blox: ${prompt}`). `{prompt}` is the only supported token.
+in `runOnce` (`blox: ${prompt}`). Supported tokens: `{prompt}`, `{user}`
+(git user.email), `{date}` (YYYY-MM-DD), `{model}`. Known tokens are
+substituted; any unknown `{...}` is left literal (a typo never fails a run).
+The rendered message is still truncated to git's subject length as today.
 
 ### 3. Audit ledger: `.blox/audit.jsonl` (committed)
 
