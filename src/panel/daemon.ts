@@ -10,6 +10,7 @@ import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
 import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
 import { buildAuthEnv, authInfo } from '../auth.js';
 import { runOnce } from '../run.js';
+import { PolicyError } from '../policy.js';
 import { buildDigest } from '../context/digest.js';
 import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
 import { ensureServe } from '../sync/serve.js';
@@ -146,6 +147,22 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         resultDecisions: () => server.gates.resultDecisions(),
       });
     } catch (e) {
+      if (e instanceof PolicyError) {
+        // Policy violations are user-facing configuration errors, not runtime
+        // failures — emit a clean run_finished error event and return without
+        // throwing so the daemon stays alive for the next run.
+        const detail = `policy violation [${e.field}]: ${e.message}`;
+        server.gates.reset();
+        server.emit({
+          type: 'run_finished',
+          status: 'error',
+          stopReason: 'error',
+          turns: 0,
+          costUsd: 0,
+          detail,
+        });
+        return;
+      }
       // Don't let a run failure die silently — the dock would just show
       // "error — 0 turns" with no reason. Surface it to the daemon terminal and
       // the dock log; run_finished(error) still fires in the finally below.

@@ -17,7 +17,7 @@ export type PanelEvent =
   | { type: 'result_gate_request'; gateId: string; tool: string; tag: string | null; inputSummary: string }
   | { type: 'result_gate_resolved'; gateId: string; decision: ResultDecisionValue; source: GateSource; feedback?: string }
   | { type: 'image_request' }
-  | { type: 'run_finished'; status: 'success' | 'error'; stopReason: string; turns: number; costUsd: number };
+  | { type: 'run_finished'; status: 'success' | 'error'; stopReason: string; turns: number; costUsd: number; detail?: string };
 
 export interface EventSink {
   emit(event: PanelEvent): void;
