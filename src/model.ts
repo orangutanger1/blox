@@ -1,6 +1,6 @@
 // src/model.ts — friendly writer for ~/.claude-code-router/config.json. blox owns
 // CCR's config so the user never hand-edits it; CCR still does the translation.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ccrConfigPath } from './ccr.js';
 
@@ -38,5 +38,6 @@ export function writeProvider(kind: ProviderKind, opts: AddProviderOpts, path: s
   cfg.Router = { ...(cfg.Router ?? {}), default: `${kind},${opts.models[0]}` };
 
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(cfg, null, 2) + '\n');
+  writeFileSync(path, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+  chmodSync(path, 0o600); // config holds the OpenRouter key — keep it user-only
 }

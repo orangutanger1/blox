@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { rmSync, readFileSync } from 'node:fs';
+import { rmSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeProvider } from '../src/model.js';
@@ -39,5 +39,12 @@ describe('writeProvider', () => {
   it('rejects openrouter without a key and any provider without a model', () => {
     expect(() => writeProvider('openrouter', { models: ['x'] }, tmp)).toThrow(/key/);
     expect(() => writeProvider('local', { models: [] }, tmp)).toThrow(/model/);
+  });
+
+  it('writes the config user-only (0600) since it holds the api key', () => {
+    writeProvider('openrouter', { apiKey: 'sk-or-x', models: ['a/b'] }, tmp);
+    if (process.platform !== 'win32') {
+      expect(statSync(tmp).mode & 0o777).toBe(0o600);
+    }
   });
 });
