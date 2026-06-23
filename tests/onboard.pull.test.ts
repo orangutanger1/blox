@@ -51,6 +51,15 @@ describe('dumpPageLuau', () => {
     expect(code).toContain('local start, budget = 12, 60000');
     expect(code).toContain('JSONEncode');
   });
+  it('excludes plugin/core service roots so plugin source is not pulled', () => {
+    const code = dumpPageLuau(0, 80000);
+    // the Rojo plugin (and its 1.6MB RbxDom db) live under PluginDebugService.
+    expect(code).toContain('PluginDebugService');
+    expect(code).toContain('CoreGui');
+    // walks per-service, not the whole DataModel.
+    expect(code).not.toContain('game:GetDescendants()');
+    expect(code).toContain('game:GetChildren()');
+  });
 });
 
 // A fake DoctorClient that returns successive page texts across reconnects.
