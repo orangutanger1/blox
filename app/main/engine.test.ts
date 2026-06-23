@@ -14,6 +14,16 @@ describe('buildRunArgs', () => {
   });
 });
 
+describe('buildRunArgs model', () => {
+  it('appends --model when set', () => {
+    const a = buildRunArgs('p', '/x', { model: 'openrouter,deepseek/deepseek-chat' });
+    expect(a[a.indexOf('--model') + 1]).toBe('openrouter,deepseek/deepseek-chat');
+  });
+  it('omits --model when unset', () => {
+    expect(buildRunArgs('p', '/x', {})).not.toContain('--model');
+  });
+});
+
 describe('buildChildEnv', () => {
   it('prepends rojo dir to PATH and injects no key', () => {
     const env = buildChildEnv({ PATH: '/usr/bin' }, '/opt/rojo', ':');

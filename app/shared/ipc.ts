@@ -18,6 +18,8 @@ export const IPC = {
   setupCheckStudio: 'setup:checkStudio',
   onboardState: 'onboard:state',
   onboardComplete: 'onboard:complete',
+  modelAdd: 'model:add',
+  modelList: 'model:list',
 } as const;
 
 export interface RunStartPayload {
@@ -27,5 +29,6 @@ export interface RunStartPayload {
   maxTurns?: number;
   budgetUsd?: number;
   effort?: 'high' | 'xhigh';
+  model?: string;
 }
 export interface StepResult { status: 'ok' | 'missing' | 'error'; detail: string }

@@ -74,7 +74,7 @@ function createWindow(): void {
       }
     }
     const handle = host.run(p.prompt, p.projectPath, {
-      mode: p.mode, maxTurns: p.maxTurns, budgetUsd: p.budgetUsd, effort: p.effort,
+      mode: p.mode, maxTurns: p.maxTurns, budgetUsd: p.budgetUsd, effort: p.effort, model: p.model,
     });
     current = handle;
     void handle.done.then((r) => win.webContents.send(IPC.runExited, r));
@@ -125,6 +125,19 @@ function createWindow(): void {
   ipcMain.handle(IPC.setupCheckStudio, () => setup.checkStudio());
   ipcMain.handle(IPC.onboardState, () => onboard.isComplete());
   ipcMain.handle(IPC.onboardComplete, () => { onboard.markComplete(); return true; });
+
+  // Multi-model: write CCR provider config + list configured models via the engine.
+  ipcMain.handle(IPC.modelAdd, async (_e, kind: 'openrouter' | 'local', opts: { key?: string; baseUrl?: string; models: string[] }) => {
+    const cmd = ['model', 'add', kind, ...opts.models];
+    if (opts.key) cmd.push('--key', opts.key);
+    if (opts.baseUrl) cmd.push('--base-url', opts.baseUrl);
+    const r = await host.runCli(cmd);
+    return { ok: r.code === 0, detail: r.stdout.trim() };
+  });
+  ipcMain.handle(IPC.modelList, async () => {
+    const r = await host.runCli(['model', 'list']);
+    return r.stdout.split('\n').map((s) => s.trim()).filter((s) => s && !s.startsWith('('));
+  });
 }
 
 app.whenReady().then(createWindow);
