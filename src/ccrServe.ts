@@ -22,7 +22,12 @@ export type CcrSpawnFn = () => void;
 const realCcrSpawn: CcrSpawnFn = () => {
   // windowsHide: the engine is forked from a GUI Electron app with no console,
   // so a console-subsystem child flashes a cmd window unless suppressed.
-  const child = nodeSpawn('ccr', ['start'], { detached: true, stdio: 'ignore', windowsHide: true });
+  // shell on win32: npm installs `ccr.cmd`, which Node's spawn won't resolve
+  // without a shell → silent ENOENT, CCR never starts, routed runs exit 1.
+  // Args are static literals, so shell injection isn't a concern (cf. PR #5).
+  const child = nodeSpawn('ccr', ['start'], {
+    detached: true, stdio: 'ignore', windowsHide: true, shell: process.platform === 'win32',
+  });
   // Swallow spawn errors (e.g. ENOENT when ccr isn't installed) — an unhandled
   // child 'error' would throw and crash the daemon. The poll loop times out and
   // reports failure instead.
