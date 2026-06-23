@@ -9,7 +9,9 @@ export type SpawnFn = (
 
 export const realSpawn: SpawnFn = (cmd, args, opts) =>
   new Promise((resolveP) => {
-    const child = nodeSpawn(cmd, args, { cwd: opts.cwd });
+    // windowsHide: git/rojo are console apps; forked from the GUI engine each
+    // would flash a cmd window per call (4 git calls at auto-commit alone).
+    const child = nodeSpawn(cmd, args, { cwd: opts.cwd, windowsHide: true });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     let stdout = '';
