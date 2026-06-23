@@ -1,4 +1,6 @@
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { ccrEndpoint, readCcrModels } from './ccr.js';
 
 // Probe CCR's inbound endpoint. Any HTTP response (even a 404) means the router
@@ -20,22 +22,51 @@ export async function ccrReachable(baseUrl: string, fetchFn: CcrFetchFn = defaul
 // outlives this run (it's a shared process). Injected for tests.
 export type CcrSpawnFn = () => void;
 
-// How to launch the shared CCR service per platform.
+type WhichFn = (bin: string) => string | null;
+const defaultWhich: WhichFn = (bin) => {
+  const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', [bin], {
+    encoding: 'utf-8', windowsHide: true,
+  });
+  if (r.status !== 0 || !r.stdout) return null;
+  return r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] ?? null;
+};
+
+// Resolve the global claude-code-router cli.js so Windows can launch the service
+// with `node <cli> start` directly. Only a *direct* spawn honors windowsHide;
+// a `.cmd`/shell hop or a detached console app pops a window regardless. npm's
+// global layout puts the `ccr` shim in the prefix dir next to node_modules.
+// Returns null when not found → caller falls back to the shell launcher.
+export function resolveCcrCli(
+  which: WhichFn = defaultWhich,
+  exists: (p: string) => boolean = existsSync,
+): string | null {
+  const shim = which('ccr');
+  if (!shim) return null;
+  const cli = join(dirname(shim), 'node_modules', '@musistudio', 'claude-code-router', 'dist', 'cli.js');
+  return exists(cli) ? cli : null;
+}
+
+// How to launch the shared CCR service.
 // - posix: `ccr start` directly.
-// - win32: npm installs `ccr.cmd` (needs a shell to resolve) AND a plain
-//   `shell:true` spawn still flashes a console window — windowsHide hides
-//   cmd.exe but the node grandchild allocates its own console. `cmd /c start
-//   "" /b ccr start` launches it backgrounded with no new window. verbatim
-//   keeps Node from re-escaping the empty `""` title (cf. the #21 quoting trap).
-export function ccrSpawnArgs(platform: NodeJS.Platform): { command: string; args: string[]; verbatim: boolean } {
+// - win32, cli.js resolved: `node <cli> start` — direct spawn so windowsHide
+//   actually suppresses the service's console window (CCR's `ccr start` runs
+//   the server in-process, so no new window escapes once we own the spawn).
+// - win32, fallback: `cmd /c start "" /b ccr start` (popup remains, but works).
+//   verbatim keeps Node from re-escaping the empty `""` title (cf. #21).
+export function ccrSpawnArgs(
+  platform: NodeJS.Platform,
+  cliPath: string | null = null,
+): { command: string; args: string[]; verbatim: boolean } {
   if (platform === 'win32') {
+    if (cliPath) return { command: 'node', args: [cliPath, 'start'], verbatim: false };
     return { command: 'cmd.exe', args: ['/c', 'start', '""', '/b', 'ccr', 'start'], verbatim: true };
   }
   return { command: 'ccr', args: ['start'], verbatim: false };
 }
 
 const realCcrSpawn: CcrSpawnFn = () => {
-  const { command, args, verbatim } = ccrSpawnArgs(process.platform);
+  const cliPath = process.platform === 'win32' ? resolveCcrCli() : null;
+  const { command, args, verbatim } = ccrSpawnArgs(process.platform, cliPath);
   // windowsHide: the engine is forked from a GUI Electron app with no console,
   // so any console-subsystem child flashes a window unless suppressed.
   const child = nodeSpawn(command, args, {

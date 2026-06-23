@@ -2,18 +2,39 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv, ensureCcrInstalled, ccrSpawnArgs } from '../src/ccrServe.js';
+import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv, ensureCcrInstalled, ccrSpawnArgs, resolveCcrCli } from '../src/ccrServe.js';
 
 const noSleep = () => Promise.resolve();
 
 describe('ccrSpawnArgs', () => {
-  it('win32 launches backgrounded via cmd /c start "" /b to suppress the console window', () => {
-    expect(ccrSpawnArgs('win32')).toEqual({
+  it('win32 with a resolved cli runs node directly so windowsHide suppresses the console', () => {
+    expect(ccrSpawnArgs('win32', 'C:/npm/node_modules/@musistudio/claude-code-router/dist/cli.js')).toEqual({
+      command: 'node', args: ['C:/npm/node_modules/@musistudio/claude-code-router/dist/cli.js', 'start'], verbatim: false,
+    });
+  });
+  it('win32 falls back to cmd /c start "" /b when cli is unresolved', () => {
+    expect(ccrSpawnArgs('win32', null)).toEqual({
       command: 'cmd.exe', args: ['/c', 'start', '""', '/b', 'ccr', 'start'], verbatim: true,
     });
   });
   it('posix runs ccr directly with no shell wrapping', () => {
     expect(ccrSpawnArgs('linux')).toEqual({ command: 'ccr', args: ['start'], verbatim: false });
+  });
+});
+
+describe('resolveCcrCli', () => {
+  it('derives cli.js next to the ccr shim and returns it when present', () => {
+    // forward slashes so node:path splits it the same on the linux test host;
+    // production uses the OS path module per-platform.
+    const which = () => '/home/m/.npm-global/bin/ccr';
+    const got = resolveCcrCli(which, () => true);
+    expect(got).toBe(join('/home/m/.npm-global/bin', 'node_modules', '@musistudio', 'claude-code-router', 'dist', 'cli.js'));
+  });
+  it('returns null when the shim is not on PATH', () => {
+    expect(resolveCcrCli(() => null, () => true)).toBeNull();
+  });
+  it('returns null when the derived cli.js does not exist (falls back to shell launcher)', () => {
+    expect(resolveCcrCli(() => '/usr/local/bin/ccr', () => false)).toBeNull();
   });
 });
 
