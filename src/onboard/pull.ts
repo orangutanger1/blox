@@ -22,37 +22,63 @@ export interface DumpPage {
 // overhead is added.
 export const DUMP_PAGE_BUDGET = 80000;
 
-// Luau run inside Studio (edit mode). Walks game:GetDescendants() counting only
-// LuaSourceContainer instances; skips the first `start`, then collects until the
-// byte budget is hit. Returns {scripts, next} where next is the index of the
-// first uncollected script (or -1 when the walk finished). At least one script
-// per page is always emitted so an oversized single source still makes progress.
+// Service roots that hold plugin / Roblox-internal source, never the user's
+// game scripts. A dev with the Rojo plugin loaded as a managed plugin has its
+// whole source (incl. a 1.6MB RbxDom database) under PluginDebugService — pull
+// must skip these or one such script truncates the JSON page past the transport
+// cap. Excluded by walking each non-excluded service's descendants directly.
+const EXCLUDED_ROOTS = [
+  'PluginDebugService', 'CoreGui', 'CorePackages', 'RobloxPluginGuiService',
+];
+
+// Luau run inside Studio (edit mode). Walks the game's service trees (minus the
+// plugin/core roots above) counting only LuaSourceContainer instances; skips the
+// first `start`, then collects until the byte budget is hit. Returns {scripts,
+// next} where next is the index of the first uncollected script (or -1 when the
+// walk finished). At least one script per page is always emitted so an oversized
+// single source still makes progress.
 export function dumpPageLuau(start: number, budget: number): string {
+  const excluded = JSON.stringify(EXCLUDED_ROOTS);
   return `local start, budget = ${start}, ${budget}
 local HttpService = game:GetService("HttpService")
+local excludedNames = HttpService:JSONDecode('${excluded}')
+local excluded = {}
+for _, name in ipairs(excludedNames) do
+  local ok, svc = pcall(function() return game:GetService(name) end)
+  if ok and svc then excluded[svc] = true end
+end
+-- Flatten the kept services' descendants into one stable list so pagination's
+-- global index stays consistent across pages.
+local all = {}
+for _, svc in ipairs(game:GetChildren()) do
+  if not excluded[svc] then
+    if svc:IsA("LuaSourceContainer") then table.insert(all, svc) end
+    for _, d in ipairs(svc:GetDescendants()) do
+      if d:IsA("LuaSourceContainer") then table.insert(all, d) end
+    end
+  end
+end
 local scripts = {}
 local idx = 0
 local used = 0
 local nextStart = -1
-for _, inst in ipairs(game:GetDescendants()) do
-  if inst:IsA("LuaSourceContainer") then
-    if idx >= start then
-      local src = inst.Source
-      -- *2 approximates worst-case JSON escaping (every char -> \\x) so a page's
-      -- encoded size stays under the transport cap; +64 covers key/quote overhead.
-      -- ponytail: a single script whose encoded source alone exceeds the ~100KB
-      -- cap still truncates (it's emitted whole to guarantee progress). Chunk a
-      -- single Source across pages if such places turn up.
-      local cost = #src * 2 + #inst:GetFullName() + #inst.ClassName + 64
-      if #scripts > 0 and used + cost > budget then
-        nextStart = idx
-        break
-      end
-      table.insert(scripts, { fullName = inst:GetFullName(), className = inst.ClassName, source = src })
-      used = used + cost
+for _, inst in ipairs(all) do
+  if idx >= start then
+    local src = inst.Source
+    -- *2 approximates worst-case JSON escaping (every char -> \\x) so a page's
+    -- encoded size stays under the transport cap; +64 covers key/quote overhead.
+    -- ponytail: a single script whose encoded source alone exceeds the ~100KB
+    -- cap still truncates (it's emitted whole to guarantee progress). Chunk a
+    -- single Source across pages if such places turn up.
+    local cost = #src * 2 + #inst:GetFullName() + #inst.ClassName + 64
+    if #scripts > 0 and used + cost > budget then
+      nextStart = idx
+      break
     end
-    idx = idx + 1
+    table.insert(scripts, { fullName = inst:GetFullName(), className = inst.ClassName, source = src })
+    used = used + cost
   end
+  idx = idx + 1
 end
 return HttpService:JSONEncode({ scripts = scripts, next = nextStart })`;
 }
