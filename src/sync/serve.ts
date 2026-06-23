@@ -27,7 +27,9 @@ export function serveUrl(port: number): string {
 // Spawns `rojo serve --port <port>` in the project dir (cwd → default.project.json,
 // mirroring syncProject). Not detached — killable via the handle for clean teardown.
 export const realServeSpawn: ServeSpawnFn = (projectPath, port) => {
-  const child = nodeSpawn(rojoBin(), ['serve', '--port', String(port)], { cwd: projectPath });
+  // windowsHide: rojo.exe is a console app; the GUI-forked engine would flash
+  // (or show) a cmd window when it spawns the serve daemon.
+  const child = nodeSpawn(rojoBin(), ['serve', '--port', String(port)], { cwd: projectPath, windowsHide: true });
   const exited = new Promise<number>((res) => {
     child.on('error', () => res(1));
     child.on('close', (code) => res(code ?? 1));
