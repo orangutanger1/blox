@@ -66,3 +66,37 @@ describe('panel config', () => {
     expect(c.panel).toEqual({ port: 40000, gateTimeoutSeconds: 120 });
   });
 });
+
+describe('policy schema', () => {
+  it('parses a full policy block from blox.config.json', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    writeFileSync(join(dir, 'blox.config.json'), JSON.stringify({
+      policy: {
+        models: ['claude-opus-4-8'],
+        maxBudgetUsd: 10,
+        maxTurns: 60,
+        mode: 'ask',
+        rollingBudget: { windowDays: 30, maxUsd: 200 },
+        commitConvention: 'blox({user}): {prompt}',
+      },
+    }));
+    const cfg = loadConfig(dir);
+    expect(cfg.policy?.models).toEqual(['claude-opus-4-8']);
+    expect(cfg.policy?.rollingBudget?.maxUsd).toBe(200);
+    expect(cfg.policy?.commitConvention).toBe('blox({user}): {prompt}');
+  });
+
+  it('leaves policy undefined when absent (back-compat)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    const cfg = loadConfig(dir);
+    expect(cfg.policy).toBeUndefined();
+  });
+
+  it('rejects a non-positive rolling window', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    writeFileSync(join(dir, 'blox.config.json'), JSON.stringify({
+      policy: { rollingBudget: { windowDays: 0, maxUsd: 200 } },
+    }));
+    expect(() => loadConfig(dir)).toThrow();
+  });
+});

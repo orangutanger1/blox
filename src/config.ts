@@ -2,6 +2,22 @@ import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+export const PolicySchema = z.object({
+  models: z.array(z.string()).optional(),
+  maxBudgetUsd: z.number().positive().optional(),
+  maxTurns: z.number().int().positive().optional(),
+  mode: z.enum(['auto', 'ask']).optional(),
+  rollingBudget: z
+    .object({
+      windowDays: z.number().int().positive(),
+      maxUsd: z.number().positive(),
+    })
+    .optional(),
+  commitConvention: z.string().optional(),
+});
+
+export type Policy = z.infer<typeof PolicySchema>;
+
 export const BloxConfigSchema = z.object({
   projectPath: z.string(),
   model: z.string().default('claude-opus-4-8'),
@@ -17,6 +33,7 @@ export const BloxConfigSchema = z.object({
     // prefault (not default): zod v4 .default() short-circuits inner parsing,
     // so {} would skip the field defaults; prefault parses it through them.
     .prefault({}),
+  policy: PolicySchema.optional(),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
