@@ -26,6 +26,7 @@ import {
   runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore,
   setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv, authInfo,
 } from './auth.js';
+import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
 
 async function main(): Promise<void> {
@@ -301,19 +302,28 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     }
-    const report = await runOnce(config, prompt, {
-      bridge,
-      digest,
-      gate,
-      sink: panel ?? undefined,
-      image,
-      verify: args.verify,
-      // Direct-Anthropic one-shot: inject the linked credential (subscription
-      // vs API key), honoring a per-run --auth override.
-      env: routed ? ccrRunEnv(true) : buildAuthEnv({ override: args.authMode }),
-      dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
-      resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
-    });
+    let report;
+    try {
+      report = await runOnce(config, prompt, {
+        bridge,
+        digest,
+        gate,
+        sink: panel ?? undefined,
+        image,
+        verify: args.verify,
+        // Direct-Anthropic one-shot: inject the linked credential (subscription
+        // vs API key), honoring a per-run --auth override.
+        env: routed ? ccrRunEnv(true) : buildAuthEnv({ override: args.authMode }),
+        dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
+        resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
+      });
+    } catch (e) {
+      if (e instanceof PolicyError) {
+        console.error(`policy violation [${e.field}]: ${e.message}`);
+        process.exit(1);
+      }
+      throw e;
+    }
     panel?.emit({
       type: 'run_finished',
       status: report.status,
