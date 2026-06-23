@@ -23,6 +23,8 @@ const IPC = {
   setupCheckStudio: 'setup:checkStudio',
   onboardState: 'onboard:state',
   onboardComplete: 'onboard:complete',
+  modelAdd: 'model:add',
+  modelList: 'model:list',
 };
 
 contextBridge.exposeInMainWorld('blox', {
@@ -31,6 +33,7 @@ contextBridge.exposeInMainWorld('blox', {
   runCancel: () => ipcRenderer.invoke(IPC.runCancel),
   onRunExited: (cb) => ipcRenderer.on(IPC.runExited, (_e, r) => cb(r)),
   onRunLog: (cb) => ipcRenderer.on(IPC.runLog, (_e, text) => cb(text)),
+  listModels: () => ipcRenderer.invoke(IPC.modelList),
 });
 
 contextBridge.exposeInMainWorld('bloxSetup', {
@@ -44,4 +47,6 @@ contextBridge.exposeInMainWorld('bloxSetup', {
   checkStudio: () => ipcRenderer.invoke(IPC.setupCheckStudio),
   onboardState: () => ipcRenderer.invoke(IPC.onboardState),
   onboardComplete: () => ipcRenderer.invoke(IPC.onboardComplete),
+  addModel: (kind, opts) => ipcRenderer.invoke(IPC.modelAdd, kind, opts),
+  listModels: () => ipcRenderer.invoke(IPC.modelList),
 });
