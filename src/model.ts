@@ -15,26 +15,32 @@ const DEFAULTS: Record<ProviderKind, { baseUrl: string; transformer?: { use: str
 interface CcrProvider { name: string; api_base_url: string; api_key: string; models: string[]; transformer?: { use: string[] } }
 interface CcrConfig { Providers?: CcrProvider[]; Router?: { default?: string; [k: string]: unknown }; [k: string]: unknown }
 
-// Upsert one provider block per kind and point Router.default at its first model.
+// Upsert one provider block per kind: accumulate its models (append + dedupe)
+// rather than replacing, and point Router.default at the just-added model.
 // Other providers and unrelated config keys are preserved.
 export function writeProvider(kind: ProviderKind, opts: AddProviderOpts, path: string = ccrConfigPath()): void {
   if (opts.models.length === 0) throw new Error(`${kind}: at least one model is required`);
-  if (kind === 'openrouter' && !opts.apiKey) throw new Error('openrouter: an API key is required');
 
   let cfg: CcrConfig = {};
   if (existsSync(path)) {
     try { cfg = JSON.parse(readFileSync(path, 'utf8')) as CcrConfig; } catch { cfg = {}; }
   }
+  const providers = Array.isArray(cfg.Providers) ? cfg.Providers : [];
+  const existing = providers.find((p) => p.name === kind);
+
+  // openrouter needs a key, but only on the first add — reuse the stored one after.
+  const apiKey = opts.apiKey || existing?.api_key;
+  if (kind === 'openrouter' && !apiKey) throw new Error('openrouter: an API key is required');
+
   const def = DEFAULTS[kind];
   const block: CcrProvider = {
     name: kind,
-    api_base_url: opts.baseUrl || def.baseUrl,
-    api_key: opts.apiKey || 'local', // CCR wants a non-empty key; local servers ignore it
-    models: opts.models,
+    api_base_url: opts.baseUrl || existing?.api_base_url || def.baseUrl,
+    api_key: apiKey || 'local', // CCR wants a non-empty key; local servers ignore it
+    models: [...new Set([...(existing?.models ?? []), ...opts.models])],
     ...(def.transformer ? { transformer: def.transformer } : {}),
   };
-  const others = Array.isArray(cfg.Providers) ? cfg.Providers.filter((p) => p.name !== kind) : [];
-  cfg.Providers = [...others, block];
+  cfg.Providers = [...providers.filter((p) => p.name !== kind), block];
   cfg.Router = { ...(cfg.Router ?? {}), default: `${kind},${opts.models[0]}` };
 
   mkdirSync(dirname(path), { recursive: true });
