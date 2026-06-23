@@ -15,6 +15,7 @@ export interface RunOptions {
   budgetUsd?: number;
   effort?: 'high' | 'xhigh';
   image?: string;
+  model?: string;
 }
 
 export interface EngineDeps {
@@ -35,6 +36,7 @@ export function buildRunArgs(prompt: string, projectPath: string, o: RunOptions 
   if (o.budgetUsd != null) args.push('--budget', String(o.budgetUsd));
   if (o.effort) args.push('--effort', o.effort);
   if (o.image) args.push('--image', o.image);
+  if (o.model) args.push('--model', o.model);
   return args;
 }
 
