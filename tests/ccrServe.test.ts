@@ -2,9 +2,20 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv, ensureCcrInstalled } from '../src/ccrServe.js';
+import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv, ensureCcrInstalled, ccrSpawnArgs } from '../src/ccrServe.js';
 
 const noSleep = () => Promise.resolve();
+
+describe('ccrSpawnArgs', () => {
+  it('win32 launches backgrounded via cmd /c start "" /b to suppress the console window', () => {
+    expect(ccrSpawnArgs('win32')).toEqual({
+      command: 'cmd.exe', args: ['/c', 'start', '""', '/b', 'ccr', 'start'], verbatim: true,
+    });
+  });
+  it('posix runs ccr directly with no shell wrapping', () => {
+    expect(ccrSpawnArgs('linux')).toEqual({ command: 'ccr', args: ['start'], verbatim: false });
+  });
+});
 
 describe('ccrReachable', () => {
   it('true when the fetch resolves (any HTTP response, even 404)', async () => {
