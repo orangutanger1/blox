@@ -76,11 +76,18 @@ function createWindow(): void {
         return false;
       }
     }
+    // Buffer stderr so a routed-model/crash failure (which exits without a
+    // panel run_finished event) shows its cause in the feed instead of a bare
+    // "run exited (1)". Trimmed to the tail to avoid flooding the dock.
+    let errTail = '';
     const handle = host.run(p.prompt, p.projectPath, {
       mode: p.mode, maxTurns: p.maxTurns, budgetUsd: p.budgetUsd, effort: p.effort, model: p.model,
-    });
+    }, (s) => { errTail = (errTail + s).slice(-2000); });
     current = handle;
-    void handle.done.then((r) => win.webContents.send(IPC.runExited, r));
+    void handle.done.then((r) => {
+      if (r.code !== 0 && errTail.trim()) win.webContents.send(IPC.runLog, errTail.trim());
+      win.webContents.send(IPC.runExited, r);
+    });
     return true;
   });
   ipcMain.handle(IPC.runCancel, () => { current?.cancel(); current = null; return true; });

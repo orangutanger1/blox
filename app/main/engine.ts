@@ -64,8 +64,11 @@ export function createEngineHost(deps: EngineDeps) {
     return { cancel: () => child.kill(), done };
   }
   return {
-    run(prompt: string, projectPath: string, opts: RunOptions = {}): RunHandle {
-      return spawn(buildRunArgs(prompt, projectPath, opts));
+    // onStderr surfaces the engine's stderr (CCR-routing failures, uncaught
+    // crashes) — those exit non-zero *without* a panel run_finished event, so
+    // the dock would otherwise show a bare "run exited (1)" with no cause.
+    run(prompt: string, projectPath: string, opts: RunOptions = {}, onStderr?: (s: string) => void): RunHandle {
+      return spawn(buildRunArgs(prompt, projectPath, opts), undefined, onStderr);
     },
     // Drive a subcommand (doctor / panel install / init) and collect both
     // streams — init prints its real failure + hint to stderr, so callers need
