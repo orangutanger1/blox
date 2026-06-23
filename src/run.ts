@@ -8,9 +8,12 @@ import type { PanelGateChannel } from './agent/buildOptions.js';
 import type { ResultRecord } from './panel/gates.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
-import { syncProject } from './sync/rojo.js';
+import { syncProject, realSpawn } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
 import type { RunReport } from './report.js';
+import { enforcePolicy } from './policy.js';
+import { appendAuditEntry } from './audit.js';
+import { renderCommitMessage } from './commitMessage.js';
 
 export interface RunOnceDeps {
   bridge: StudioBridge;
@@ -27,11 +30,22 @@ export interface RunOnceDeps {
   env?: Record<string, string>;
 }
 
+async function gitUserEmail(projectPath: string): Promise<string> {
+  try {
+    const r = await realSpawn('git', ['config', 'user.email'], { cwd: projectPath });
+    return r.stdout.trim() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 // The shared run pipeline: build options → run the agent → sync to disk →
 // commit → assemble the report. Callers own everything around it (digest,
 // bridge, rojo serve, panel lifecycle, run_started/run_finished emits, exit
 // codes). Used by both the CLI one-shot and the panel daemon.
 export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceDeps): Promise<RunReport> {
+  enforcePolicy(config); // throws PolicyError on violation, before any agent/model work
+
   const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
     image: !!deps.image,
     verify: deps.verify,
@@ -44,16 +58,35 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     env: deps.env,
   });
   const sync = await syncProject(config.projectPath);
+
+  const user = await gitUserEmail(config.projectPath);
+  const date = new Date().toISOString().slice(0, 10);
+  const message = renderCommitMessage(config.policy?.commitConvention, {
+    prompt, user, model: config.model, date,
+  }).slice(0, 72);
   const commit = sync.ok
-    ? await commitChanges(config.projectPath, `blox: ${prompt}`.slice(0, 72))
+    ? await commitChanges(config.projectPath, message)
     : { sha: null, files: [] };
+
+  const status = agent.status === 'success' && sync.ok ? 'success' : 'error';
+
+  try {
+    appendAuditEntry(config.projectPath, {
+      ts: new Date().toISOString(),
+      user, model: config.model, turns: agent.numTurns, costUsd: agent.costUsd,
+      status, commit: commit.sha, prompt, stopReason: agent.stopReason,
+    });
+  } catch (e) {
+    console.warn(`blox: failed to write audit ledger: ${(e as Error).message}`);
+  }
+
   return {
     prompt,
     changedFiles: commit.files,
     commitSha: commit.sha,
     numTurns: agent.numTurns,
     costUsd: agent.costUsd,
-    status: agent.status === 'success' && sync.ok ? 'success' : 'error',
+    status,
     stopReason: agent.stopReason,
     detail: sync.ok ? agent.detail : sync.detail,
     mode: config.mode,
