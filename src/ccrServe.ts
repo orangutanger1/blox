@@ -19,14 +19,27 @@ export async function ccrReachable(baseUrl: string, fetchFn: CcrFetchFn = defaul
 // Fire-and-forget launcher for the CCR service. Detached + unref'd so the router
 // outlives this run (it's a shared process). Injected for tests.
 export type CcrSpawnFn = () => void;
+
+// How to launch the shared CCR service per platform.
+// - posix: `ccr start` directly.
+// - win32: npm installs `ccr.cmd` (needs a shell to resolve) AND a plain
+//   `shell:true` spawn still flashes a console window — windowsHide hides
+//   cmd.exe but the node grandchild allocates its own console. `cmd /c start
+//   "" /b ccr start` launches it backgrounded with no new window. verbatim
+//   keeps Node from re-escaping the empty `""` title (cf. the #21 quoting trap).
+export function ccrSpawnArgs(platform: NodeJS.Platform): { command: string; args: string[]; verbatim: boolean } {
+  if (platform === 'win32') {
+    return { command: 'cmd.exe', args: ['/c', 'start', '""', '/b', 'ccr', 'start'], verbatim: true };
+  }
+  return { command: 'ccr', args: ['start'], verbatim: false };
+}
+
 const realCcrSpawn: CcrSpawnFn = () => {
+  const { command, args, verbatim } = ccrSpawnArgs(process.platform);
   // windowsHide: the engine is forked from a GUI Electron app with no console,
-  // so a console-subsystem child flashes a cmd window unless suppressed.
-  // shell on win32: npm installs `ccr.cmd`, which Node's spawn won't resolve
-  // without a shell → silent ENOENT, CCR never starts, routed runs exit 1.
-  // Args are static literals, so shell injection isn't a concern (cf. PR #5).
-  const child = nodeSpawn('ccr', ['start'], {
-    detached: true, stdio: 'ignore', windowsHide: true, shell: process.platform === 'win32',
+  // so any console-subsystem child flashes a window unless suppressed.
+  const child = nodeSpawn(command, args, {
+    detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: verbatim,
   });
   // Swallow spawn errors (e.g. ENOENT when ccr isn't installed) — an unhandled
   // child 'error' would throw and crash the daemon. The poll loop times out and
