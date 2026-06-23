@@ -20,7 +20,9 @@ export async function ccrReachable(baseUrl: string, fetchFn: CcrFetchFn = defaul
 // outlives this run (it's a shared process). Injected for tests.
 export type CcrSpawnFn = () => void;
 const realCcrSpawn: CcrSpawnFn = () => {
-  const child = nodeSpawn('ccr', ['start'], { detached: true, stdio: 'ignore' });
+  // windowsHide: the engine is forked from a GUI Electron app with no console,
+  // so a console-subsystem child flashes a cmd window unless suppressed.
+  const child = nodeSpawn('ccr', ['start'], { detached: true, stdio: 'ignore', windowsHide: true });
   // Swallow spawn errors (e.g. ENOENT when ccr isn't installed) — an unhandled
   // child 'error' would throw and crash the daemon. The poll loop times out and
   // reports failure instead.
@@ -131,14 +133,16 @@ export interface InstallDeps {
 // @musistudio/claude-code-router` once. Returns whether ccr is available after.
 // Both effects injected so this unit tests without touching the machine.
 export function ensureCcrInstalled(log: (m: string) => void = () => {}, deps: InstallDeps = {}): boolean {
+  // windowsHide on both spawns: from a GUI-forked engine each console child
+  // (where/npm via cmd) flashes a window otherwise — the popup users hit on add.
   const probe = deps.probe ?? ((bin: string) =>
-    spawnSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore' }).status === 0);
+    spawnSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore', windowsHide: true }).status === 0);
   if (probe('ccr')) return true;
 
   log('Installing claude-code-router (one-time)…');
   const install = deps.install ?? (() =>
     spawnSync('npm', ['i', '-g', '@musistudio/claude-code-router'],
-      { stdio: 'inherit', shell: process.platform === 'win32' }).status === 0);
+      { stdio: 'inherit', shell: process.platform === 'win32', windowsHide: true }).status === 0);
   if (install()) { log('claude-code-router installed.'); return true; }
 
   log('Could not auto-install. Install it manually: npm i -g @musistudio/claude-code-router');
