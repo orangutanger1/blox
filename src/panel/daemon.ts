@@ -6,8 +6,8 @@
 import { randomUUID } from 'node:crypto';
 import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
-import { readCcrModels, resolveModel, ccrEndpoint, type CcrModels } from '../ccr.js';
-import { ensureCcr } from '../ccrServe.js';
+import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
+import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
 import { buildAuthEnv, authInfo } from '../auth.js';
 import { runOnce } from '../run.js';
 import { buildDigest } from '../context/digest.js';
@@ -73,23 +73,6 @@ export function createController(
       return { ok: true, runId };
     },
   };
-}
-
-// Env for a daemon run's model call. For a CCR-routed model, point the Agent
-// SDK at CCR (ANTHROPIC_BASE_URL) with the x-api-key path and no competing
-// bearer token. For a bare model (no CCR provider) return undefined so the run
-// uses the inherited env unchanged (same as the one-shot CLI).
-export function ccrRunEnv(useCcr: boolean): Record<string, string> | undefined {
-  if (!useCcr) return undefined;
-  const ep = ccrEndpoint();
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string') env[k] = v;
-  }
-  env.ANTHROPIC_BASE_URL = ep.baseUrl;
-  env.ANTHROPIC_API_KEY = ep.apiKey;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  return env;
 }
 
 // Persistent control server. Builds the digest once, then serves the dock and

@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn } from 'node:child_process';
+import { spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { ccrEndpoint, readCcrModels } from './ccr.js';
 
 // Probe CCR's inbound endpoint. Any HTTP response (even a 404) means the router
@@ -104,4 +104,43 @@ export function formatCcrStatus(s: CcrStatus): string {
       ? '  detail:  routed runs ready'
       : '  detail:  the daemon auto-starts it on a routed run (ensureCcr); or `ccr start`',
   ].join('\n');
+}
+
+// Env for a routed run's model call. For a CCR-routed model, point the Agent SDK
+// at CCR (ANTHROPIC_BASE_URL) with the x-api-key path and no competing bearer
+// token. For a bare model return undefined so the run uses inherited env unchanged.
+export function ccrRunEnv(useCcr: boolean): Record<string, string> | undefined {
+  if (!useCcr) return undefined;
+  const ep = ccrEndpoint();
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string') env[k] = v;
+  }
+  env.ANTHROPIC_BASE_URL = ep.baseUrl;
+  env.ANTHROPIC_API_KEY = ep.apiKey;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}
+
+export interface InstallDeps {
+  probe?: (bin: string) => boolean; // is `bin` resolvable on PATH
+  install?: () => boolean; // run the one-time global install, return success
+}
+
+// Install-on-first-use for CCR: present on PATH → done; otherwise `npm i -g
+// @musistudio/claude-code-router` once. Returns whether ccr is available after.
+// Both effects injected so this unit tests without touching the machine.
+export function ensureCcrInstalled(log: (m: string) => void = () => {}, deps: InstallDeps = {}): boolean {
+  const probe = deps.probe ?? ((bin: string) =>
+    spawnSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore' }).status === 0);
+  if (probe('ccr')) return true;
+
+  log('Installing claude-code-router (one-time)…');
+  const install = deps.install ?? (() =>
+    spawnSync('npm', ['i', '-g', '@musistudio/claude-code-router'],
+      { stdio: 'inherit', shell: process.platform === 'win32' }).status === 0);
+  if (install()) { log('claude-code-router installed.'); return true; }
+
+  log('Could not auto-install. Install it manually: npm i -g @musistudio/claude-code-router');
+  return false;
 }

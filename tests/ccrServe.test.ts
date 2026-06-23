@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus } from '../src/ccrServe.js';
+import { ccrReachable, ensureCcr, ccrStatus, formatCcrStatus, ccrRunEnv, ensureCcrInstalled } from '../src/ccrServe.js';
 
 const noSleep = () => Promise.resolve();
 
@@ -91,5 +91,37 @@ describe('formatCcrStatus', () => {
     const down = formatCcrStatus({ ...base, reachable: false });
     expect(down).toContain('CCR CONFIGURED, DOWN');
     expect(down).toContain('auto-starts');
+  });
+});
+
+describe('ccrRunEnv', () => {
+  it('useCcr=false returns undefined (inherit env unchanged)', () => {
+    expect(ccrRunEnv(false)).toBeUndefined();
+  });
+  it('useCcr=true points the SDK at CCR and drops a competing bearer token', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'leftover';
+    const env = ccrRunEnv(true)!;
+    expect(env.ANTHROPIC_BASE_URL).toMatch(/^http:\/\//);
+    expect(env.ANTHROPIC_API_KEY).toBeTruthy();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+  });
+});
+
+describe('ensureCcrInstalled', () => {
+  it('present on PATH → true, no install attempted', () => {
+    const install = vi.fn(() => true);
+    expect(ensureCcrInstalled(() => {}, { probe: () => true, install })).toBe(true);
+    expect(install).not.toHaveBeenCalled();
+  });
+  it('absent → installs once and returns true on success', () => {
+    const logs: string[] = [];
+    expect(ensureCcrInstalled((m) => logs.push(m), { probe: () => false, install: () => true })).toBe(true);
+    expect(logs.join(' ')).toMatch(/installing/i);
+  });
+  it('absent and install fails → false with a manual hint', () => {
+    const logs: string[] = [];
+    expect(ensureCcrInstalled((m) => logs.push(m), { probe: () => false, install: () => false })).toBe(false);
+    expect(logs.join(' ')).toMatch(/npm i -g @musistudio\/claude-code-router/);
   });
 });

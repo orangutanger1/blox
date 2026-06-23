@@ -6,7 +6,9 @@ import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
-import { ccrStatus, formatCcrStatus } from './ccrServe.js';
+import { ccrStatus, formatCcrStatus, ensureCcr, ensureCcrInstalled, ccrRunEnv } from './ccrServe.js';
+import { allCcrModels } from './ccr.js';
+import { writeProvider, type ProviderKind } from './model.js';
 import { checkPanel, formatPanelStatus } from './panel/status.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
@@ -170,9 +172,34 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
+  if (command === 'model') {
+    const parts = (prompt ?? '').split(' ').filter(Boolean);
+    const sub = parts[0];
+    if (sub === 'list') {
+      const models = allCcrModels();
+      console.log(models.length ? models.join('\n') : '(no providers configured)');
+      process.exit(0);
+    }
+    if (sub === 'add' && (parts[1] === 'openrouter' || parts[1] === 'local')) {
+      const kind = parts[1] as ProviderKind;
+      const models = parts.slice(2);
+      try {
+        writeProvider(kind, { apiKey: args.key ?? undefined, baseUrl: args.baseUrl ?? undefined, models });
+      } catch (e) {
+        console.error((e as Error).message);
+        process.exit(2);
+      }
+      ensureCcrInstalled((m) => console.log(m)); // best-effort; config is written regardless
+      console.log(`added ${kind} (${models.length} model${models.length === 1 ? '' : 's'}). Run with: --model ${kind},<slug>`);
+      process.exit(0);
+    }
+    console.error('usage: blox model add openrouter <slug...> --key <k>  |  blox model add local <name> [--base-url <url>]  |  blox model list');
+    process.exit(2);
+  }
+
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list',
     );
     process.exit(2);
   }
@@ -264,6 +291,16 @@ async function main(): Promise<void> {
       maxBudgetUsd: config.maxBudgetUsd,
       model: config.model,
     });
+    // A routed model (`provider,slug`) only routes if the SDK talks to CCR, not
+    // api.anthropic.com — the daemon already does this; the one-shot must too.
+    const routed = (config.model ?? '').includes(',');
+    if (routed) {
+      ensureCcrInstalled((m) => console.log(m));
+      if (!(await ensureCcr((m) => console.log(m)))) {
+        console.error('CCR router unavailable — cannot run a routed model. Install: npm i -g @musistudio/claude-code-router');
+        process.exit(1);
+      }
+    }
     const report = await runOnce(config, prompt, {
       bridge,
       digest,
@@ -273,7 +310,7 @@ async function main(): Promise<void> {
       verify: args.verify,
       // Direct-Anthropic one-shot: inject the linked credential (subscription
       // vs API key), honoring a per-run --auth override.
-      env: buildAuthEnv({ override: args.authMode }),
+      env: routed ? ccrRunEnv(true) : buildAuthEnv({ override: args.authMode }),
       dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
       resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
     });

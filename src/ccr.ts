@@ -70,3 +70,22 @@ export function ccrEndpoint(path: string = ccrConfigPath()): CcrEndpoint {
   const apiKey = typeof cfg.APIKEY === 'string' && cfg.APIKEY ? cfg.APIKEY : 'sk-blox-ccr';
   return { baseUrl: `http://${host}:${port}`, apiKey };
 }
+
+// Every configured provider's models as routable "provider,slug" strings. The
+// desktop model dropdown spans all providers; readCcrModels reads only the first
+// (the daemon's single-provider path), so this is additive, not a replacement.
+export function allCcrModels(path: string = ccrConfigPath()): string[] {
+  if (!existsSync(path)) return [];
+  let raw: unknown;
+  try { raw = JSON.parse(readFileSync(path, 'utf8')); } catch { return []; }
+  const providers = (raw as { Providers?: unknown }).Providers;
+  if (!Array.isArray(providers)) return [];
+  const out: string[] = [];
+  for (const p of providers) {
+    const name = (p as { name?: unknown }).name;
+    const models = (p as { models?: unknown }).models;
+    if (typeof name !== 'string' || !Array.isArray(models)) continue;
+    for (const m of models) if (typeof m === 'string') out.push(`${name},${m}`);
+  }
+  return out;
+}

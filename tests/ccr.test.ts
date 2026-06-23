@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readCcrModels, resolveModel, ccrEndpoint } from '../src/ccr.js';
+import { readCcrModels, resolveModel, ccrEndpoint, allCcrModels } from '../src/ccr.js';
 
 const tmp = join(tmpdir(), `ccr-test-${process.pid}.json`);
 afterEach(() => { try { rmSync(tmp); } catch { /* ignore */ } });
@@ -62,5 +62,24 @@ describe('ccrEndpoint', () => {
     const e = ccrEndpoint(join(tmpdir(), 'no-such-ccr.json'));
     expect(e.baseUrl).toBe('http://127.0.0.1:3456');
     expect(e.apiKey).toBeTruthy();
+  });
+});
+
+describe('allCcrModels', () => {
+  it('flattens every provider into routable provider,slug strings', () => {
+    writeFileSync(tmp, JSON.stringify({
+      Providers: [
+        { name: 'openrouter', models: ['deepseek/deepseek-chat', 'openai/gpt-4o'] },
+        { name: 'local', models: ['qwen2.5-coder'] },
+      ],
+    }));
+    expect(allCcrModels(tmp)).toEqual([
+      'openrouter,deepseek/deepseek-chat',
+      'openrouter,openai/gpt-4o',
+      'local,qwen2.5-coder',
+    ]);
+  });
+  it('missing file → empty list', () => {
+    expect(allCcrModels(join(tmpdir(), `ccr-none-${process.pid}.json`))).toEqual([]);
   });
 });
