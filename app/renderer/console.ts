@@ -9,6 +9,7 @@ declare global {
       runCancel(): Promise<boolean>;
       onRunExited(cb: (r: { code: number | null }) => void): void;
       onRunLog(cb: (text: string) => void): void;
+      listModels(): Promise<string[]>;
     };
   }
 }
@@ -17,9 +18,15 @@ const app = document.getElementById('app')!;
 app.innerHTML = `
   <input id="project" placeholder="project folder path" style="width:60%" />
   <div><textarea id="prompt" placeholder="describe what to build" rows="3" style="width:80%"></textarea></div>
+  <select id="model"><option value="">Claude (default)</option></select>
   <button id="run">Run</button> <button id="cancel">Cancel</button>
   <pre id="log" style="height:360px;overflow:auto;background:#111;color:#ddd;padding:8px"></pre>
 `;
+void window.blox.listModels().then((models) => {
+  const sel = document.getElementById('model') as HTMLSelectElement;
+  sel.innerHTML = '<option value="">Claude (default)</option>'
+    + models.map((m) => `<option value="${m}">${m}</option>`).join('');
+});
 const log = document.getElementById('log')!;
 const append = (s: string) => { log.textContent += s + '\n'; log.scrollTop = log.scrollHeight; };
 
@@ -55,7 +62,8 @@ document.getElementById('run')!.addEventListener('click', async () => {
   const prompt = (document.getElementById('prompt') as HTMLTextAreaElement).value.trim();
   if (!projectPath || !prompt) { append('need a project path and a prompt'); return; }
   append('▶ starting run…');
-  await window.blox.runStart({ prompt, projectPath, mode: 'ask' });
+  const model = (document.getElementById('model') as HTMLSelectElement).value || undefined;
+  await window.blox.runStart({ prompt, projectPath, mode: 'ask', model });
   void pollLoop(await window.blox.panelBase());
 });
 document.getElementById('cancel')!.addEventListener('click', () => window.blox.runCancel());
