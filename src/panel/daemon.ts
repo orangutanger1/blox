@@ -135,6 +135,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     };
     log(`Calling model ${modelString} — waiting for first response…`);
     let report;
+    let policyDetail: string | undefined;
     try {
       report = await runOnce(runConfig, prompt, {
         bridge,
@@ -149,26 +150,17 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     } catch (e) {
       if (e instanceof PolicyError) {
         // Policy violations are user-facing configuration errors, not runtime
-        // failures — emit a clean run_finished error event and return without
-        // throwing so the daemon stays alive for the next run.
-        const detail = `policy violation [${e.field}]: ${e.message}`;
-        server.gates.reset();
-        server.emit({
-          type: 'run_finished',
-          status: 'error',
-          stopReason: 'error',
-          turns: 0,
-          costUsd: 0,
-          detail,
-        });
-        return;
+        // failures. Stash the detail and fall through to the single finally
+        // emit (a `return` here would still run finally, double-emitting).
+        policyDetail = `policy violation [${e.field}]: ${e.message}`;
+      } else {
+        // Don't let a run failure die silently — the dock would just show
+        // "error — 0 turns" with no reason. Surface it to the daemon terminal and
+        // the dock log; run_finished(error) still fires in the finally below.
+        const msg = (e as Error)?.message ?? String(e);
+        console.error(`[blox] run ${runId.slice(0, 8)} failed: ${msg}`);
+        server.emit({ type: 'log', text: `run error: ${msg}` });
       }
-      // Don't let a run failure die silently — the dock would just show
-      // "error — 0 turns" with no reason. Surface it to the daemon terminal and
-      // the dock log; run_finished(error) still fires in the finally below.
-      const msg = (e as Error)?.message ?? String(e);
-      console.error(`[blox] run ${runId.slice(0, 8)} failed: ${msg}`);
-      server.emit({ type: 'log', text: `run error: ${msg}` });
     } finally {
       // Close out the run's gates (a cancel may have left one parked) before the
       // terminal event, so a stale timer can't fire into the next run, and clear
@@ -181,6 +173,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         stopReason: report ? report.stopReason ?? 'error' : 'error',
         turns: report ? report.numTurns : 0,
         costUsd: report ? report.costUsd : 0,
+        detail: report ? undefined : policyDetail,
       });
     }
   };

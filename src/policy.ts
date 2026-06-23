@@ -21,6 +21,8 @@ export function enforcePolicy(config: BloxConfig, now: Date = new Date()): void 
   if (p.models && !p.models.includes(config.model)) {
     throw new PolicyError('model', `model "${config.model}" is not in the team allowlist [${p.models.join(', ')}]`, config.model, p.models);
   }
+  // ceilings reject only when ABOVE the cap (equal is allowed); the rolling cap
+  // below rejects at-or-over (>=), since already-at-budget means spent.
   if (p.maxBudgetUsd != null && config.maxBudgetUsd > p.maxBudgetUsd) {
     throw new PolicyError('maxBudgetUsd', `maxBudgetUsd ${config.maxBudgetUsd} exceeds team ceiling ${p.maxBudgetUsd}`, config.maxBudgetUsd, p.maxBudgetUsd);
   }
