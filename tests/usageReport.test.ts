@@ -106,3 +106,32 @@ describe('renderUsageTable', () => {
     expect(() => renderUsageTable(aggregateUsage([], { now, windowDays: 30, capUsd: 200 }))).not.toThrow();
   });
 });
+
+import { reportOutput } from '../src/usageReport.js';
+
+describe('reportOutput', () => {
+  const rolling = { windowDays: 30, maxUsd: 200 };
+
+  it('defaults the window+cap from rollingBudget', () => {
+    const out = reportOutput([e({ costUsd: 10 })], { now, rollingBudget: rolling });
+    expect(out).toContain('last 30d');
+    expect(out).toContain('cap $200.00');
+  });
+
+  it('lets --since override the rolling window', () => {
+    const out = reportOutput([e({ costUsd: 10 })], { now, sinceDays: 7, rollingBudget: rolling });
+    expect(out).toContain('last 7d');
+  });
+
+  it('emits parseable JSON of the summary when json is set', () => {
+    const out = reportOutput([e({ user: 'a@x.com', costUsd: 4 })], { now, rollingBudget: rolling, json: true });
+    const parsed = JSON.parse(out);
+    expect(parsed.totalUsd).toBe(4);
+    expect(parsed.byUser[0].key).toBe('a@x.com');
+  });
+
+  it('all-time when neither sinceDays nor rollingBudget is given', () => {
+    const out = reportOutput([e({ costUsd: 1 })], { now });
+    expect(out).toContain('all time');
+  });
+});

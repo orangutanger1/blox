@@ -85,3 +85,18 @@ export function renderUsageTable(s: UsageSummary): string {
   lines.push(`${s.runCount} runs, ${s.errorCount} errors in window`);
   return lines.join('\n');
 }
+
+export function reportOutput(
+  entries: AuditEntry[],
+  opts: {
+    now: Date;
+    sinceDays?: number | null;
+    rollingBudget?: { windowDays: number; maxUsd: number } | null;
+    json?: boolean;
+  },
+): string {
+  const windowDays = opts.sinceDays ?? opts.rollingBudget?.windowDays ?? null;
+  const capUsd = opts.rollingBudget?.maxUsd ?? null;
+  const summary = aggregateUsage(entries, { now: opts.now, windowDays, capUsd });
+  return opts.json ? JSON.stringify(summary, null, 2) : renderUsageTable(summary);
+}
