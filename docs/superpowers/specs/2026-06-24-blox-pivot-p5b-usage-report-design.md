@@ -30,8 +30,10 @@ relay's payload format. Foundation, not throwaway.
   reuse.
 - `src/config.ts` — `PolicySchema.rollingBudget` is `{ windowDays, maxUsd }`
   (both positive). This is the report's default window + cap.
-- `src/panel/server.ts` — `PanelServer` already routes `GET /api/v1/*`, binds
-  `127.0.0.1` only, and holds `opts.project` (the project path → the ledger).
+- `src/panel/server.ts` — `PanelServer` already routes `GET /api/v1/*` and binds
+  `127.0.0.1` only. Note: `opts.project` is the digest *display name*
+  (`digest.name`), **not** a filesystem path, so the usage endpoint needs the
+  real project path threaded in separately (see §6).
 - `app/shared/panelClient.ts` — `createPanelClient(base)` is the renderer's HTTP
   client; `app/renderer/console.ts` already fetches the panel over
   `window.blox.panelBase()` (`http://127.0.0.1:35768`).
@@ -139,13 +141,17 @@ Add one route to `PanelServer.route`:
 GET /api/v1/usage?since=<Nd>   → 200 UsageSummary (JSON)
 ```
 
-- Reads the ledger from `this.opts.project` via `readAuditEntries`.
-- Window: `since` query param if valid, else null (all-time). The daemon does
-  **not** currently hold the parsed policy, so v1 keeps the endpoint
-  config-light: `capUsd` null unless `since` is supplied — *or* pass the cap in
-  when the daemon constructs the server (see Open question). Either way the
-  endpoint never throws: read failure → `500 { error }`; the daemon stays up
-  (same "observability never breaks the run" rule the rest of the server holds).
+- `opts.project` is the digest *name*, not a path. Add two optional server
+  options — `projectPath: string` (ledger location) and `rollingBudget?: {
+  windowDays; maxUsd }` (default window + cap). `startDaemon` passes
+  `config.projectPath` and `config.policy?.rollingBudget`.
+- Reads the ledger from `projectPath` via `readAuditEntries`.
+- Window: `since` query param if valid, else `rollingBudget?.windowDays ?? null`
+  (all-time). Cap: `rollingBudget?.maxUsd ?? null`. So the most useful number
+  (cap%) shows without a `since` param.
+- Never throws: read failure → `500 { error }`; the daemon stays up (same
+  "observability never breaks the run" rule the rest of the server holds). When
+  `projectPath` is unset (tests that don't pass it) → empty summary.
 - `127.0.0.1`-only inherited from the existing server bind — usage data never
   leaves the machine.
 
@@ -222,8 +228,6 @@ enforcement (that is P5-c, the hosted relay).
    `app/shared/` (duplication, simplest, matches how `PanelInfo` is already
    mirrored there); (b) a shared types file. Lean (a) to match the existing
    `panelClient.ts` mirroring pattern.
-2. **Endpoint cap** — whether the daemon passes `policy.rollingBudget` into the
-   server at construction so `/api/v1/usage` can report `capUsd`/`capPct`
-   without a `since` param, or v1 ships cap only on explicit `since`. Lean:
-   thread the policy in once at `startDaemon` (cheap, and the cap is the most
-   useful number in the UI).
+2. **Endpoint cap** — *resolved* (§6): `startDaemon` threads `projectPath` +
+   `policy.rollingBudget` into `PanelServer` at construction, so
+   `/api/v1/usage` reports `capUsd`/`capPct` without a `since` param.
