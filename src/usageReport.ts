@@ -57,3 +57,31 @@ export function aggregateUsage(
     byModel: bucketsOf(inWindow.map((e) => ({ key: e.model || '(unknown)', cost: cost(e) }))),
   };
 }
+
+const usd = (n: number) => `$${n.toFixed(2)}`;
+
+function bar(pct: number, width = 20): string {
+  const filled = Math.max(0, Math.min(width, Math.round(pct * width)));
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+export function renderUsageTable(s: UsageSummary): string {
+  const lines: string[] = [];
+  const win = s.window.days != null ? `last ${s.window.days}d` : 'all time';
+  lines.push(`blox usage — ${win}`);
+  if (s.capUsd != null && s.capPct != null) {
+    const pct = Math.round(s.capPct * 100);
+    lines.push(`  used ${usd(s.totalUsd)} / cap ${usd(s.capUsd)}  ${bar(s.capPct)}  ${pct}%`);
+  } else {
+    lines.push(`  used ${usd(s.totalUsd)}`);
+  }
+  lines.push('');
+  lines.push('By user');
+  for (const b of s.byUser) lines.push(`  ${b.key}  ${usd(b.costUsd)}  ${b.runs} runs`);
+  lines.push('');
+  lines.push('By model');
+  for (const b of s.byModel) lines.push(`  ${b.key}  ${usd(b.costUsd)}`);
+  lines.push('');
+  lines.push(`${s.runCount} runs, ${s.errorCount} errors in window`);
+  return lines.join('\n');
+}

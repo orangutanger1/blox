@@ -80,3 +80,29 @@ describe('aggregateUsage', () => {
     expect(s).toMatchObject({ totalUsd: 0, runCount: 0, errorCount: 0, byUser: [], byModel: [] });
   });
 });
+
+import { renderUsageTable } from '../src/usageReport.js';
+
+describe('renderUsageTable', () => {
+  it('shows used/cap with a percent when a cap is set', () => {
+    const out = renderUsageTable(
+      aggregateUsage([e({ user: 'a@x.com', costUsd: 142.3 })], { now, windowDays: 30, capUsd: 200 }),
+    );
+    expect(out).toContain('$142.30');
+    expect(out).toContain('$200.00');
+    expect(out).toContain('71%');
+    expect(out).toContain('a@x.com');
+  });
+
+  it('omits the cap line when there is no cap', () => {
+    const out = renderUsageTable(
+      aggregateUsage([e({ costUsd: 5 })], { now, windowDays: null, capUsd: null }),
+    );
+    expect(out).toContain('$5.00');
+    expect(out).not.toContain('cap');
+  });
+
+  it('renders an empty ledger without throwing', () => {
+    expect(() => renderUsageTable(aggregateUsage([], { now, windowDays: 30, capUsd: 200 }))).not.toThrow();
+  });
+});
