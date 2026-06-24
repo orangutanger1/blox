@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runReport } from '../src/cli.js';
+import { runReport } from '../src/reportCommand.js';
 import { appendAuditEntry } from '../src/audit.js';
 
 describe('runReport', () => {

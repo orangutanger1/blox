@@ -14,8 +14,7 @@ import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveChec
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
-import { reportOutput } from './usageReport.js';
-import { readAuditEntries } from './audit.js';
+import { runReport } from './reportCommand.js';
 import { basename } from 'node:path';
 import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
@@ -30,21 +29,6 @@ import {
 } from './auth.js';
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
-
-export function runReport(opts: {
-  projectPath: string;
-  since: number | null;
-  json: boolean;
-  now?: Date;
-}): string {
-  const config = loadConfig(opts.projectPath, { projectPath: opts.projectPath });
-  return reportOutput(readAuditEntries(config.projectPath), {
-    now: opts.now ?? new Date(),
-    sinceDays: opts.since,
-    rollingBudget: config.policy?.rollingBudget ?? null,
-    json: opts.json,
-  });
-}
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
