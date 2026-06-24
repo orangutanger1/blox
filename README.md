@@ -60,8 +60,8 @@ Summarize costs and usage from the committed `.blox/audit.jsonl` ledger:
 blox report [--since Nd] [--json]
 ```
 
-The report breaks down spend vs the team rolling cap (from `policy.rollingBudgetUsd`
-in `blox.config.json`), plus cost per user and per model. `--since Nd` overrides the
+The report breaks down spend vs the team rolling cap (from
+`policy.rollingBudget.maxUsd` in `blox.config.json`), plus cost per user and per model. `--since Nd` overrides the
 policy's rolling window (e.g. `--since 7d` forces a 7-day window); `--json` prints
 the raw summary struct instead of the table. The same summary is available in the
 desktop app (Refresh usage button) and over the panel daemon at `GET /api/v1/usage`.
