@@ -1,6 +1,17 @@
 // app/shared/panelClient.ts
 export interface PanelInfo { protocol: number; runId: string; project: string }
 export interface EventEnvelope { events: unknown[]; cursor: number }
+export interface UsageBucket { key: string; costUsd: number; runs: number }
+export interface UsageSummary {
+  window: { days: number | null; since: string | null };
+  totalUsd: number;
+  capUsd: number | null;
+  capPct: number | null;
+  runCount: number;
+  errorCount: number;
+  byUser: UsageBucket[];
+  byModel: UsageBucket[];
+}
 
 // Mirrors the engine's panel HTTP API (src/panel/server.ts). All methods
 // resolve to null/false on any network error so the UI degrades gracefully —
@@ -31,5 +42,7 @@ export function createPanelClient(base: string) {
       post(`/gate/${gateId}`, JSON.stringify(feedback ? { decision, feedback } : { decision }), 'application/json'),
     uploadImage: (bytes: Uint8Array, contentType: 'image/png' | 'image/jpeg') =>
       post('/image', bytes, contentType),
+    usage: (sinceDays?: number) =>
+      getJson<UsageSummary>(`/usage${sinceDays ? `?since=${sinceDays}d` : ''}`),
   };
 }
