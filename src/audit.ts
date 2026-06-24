@@ -23,20 +23,27 @@ export function appendAuditEntry(projectPath: string, entry: AuditEntry): void {
   appendFileSync(path, JSON.stringify(entry) + '\n');
 }
 
-export function readWindowSpend(projectPath: string, windowDays: number, now: Date = new Date()): number {
+export function readAuditEntries(projectPath: string): AuditEntry[] {
   const path = auditPath(projectPath);
-  if (!existsSync(path)) return 0;
-  const cutoff = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
-  let sum = 0;
+  if (!existsSync(path)) return [];
+  const out: AuditEntry[] = [];
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     try {
-      const e = JSON.parse(line) as AuditEntry;
-      const t = Date.parse(e.ts);
-      if (!Number.isNaN(t) && t >= cutoff && typeof e.costUsd === 'number') sum += e.costUsd;
+      out.push(JSON.parse(line) as AuditEntry);
     } catch {
       // skip malformed line — visibility is best-effort
     }
+  }
+  return out;
+}
+
+export function readWindowSpend(projectPath: string, windowDays: number, now: Date = new Date()): number {
+  const cutoff = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
+  let sum = 0;
+  for (const e of readAuditEntries(projectPath)) {
+    const t = Date.parse(e.ts);
+    if (!Number.isNaN(t) && t >= cutoff && typeof e.costUsd === 'number') sum += e.costUsd;
   }
   return sum;
 }
