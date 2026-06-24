@@ -1,6 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PanelServer } from '../src/panel/server.js';
 import { PROTOCOL_VERSION } from '../src/panel/events.js';
+import { appendAuditEntry } from '../src/audit.js';
 
 let server: PanelServer | null = null;
 afterEach(async () => {
@@ -204,5 +208,39 @@ describe('PanelServer — image upload', () => {
       body: Buffer.from([9]),
     });
     expect((await pending).mediaType).toBe('image/jpeg');
+  });
+});
+
+async function startUsage(dir: string): Promise<string> {
+  server = new PanelServer({
+    runId: 'run-1', project: 'game', port: 0, holdMs: 50,
+    projectPath: dir, rollingBudget: { windowDays: 30, maxUsd: 200 },
+  });
+  const port = await server.start();
+  return `http://127.0.0.1:${port}/api/v1`;
+}
+
+describe('GET /api/v1/usage', () => {
+  it('returns an aggregated summary from the project ledger', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    appendAuditEntry(dir, {
+      ts: new Date().toISOString(), user: 'a@x.com', model: 'claude-opus-4-8',
+      turns: 1, costUsd: 12, status: 'success', commit: null, prompt: 'p',
+    });
+    const base = await startUsage(dir);
+    const res = await fetch(`${base}/usage`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.totalUsd).toBe(12);
+    expect(body.capUsd).toBe(200);
+    expect(body.byUser[0].key).toBe('a@x.com');
+  });
+
+  it('returns an empty summary when no projectPath is configured', async () => {
+    server = new PanelServer({ runId: 'run-1', project: 'game', port: 0, holdMs: 50 });
+    const port = await server.start();
+    const res = await fetch(`http://127.0.0.1:${port}/api/v1/usage`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).totalUsd).toBe(0);
   });
 });
