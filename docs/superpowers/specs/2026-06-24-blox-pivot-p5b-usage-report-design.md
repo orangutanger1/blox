@@ -149,9 +149,12 @@ GET /api/v1/usage?since=<Nd>   → 200 UsageSummary (JSON)
 - Window: `since` query param if valid, else `rollingBudget?.windowDays ?? null`
   (all-time). Cap: `rollingBudget?.maxUsd ?? null`. So the most useful number
   (cap%) shows without a `since` param.
-- Never throws: read failure → `500 { error }`; the daemon stays up (same
-  "observability never breaks the run" rule the rest of the server holds). When
-  `projectPath` is unset (tests that don't pass it) → empty summary.
+- Never crashes the daemon: the route sits inside `route()`'s existing shared
+  try/catch, which degrades any throw to `400 { error: 'bad request' }` (same
+  "observability never breaks the run" rule the rest of the server holds).
+  `readAuditEntries` already returns `[]` for a missing file, so the realistic
+  failure surface is tiny. When `projectPath` is unset (tests that don't pass
+  it) → empty summary.
 - `127.0.0.1`-only inherited from the existing server bind — usage data never
   leaves the machine.
 
