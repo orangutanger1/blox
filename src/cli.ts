@@ -14,6 +14,8 @@ import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveChec
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
+import { reportOutput } from './usageReport.js';
+import { readAuditEntries } from './audit.js';
 import { basename } from 'node:path';
 import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
@@ -28,6 +30,21 @@ import {
 } from './auth.js';
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
+
+export function runReport(opts: {
+  projectPath: string;
+  since: number | null;
+  json: boolean;
+  now?: Date;
+}): string {
+  const config = loadConfig(opts.projectPath, { projectPath: opts.projectPath });
+  return reportOutput(readAuditEntries(config.projectPath), {
+    now: opts.now ?? new Date(),
+    sinceDays: opts.since,
+    rollingBudget: config.policy?.rollingBudget ?? null,
+    json: opts.json,
+  });
+}
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -50,6 +67,11 @@ async function main(): Promise<void> {
     const port = loadConfig(projectPath ?? process.cwd(), projectPath ? { projectPath } : {}).panel.port;
     console.log(formatPanelStatus(await checkPanel(port)));
     process.exit(report.connected ? 0 : 1);
+  }
+
+  if (command === 'report') {
+    console.log(runReport({ projectPath: projectPath ?? process.cwd(), since: args.since, json: args.json }));
+    process.exit(0);
   }
 
   if (command === 'serve') {
