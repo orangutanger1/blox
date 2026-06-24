@@ -48,4 +48,22 @@ describe('createPanelClient', () => {
     const c = createPanelClient('http://127.0.0.1:1'); // nothing listening
     expect(await c.info()).toBeNull();
   });
+
+  it('reads /usage and returns the summary', async () => {
+    const base = await stub({
+      'GET /api/v1/usage': () => ({
+        status: 200,
+        json: { window: { days: 30, since: null }, totalUsd: 5, capUsd: 200, capPct: 0.025, runCount: 2, errorCount: 0, byUser: [], byModel: [] },
+      }),
+    });
+    const c = createPanelClient(base);
+    const u = await c.usage();
+    expect(u?.totalUsd).toBe(5);
+    expect(u?.capUsd).toBe(200);
+  });
+
+  it('returns null for usage when the server is down', async () => {
+    const c = createPanelClient('http://127.0.0.1:1');
+    expect(await c.usage()).toBeNull();
+  });
 });

@@ -86,6 +86,8 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     project: digest.name,
     port: config.panel.port,
     gateTimeoutMs: config.panel.gateTimeoutSeconds * 1000,
+    projectPath: config.projectPath,
+    rollingBudget: config.policy?.rollingBudget,
   });
   server.attachAuth(() => authInfo());
   await server.start();

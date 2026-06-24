@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendAuditEntry, readWindowSpend, auditPath, type AuditEntry } from '../src/audit.js';
+import { appendAuditEntry, readWindowSpend, readAuditEntries, auditPath, type AuditEntry } from '../src/audit.js';
 
 function entry(over: Partial<AuditEntry> = {}): AuditEntry {
   return {
@@ -43,5 +43,21 @@ describe('audit ledger', () => {
     // corrupt the file with a junk line
     appendFileSync(auditPath(dir), 'not json\n');
     expect(readWindowSpend(dir, 30)).toBe(5);
+  });
+});
+
+describe('readAuditEntries', () => {
+  it('returns [] when the ledger is absent', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    expect(readAuditEntries(dir)).toEqual([]);
+  });
+
+  it('parses good lines and skips malformed ones', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    appendAuditEntry(dir, entry({ costUsd: 1 }));
+    appendFileSync(auditPath(dir), 'not json\n');
+    appendAuditEntry(dir, entry({ costUsd: 2 }));
+    const got = readAuditEntries(dir);
+    expect(got.map((e) => e.costUsd)).toEqual([1, 2]);
   });
 });

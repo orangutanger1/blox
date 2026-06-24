@@ -4,6 +4,8 @@ import { GateBroker } from './gates.js';
 import { PROTOCOL_VERSION, type PanelEvent } from './events.js';
 import { imageFromBytes, type ImageInput } from '../agent/imageInput.js';
 import type { AuthInfo } from '../auth.js';
+import { readAuditEntries } from '../audit.js';
+import { aggregateUsage } from '../usageReport.js';
 
 export interface PanelServerOptions {
   runId: string;
@@ -13,6 +15,8 @@ export interface PanelServerOptions {
   gateTimeoutMs?: number; // default 120_000
   connectedWindowMs?: number; // poll recency window; default 10_000
   now?: () => number; // injectable clock for tests
+  projectPath?: string; // ledger location for GET /api/v1/usage; absent → empty summary
+  rollingBudget?: { windowDays: number; maxUsd: number }; // default window + cap for usage
 }
 
 export interface PanelController {
@@ -36,6 +40,8 @@ export class PanelServer {
   private authProvider: (() => AuthInfo) | null = null;
   private authCache: AuthInfo | null = null;
   private currentRunId: string;
+  private usageProjectPath: string | undefined;
+  private usageRollingBudget: { windowDays: number; maxUsd: number } | undefined;
 
   constructor(options: PanelServerOptions) {
     const holdMs = options.holdMs ?? 25_000;
@@ -55,6 +61,8 @@ export class PanelServer {
     };
     this.currentRunId = this.opts.runId;
     this.gates = new GateBroker({ emit: (e) => this.emit(e) }, this.opts.gateTimeoutMs);
+    this.usageProjectPath = options.projectPath;
+    this.usageRollingBudget = options.rollingBudget;
   }
 
   emit(event: PanelEvent): void {
@@ -198,6 +206,19 @@ export class PanelServer {
         if (!this.controller) return json(res, 404, { error: 'not found' });
         const r = this.controller.cancel();
         return r.ok ? json(res, 200, { ok: true }) : json(res, 409, { error: 'no run active' });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/v1/usage') {
+        const sinceRaw = url.searchParams.get('since');
+        const sinceN = sinceRaw != null ? Number(sinceRaw.replace(/d$/, '')) : NaN;
+        const sinceDays = Number.isInteger(sinceN) && sinceN > 0 ? sinceN : null;
+        const entries = this.usageProjectPath ? readAuditEntries(this.usageProjectPath) : [];
+        const windowDays = sinceDays ?? this.usageRollingBudget?.windowDays ?? null;
+        const summary = aggregateUsage(entries, {
+          now: new Date(),
+          windowDays,
+          capUsd: this.usageRollingBudget?.maxUsd ?? null,
+        });
+        return json(res, 200, summary);
       }
       return json(res, 404, { error: 'not found' });
     } catch {

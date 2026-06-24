@@ -14,6 +14,7 @@ import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveChec
 import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
+import { runReport } from './reportCommand.js';
 import { basename } from 'node:path';
 import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
     const port = loadConfig(projectPath ?? process.cwd(), projectPath ? { projectPath } : {}).panel.port;
     console.log(formatPanelStatus(await checkPanel(port)));
     process.exit(report.connected ? 0 : 1);
+  }
+
+  if (command === 'report') {
+    console.log(runReport({ projectPath: projectPath ?? process.cwd(), since: args.since, json: args.json }));
+    process.exit(0);
   }
 
   if (command === 'serve') {

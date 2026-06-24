@@ -52,6 +52,24 @@ the report lists the blocked action(s) and the session id, and you re-run with
 node dist/cli.js --ask --budget 2 --effort xhigh --project /path/to/game "Build a shop UI"
 ```
 
+## Usage report
+
+Summarize costs and usage from the committed `.blox/audit.jsonl` ledger:
+
+```bash
+blox report [--since Nd] [--json]
+```
+
+The report breaks down spend vs the team rolling cap (from
+`policy.rollingBudget.maxUsd` in `blox.config.json`), plus cost per user and per model. `--since Nd` overrides the
+policy's rolling window (e.g. `--since 7d` forces a 7-day window); `--json` prints
+the raw summary struct instead of the table. The same summary is available in the
+desktop app (Refresh usage button) and over the panel daemon at `GET /api/v1/usage`.
+
+**Note:** for CCR-routed (non-Claude) models, the model identifier is a
+`provider,slug` string (e.g. `openrouter,deepseek-chat`), so both `policy.models`
+allowlist and the report's "by model" rows use that comma-joined form.
+
 ## Live Studio sync (manual)
 
 The CLI only *validates* the Rojo project. To push edits into a running Studio,
