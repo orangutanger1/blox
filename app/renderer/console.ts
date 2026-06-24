@@ -1,5 +1,6 @@
 // app/renderer/console.ts
 import { createPanelClient } from '../shared/panelClient.js';
+import { usageHtml } from './usageView.js';
 
 declare global {
   interface Window {
@@ -21,6 +22,8 @@ app.innerHTML = `
   <select id="model"><option value="">Claude (default)</option></select>
   <button id="run">Run</button> <button id="cancel">Cancel</button>
   <pre id="log" style="height:360px;overflow:auto;background:#111;color:#ddd;padding:8px"></pre>
+  <div><button id="refresh-usage">Refresh usage</button></div>
+  <div id="usage"></div>
 `;
 void window.blox.listModels().then((models) => {
   const sel = document.getElementById('model') as HTMLSelectElement;
@@ -67,5 +70,9 @@ document.getElementById('run')!.addEventListener('click', async () => {
   void pollLoop(await window.blox.panelBase());
 });
 document.getElementById('cancel')!.addEventListener('click', () => window.blox.runCancel());
+document.getElementById('refresh-usage')!.addEventListener('click', async () => {
+  const client = createPanelClient(await window.blox.panelBase());
+  document.getElementById('usage')!.innerHTML = usageHtml(await client.usage());
+});
 window.blox.onRunExited((r) => append(`run exited (${r.code})`));
 window.blox.onRunLog((text) => { if (text) append(text); });
