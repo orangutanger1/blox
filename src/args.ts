@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | null;
+  command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | null;
   prompt: string | null;
   authMode: 'subscription' | 'apiKey' | null;
   mock: boolean;
@@ -16,12 +16,14 @@ export interface ParsedArgs {
   model: string | null;
   key: string | null;
   baseUrl: string | null;
+  since: number | null;
+  json: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
-  let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | null = null;
+  let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | null = null;
   let authMode: 'subscription' | 'apiKey' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
@@ -35,6 +37,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let model: string | null = null;
   let key: string | null = null;
   let baseUrl: string | null = null;
+  let since: number | null = null;
+  let json = false;
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -73,12 +77,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (a === '--model') model = argv[++i] ?? null;
     else if (a === '--key') key = argv[++i] ?? null;
     else if (a === '--base-url') baseUrl = argv[++i] ?? null;
+    else if (a === '--since') {
+      const raw = argv[++i];
+      const n = Number(String(raw ?? '').replace(/d$/, ''));
+      if (!Number.isInteger(n) || n <= 0) throw new Error('--since must be a positive integer number of days (e.g. 7 or 7d)');
+      since = n;
+    } else if (a === '--json') json = true;
     else if (a === 'init' && command === null && positional.length === 0) command = 'init';
     else if (a === 'doctor' && command === null && positional.length === 0) command = 'doctor';
     else if (a === 'serve' && command === null && positional.length === 0) command = 'serve';
     else if (a === 'panel' && command === null && positional.length === 0) command = 'panel';
     else if (a === 'auth' && command === null && positional.length === 0) command = 'auth';
     else if (a === 'model' && command === null && positional.length === 0) command = 'model';
+    else if (a === 'report' && command === null && positional.length === 0) command = 'report';
     else positional.push(a);
   }
   if (imagePath !== null && imageFromDock) {
@@ -102,5 +113,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     model,
     key,
     baseUrl,
+    since,
+    json,
   };
 }

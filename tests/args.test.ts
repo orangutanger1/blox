@@ -170,3 +170,23 @@ describe('model command and model/key/baseUrl flags', () => {
     expect(a.baseUrl).toBe('http://h/v1');
   });
 });
+
+describe('report subcommand', () => {
+  it('parses the report command with defaults', () => {
+    const a = parseArgs(['report']);
+    expect(a.command).toBe('report');
+    expect(a.since).toBeNull();
+    expect(a.json).toBe(false);
+  });
+
+  it('parses --since (with or without a trailing d) and --json', () => {
+    expect(parseArgs(['report', '--since', '7d']).since).toBe(7);
+    expect(parseArgs(['report', '--since', '30']).since).toBe(30);
+    expect(parseArgs(['report', '--json']).json).toBe(true);
+  });
+
+  it('rejects a non-positive --since', () => {
+    expect(() => parseArgs(['report', '--since', '0'])).toThrow(/--since/);
+    expect(() => parseArgs(['report', '--since', 'abc'])).toThrow(/--since/);
+  });
+});
