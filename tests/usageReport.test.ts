@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateUsage } from '../src/usageReport.js';
+import { aggregateUsage, renderUsageTable, reportOutput } from '../src/usageReport.js';
 import type { AuditEntry } from '../src/audit.js';
 
 function e(over: Partial<AuditEntry> = {}): AuditEntry {
@@ -81,8 +81,6 @@ describe('aggregateUsage', () => {
   });
 });
 
-import { renderUsageTable } from '../src/usageReport.js';
-
 describe('renderUsageTable', () => {
   it('shows used/cap with a percent when a cap is set', () => {
     const out = renderUsageTable(
@@ -99,15 +97,14 @@ describe('renderUsageTable', () => {
       aggregateUsage([e({ costUsd: 5 })], { now, windowDays: null, capUsd: null }),
     );
     expect(out).toContain('$5.00');
-    expect(out).not.toContain('cap');
+    // target the cap-line marker specifically — a model/user key could contain "cap"
+    expect(out).not.toMatch(/\/ cap \$/);
   });
 
   it('renders an empty ledger without throwing', () => {
     expect(() => renderUsageTable(aggregateUsage([], { now, windowDays: 30, capUsd: 200 }))).not.toThrow();
   });
 });
-
-import { reportOutput } from '../src/usageReport.js';
 
 describe('reportOutput', () => {
   const rolling = { windowDays: 30, maxUsd: 200 };
