@@ -1,5 +1,5 @@
-import { join } from 'node:path';
-import { loadConfig, type BloxConfig } from '../config.js';
+import { resolve } from 'node:path';
+import { loadConfig, type BloxConfig, type Relay } from '../config.js';
 import { addMember, removeMember, listMembers } from './members.js';
 
 export type RelayServeResolved = { error: string } | { realKey: string };
@@ -11,10 +11,22 @@ export function resolveRelayServe(config: BloxConfig, env: NodeJS.ProcessEnv): R
   return { realKey };
 }
 
+// Resolve the relay's members/ledger paths against the PROJECT ROOT, not the
+// process CWD, so `relay serve` and the member commands agree on the files no
+// matter where serve is launched from. An absolute configured path is honored.
+export function resolveRelayPaths(config: BloxConfig): Relay {
+  const relay = config.relay!;
+  return {
+    ...relay,
+    membersPath: resolve(config.projectPath, relay.membersPath),
+    ledgerPath: resolve(config.projectPath, relay.ledgerPath),
+  };
+}
+
 function membersPath(projectPath: string): string {
   const config = loadConfig(projectPath, { projectPath });
-  const rel = config.relay?.membersPath ?? '.blox/relay-members.json';
-  return join(config.projectPath, rel);
+  if (config.relay) return resolveRelayPaths(config).membersPath;
+  return resolve(config.projectPath, '.blox/relay-members.json');
 }
 
 export function relayMemberCommand(action: 'add' | 'rm' | 'list', projectPath: string, email?: string): string {
