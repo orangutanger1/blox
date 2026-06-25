@@ -48,12 +48,15 @@ export class RelayServer {
   private async route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true });
-    if (req.method === 'GET' && url.pathname === '/api/v1/usage') return this.usage(url, res);
+    if (req.method === 'GET' && url.pathname === '/api/v1/usage') return this.usage(req, url, res);
     if (req.method === 'POST' && url.pathname === '/v1/messages') return this.messages(req, res);
     return json(res, 404, { error: 'not found' });
   }
 
-  private usage(url: URL, res: ServerResponse): void {
+  private usage(req: IncomingMessage, url: URL, res: ServerResponse): void {
+    const presented = (req.headers['x-api-key'] as string) ?? '';
+    const member = authMember(loadMembers(this.opts.relay.membersPath), presented);
+    if (!member) return json(res, 401, { error: 'unknown member token' });
     const sinceRaw = url.searchParams.get('since');
     const n = sinceRaw != null ? Number(sinceRaw.replace(/d$/, '')) : NaN;
     const sinceDays = Number.isInteger(n) && n > 0 ? n : null;

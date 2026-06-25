@@ -34,9 +34,9 @@ export function addMember(path: string, email: string): string {
 
 export function removeMember(path: string, email: string): boolean {
   const store = loadMembers(path);
-  const key = Object.keys(store.members).find((k) => store.members[k] === email);
-  if (!key) return false;
-  delete store.members[key];
+  const keys = Object.keys(store.members).filter((k) => store.members[k] === email);
+  if (keys.length === 0) return false;
+  for (const k of keys) delete store.members[k];
   save(path, store);
   return true;
 }

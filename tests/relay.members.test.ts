@@ -44,4 +44,14 @@ describe('members store', () => {
     expect(authMember(loadMembers(p), token)).toBeNull();
     expect(removeMember(p, 'a@x.com')).toBe(false); // already gone
   });
+
+  it('removeMember revokes ALL tokens for an email (multi-token offboarding)', () => {
+    const p = newPath();
+    const token1 = addMember(p, 'b@x.com');
+    const token2 = addMember(p, 'b@x.com');
+    expect(removeMember(p, 'b@x.com')).toBe(true);
+    expect(authMember(loadMembers(p), token1)).toBeNull();
+    expect(authMember(loadMembers(p), token2)).toBeNull();
+    expect(removeMember(p, 'b@x.com')).toBe(false); // fully removed
+  });
 });

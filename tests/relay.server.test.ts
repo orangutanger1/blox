@@ -107,13 +107,31 @@ describe('RelayServer', () => {
     expect(entries).toHaveLength(0);
   });
 
-  it('serves GET /api/v1/usage from the relay ledger', async () => {
+  it('GET /api/v1/usage returns 401 with no token', async () => {
+    const o = relayOpts();
+    const base = await start(o);
+    const res = await fetch(`${base}/api/v1/usage`);
+    expect(res.status).toBe(401);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('unknown member token');
+  });
+
+  it('GET /api/v1/usage returns 401 with a bogus token', async () => {
+    const o = relayOpts();
+    const base = await start(o);
+    const res = await fetch(`${base}/api/v1/usage`, { headers: { 'x-api-key': 'blx_bogus' } });
+    expect(res.status).toBe(401);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('unknown member token');
+  });
+
+  it('serves GET /api/v1/usage from the relay ledger (requires valid member token)', async () => {
     const up = await startUpstream({});
     const o = relayOpts({ upstream: up });
     const token = addMember(o.membersPath, 'a@x.com');
     const base = await start(o);
     await post(base, token, { model: 'claude-opus-4-8' });
-    const usage = await (await fetch(`${base}/api/v1/usage`)).json();
+    const usage = await (await fetch(`${base}/api/v1/usage`, { headers: { 'x-api-key': token } })).json();
     expect(usage.runCount).toBe(1);
     expect(usage.byUser[0].key).toBe('a@x.com');
   });
