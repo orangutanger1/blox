@@ -14,13 +14,19 @@ afterEach(async () => { if (relay) await relay.stop(); relay = null; upstream?.c
 
 // Mock api.anthropic.com: echoes a fixed messages response with usage,
 // and records the x-api-key it received so the test can assert key-swap.
-function startUpstream(received: { key?: string }): Promise<string> {
+// Pass statusCode (default 200) to simulate upstream error responses.
+function startUpstream(received: { key?: string }, statusCode = 200): Promise<string> {
   return new Promise((resolve) => {
     upstream = createServer((req, res) => {
       received.key = req.headers['x-api-key'] as string;
       let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ type: 'message', model: 'claude-opus-4-8', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 1000, output_tokens: 500 } }));
+        if (statusCode >= 200 && statusCode < 300) {
+          res.writeHead(statusCode, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ type: 'message', model: 'claude-opus-4-8', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 1000, output_tokens: 500 } }));
+        } else {
+          res.writeHead(statusCode, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { type: 'invalid_request_error', message: 'bad request' } }));
+        }
       });
     });
     upstream.listen(0, '127.0.0.1', () => {
@@ -87,6 +93,18 @@ describe('RelayServer', () => {
     expect(entries[0].user).toBe('a@x.com');
     expect(entries[0].inputTokens).toBe(1000);
     expect(entries[0].costUsd).toBeCloseTo((1000 / 1e6) * 5 + (500 / 1e6) * 25); // 0.005 + 0.0125
+  });
+
+  it('relays upstream 4xx status and writes NO ledger entry', async () => {
+    const received: { key?: string } = {};
+    const up = await startUpstream(received, 400);
+    const o = relayOpts({ upstream: up });
+    const token = addMember(o.membersPath, 'a@x.com');
+    const base = await start(o);
+    const res = await post(base, token, { model: 'claude-opus-4-8' });
+    expect(res.status).toBe(400);
+    const entries = readRelayEntries(o.ledgerPath);
+    expect(entries).toHaveLength(0);
   });
 
   it('serves GET /api/v1/usage from the relay ledger', async () => {

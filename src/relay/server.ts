@@ -22,8 +22,10 @@ export class RelayServer {
   private opts: RelayServerOptions;
   constructor(opts: RelayServerOptions) { this.opts = opts; }
 
+  private nowDate(): Date { return new Date(this.opts.now?.() ?? Date.now()); }
+
   start(): Promise<number> {
-    const server = createServer((req, res) => void this.route(req, res));
+    const server = createServer((req, res) => void this.route(req, res).catch(() => { if (!res.writableEnded) { try { res.writeHead(502); } catch { /**/ } res.end(); } }));
     this.server = server;
     const port = this.opts.port ?? this.opts.relay.port;
     return new Promise((resolve, reject) => {
@@ -57,7 +59,7 @@ export class RelayServer {
     const sinceDays = Number.isInteger(n) && n > 0 ? n : null;
     const rb = this.opts.policy?.rollingBudget;
     const summary = aggregateUsage(readRelayEntries(this.opts.relay.ledgerPath), {
-      now: new Date(),
+      now: this.nowDate(),
       windowDays: sinceDays ?? rb?.windowDays ?? null,
       capUsd: rb?.maxUsd ?? null,
     });
@@ -76,7 +78,7 @@ export class RelayServer {
     try { model = String((JSON.parse(body.toString('utf8')) as { model?: unknown }).model ?? ''); } catch { /* leave '' */ }
 
     // 3. enforce
-    const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath });
+    const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
     if (reject) return json(res, reject.status, { error: reject.error });
 
     // 4. proxy with the REAL key, tee the response for usage
@@ -87,6 +89,13 @@ export class RelayServer {
     headers['x-api-key'] = this.opts.realKey;
     headers['host'] = u.host;
     headers['content-length'] = String(body.length);
+    // Strip hop-by-hop headers (RFC 7230 §3.3.2) so they don't clash with the recomputed content-length
+    delete headers['transfer-encoding'];
+    delete headers['connection'];
+    delete headers['keep-alive'];
+    delete headers['te'];
+    delete headers['trailer'];
+    delete headers['upgrade'];
 
     const up = reqFn(u, { method: 'POST', headers }, (upRes: IncomingMessage) => {
       res.writeHead(upRes.statusCode ?? 502, upRes.headers);
