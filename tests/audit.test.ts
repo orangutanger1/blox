@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendAuditEntry, readWindowSpend, readAuditEntries, auditPath, type AuditEntry } from '../src/audit.js';
+import { appendAuditEntry, readWindowSpend, readAuditEntries, auditPath, appendJsonl, readJsonl, type AuditEntry } from '../src/audit.js';
 
 function entry(over: Partial<AuditEntry> = {}): AuditEntry {
   return {
@@ -59,5 +59,18 @@ describe('readAuditEntries', () => {
     appendAuditEntry(dir, entry({ costUsd: 2 }));
     const got = readAuditEntries(dir);
     expect(got.map((e) => e.costUsd)).toEqual([1, 2]);
+  });
+});
+
+describe('jsonl generics', () => {
+  it('appendJsonl + readJsonl round-trips and skips malformed lines', () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'blox-')), 'x.jsonl');
+    appendJsonl(f, { a: 1 });
+    appendFileSync(f, 'garbage\n');
+    appendJsonl(f, { a: 2 });
+    expect(readJsonl<{ a: number }>(f).map((e) => e.a)).toEqual([1, 2]);
+  });
+  it('readJsonl returns [] for an absent file', () => {
+    expect(readJsonl('/no/such/file.jsonl')).toEqual([]);
   });
 });
