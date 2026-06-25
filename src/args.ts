@@ -1,5 +1,5 @@
 export interface ParsedArgs {
-  command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | null;
+  command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | 'relay' | null;
   prompt: string | null;
   authMode: 'subscription' | 'apiKey' | null;
   mock: boolean;
@@ -23,7 +23,7 @@ export interface ParsedArgs {
 export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
-  let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | null = null;
+  let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | 'relay' | null = null;
   let authMode: 'subscription' | 'apiKey' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
@@ -90,6 +90,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (a === 'auth' && command === null && positional.length === 0) command = 'auth';
     else if (a === 'model' && command === null && positional.length === 0) command = 'model';
     else if (a === 'report' && command === null && positional.length === 0) command = 'report';
+    else if (a === 'relay' && command === null && positional.length === 0) command = 'relay';
     else positional.push(a);
   }
   if (imagePath !== null && imageFromDock) {

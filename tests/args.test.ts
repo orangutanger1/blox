@@ -190,3 +190,16 @@ describe('report subcommand', () => {
     expect(() => parseArgs(['report', '--since', 'abc'])).toThrow(/--since/);
   });
 });
+
+describe('relay subcommand', () => {
+  it('parses the relay command and its sub-word', () => {
+    const a = parseArgs(['relay', 'serve']);
+    expect(a.command).toBe('relay');
+    expect(a.prompt).toBe('serve');
+  });
+  it('parses add-member with an email', () => {
+    const a = parseArgs(['relay', 'add-member', 'alice@team.com']);
+    expect(a.command).toBe('relay');
+    expect(a.prompt).toBe('add-member alice@team.com');
+  });
+});
