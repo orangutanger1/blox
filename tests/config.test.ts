@@ -100,3 +100,24 @@ describe('policy schema', () => {
     expect(() => loadConfig(dir)).toThrow();
   });
 });
+
+describe('relay schema', () => {
+  it('defaults the relay block when absent', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    writeFileSync(join(dir, 'blox.config.json'), '{}');
+    const c = loadConfig(dir, { projectPath: dir });
+    expect(c.relay).toBeUndefined();
+  });
+
+  it('fills relay defaults when the block is present but partial', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-'));
+    writeFileSync(join(dir, 'blox.config.json'), JSON.stringify({ relay: { port: 9000 } }));
+    const c = loadConfig(dir, { projectPath: dir });
+    expect(c.relay).toMatchObject({
+      port: 9000, host: '127.0.0.1', apiKeyEnv: 'ANTHROPIC_API_KEY',
+      upstream: 'https://api.anthropic.com',
+      membersPath: '.blox/relay-members.json', ledgerPath: '.blox/relay-audit.jsonl',
+    });
+    expect(c.relay!.pricing['claude-opus-4-8']).toEqual({ in: 5, out: 25 });
+  });
+});
