@@ -18,4 +18,14 @@ describe('usageHtml', () => {
   it('shows a fallback when usage is unavailable', () => {
     expect(usageHtml(null)).toContain('usage unavailable');
   });
+
+  it('escapes HTML in bucket keys', () => {
+    const html = usageHtml({
+      window: { days: null, since: null }, totalUsd: 1, capUsd: null, capPct: null,
+      runCount: 1, errorCount: 0,
+      byUser: [{ key: '<script>x</script>', costUsd: 1, runs: 1 }], byModel: [],
+    });
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
 });

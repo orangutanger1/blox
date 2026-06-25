@@ -70,6 +70,28 @@ desktop app (Refresh usage button) and over the panel daemon at `GET /api/v1/usa
 `provider,slug` string (e.g. `openrouter,deepseek-chat`), so both `policy.models`
 allowlist and the report's "by model" rows use that comma-joined form.
 
+## Team relay (hard gate)
+
+`blox relay serve` runs a self-hosted Anthropic-compatible proxy that holds the
+team API key and enforces `policy` server-side. Members never get the real key,
+so the model allowlist and rolling spend cap become a real gate (not advisory).
+
+Lead (on the relay host, with the team key in $ANTHROPIC_API_KEY):
+
+    blox relay add-member alice@team.com    # prints a blx_ token ONCE
+    blox relay serve                          # binds relay.host:relay.port
+
+Member:
+
+    export ANTHROPIC_BASE_URL=http://<relay-host>:8787
+    export ANTHROPIC_API_KEY=blx_<their-token>
+    blox "build a shop UI"
+
+The relay logs per-member token usage + cost to relay.ledgerPath and serves a
+summary at GET /api/v1/usage. Config lives in the `relay` block of
+blox.config.json. **TLS is not built in** — run the relay on a trusted network
+or front it with nginx/caddy for TLS; member tokens ride in the x-api-key header.
+
 ## Live Studio sync (manual)
 
 The CLI only *validates* the Rojo project. To push edits into a running Studio,
