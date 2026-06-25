@@ -17,25 +17,27 @@ export function auditPath(projectPath: string): string {
   return join(projectPath, '.blox', 'audit.jsonl');
 }
 
-export function appendAuditEntry(projectPath: string, entry: AuditEntry): void {
-  const path = auditPath(projectPath);
+export function appendJsonl(path: string, obj: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(entry) + '\n');
+  appendFileSync(path, JSON.stringify(obj) + '\n');
+}
+
+export function readJsonl<T>(path: string): T[] {
+  if (!existsSync(path)) return [];
+  const out: T[] = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line) as T); } catch { /* skip malformed */ }
+  }
+  return out;
+}
+
+export function appendAuditEntry(projectPath: string, entry: AuditEntry): void {
+  appendJsonl(auditPath(projectPath), entry);
 }
 
 export function readAuditEntries(projectPath: string): AuditEntry[] {
-  const path = auditPath(projectPath);
-  if (!existsSync(path)) return [];
-  const out: AuditEntry[] = [];
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      out.push(JSON.parse(line) as AuditEntry);
-    } catch {
-      // skip malformed line — visibility is best-effort
-    }
-  }
-  return out;
+  return readJsonl<AuditEntry>(auditPath(projectPath));
 }
 
 export function readWindowSpend(projectPath: string, windowDays: number, now: Date = new Date()): number {

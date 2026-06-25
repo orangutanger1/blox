@@ -18,6 +18,24 @@ export const PolicySchema = z.object({
 
 export type Policy = z.infer<typeof PolicySchema>;
 
+export const DEFAULT_PRICING_CONFIG: Record<string, { in: number; out: number }> = {
+  'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-haiku-4-5': { in: 1, out: 5 },
+  'claude-fable-5': { in: 10, out: 50 },
+};
+
+export const RelaySchema = z.object({
+  port: z.number().int().positive().default(8787),
+  host: z.string().default('127.0.0.1'),
+  apiKeyEnv: z.string().default('ANTHROPIC_API_KEY'),
+  upstream: z.string().default('https://api.anthropic.com'),
+  membersPath: z.string().default('.blox/relay-members.json'),
+  ledgerPath: z.string().default('.blox/relay-audit.jsonl'),
+  pricing: z.record(z.string(), z.object({ in: z.number(), out: z.number() })).default(DEFAULT_PRICING_CONFIG),
+});
+export type Relay = z.infer<typeof RelaySchema>;
+
 export const BloxConfigSchema = z.object({
   projectPath: z.string(),
   model: z.string().default('claude-opus-4-8'),
@@ -34,6 +52,7 @@ export const BloxConfigSchema = z.object({
     // so {} would skip the field defaults; prefault parses it through them.
     .prefault({}),
   policy: PolicySchema.optional(),
+  relay: RelaySchema.optional(),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;

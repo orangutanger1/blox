@@ -29,6 +29,8 @@ import {
 } from './auth.js';
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
+import { RelayServer } from './relay/server.js';
+import { relayMemberCommand, resolveRelayServe } from './relay/cli.js';
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -176,6 +178,37 @@ async function main(): Promise<void> {
       process.exit(0);
     }
     console.error('usage: blox auth login | logout | status | key set | key clear | use subscription|key');
+    process.exit(2);
+  }
+
+  if (command === 'relay') {
+    const cwd = projectPath ?? process.cwd();
+    const sub = (prompt ?? '').split(' ');
+    const action = sub[0];
+    if (action === 'add-member' || action === 'rm-member' || action === 'list-members') {
+      const map = { 'add-member': 'add', 'rm-member': 'rm', 'list-members': 'list' } as const;
+      try {
+        console.log(relayMemberCommand(map[action], cwd, sub[1]));
+        process.exit(0);
+      } catch (e) {
+        console.error((e as Error).message);
+        process.exit(2);
+      }
+    }
+    if (action === 'serve') {
+      const config = loadConfig(cwd, projectPath ? { projectPath } : {});
+      const result = resolveRelayServe(config, process.env);
+      if ('error' in result) { console.error(result.error); process.exit(1); }
+      const relay = config.relay!;
+      const server = new RelayServer({ relay, policy: config.policy, realKey: result.realKey });
+      const port = await server.start();
+      console.log(`blox relay on ${relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
+      console.log('   (Ctrl-C to stop)');
+      await new Promise<void>((resolve) => { const done = () => resolve(); process.on('SIGINT', done); process.on('SIGTERM', done); });
+      await server.stop();
+      process.exit(0);
+    }
+    console.error('usage: blox relay serve | add-member <email> | rm-member <email> | list-members');
     process.exit(2);
   }
 
