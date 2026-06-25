@@ -30,7 +30,7 @@ import {
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
 import { RelayServer } from './relay/server.js';
-import { relayMemberCommand, resolveRelayServe } from './relay/cli.js';
+import { relayMemberCommand, resolveRelayServe, resolveRelayPaths } from './relay/cli.js';
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -199,7 +199,7 @@ async function main(): Promise<void> {
       const config = loadConfig(cwd, projectPath ? { projectPath } : {});
       const result = resolveRelayServe(config, process.env);
       if ('error' in result) { console.error(result.error); process.exit(1); }
-      const relay = config.relay!;
+      const relay = resolveRelayPaths(config);
       const server = new RelayServer({ relay, policy: config.policy, realKey: result.realKey });
       const port = await server.start();
       console.log(`blox relay on ${relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
