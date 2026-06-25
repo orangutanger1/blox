@@ -199,9 +199,10 @@ async function main(): Promise<void> {
       const config = loadConfig(cwd, projectPath ? { projectPath } : {});
       const result = resolveRelayServe(config, process.env);
       if ('error' in result) { console.error(result.error); process.exit(1); }
-      const server = new RelayServer({ relay: config.relay!, policy: config.policy, realKey: result.realKey });
+      const relay = config.relay!;
+      const server = new RelayServer({ relay, policy: config.policy, realKey: result.realKey });
       const port = await server.start();
-      console.log(`blox relay on ${config.relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
+      console.log(`blox relay on ${relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
       console.log('   (Ctrl-C to stop)');
       await new Promise<void>((resolve) => { const done = () => resolve(); process.on('SIGINT', done); process.on('SIGTERM', done); });
       await server.stop();
