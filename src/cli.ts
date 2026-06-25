@@ -30,7 +30,7 @@ import {
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
 import { RelayServer } from './relay/server.js';
-import { relayMemberCommand } from './relay/cli.js';
+import { relayMemberCommand, resolveRelayServe } from './relay/cli.js';
 
 async function main(): Promise<void> {
   let args: ParsedArgs;
@@ -197,10 +197,9 @@ async function main(): Promise<void> {
     }
     if (action === 'serve') {
       const config = loadConfig(cwd, projectPath ? { projectPath } : {});
-      if (!config.relay) { console.error('no `relay` block in blox.config.json — add one (see docs)'); process.exit(1); }
-      const realKey = process.env[config.relay.apiKeyEnv];
-      if (!realKey) { console.error(`no team API key in $${config.relay.apiKeyEnv}`); process.exit(1); }
-      const server = new RelayServer({ relay: config.relay, policy: config.policy, realKey });
+      const result = resolveRelayServe(config, process.env);
+      if ('error' in result) { console.error(result.error); process.exit(1); }
+      const server = new RelayServer({ relay: config.relay!, policy: config.policy, realKey: result.realKey });
       const port = await server.start();
       console.log(`blox relay on ${config.relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
       console.log('   (Ctrl-C to stop)');

@@ -1,6 +1,15 @@
 import { join } from 'node:path';
-import { loadConfig } from '../config.js';
+import { loadConfig, type BloxConfig } from '../config.js';
 import { addMember, removeMember, listMembers } from './members.js';
+
+export type RelayServeResolved = { error: string } | { realKey: string };
+
+export function resolveRelayServe(config: BloxConfig, env: NodeJS.ProcessEnv): RelayServeResolved {
+  if (!config.relay) return { error: 'no `relay` block in blox.config.json — add one (see docs)' };
+  const realKey = env[config.relay.apiKeyEnv];
+  if (!realKey) return { error: `no team API key in $${config.relay.apiKeyEnv}` };
+  return { realKey };
+}
 
 function membersPath(projectPath: string): string {
   const config = loadConfig(projectPath, { projectPath });
