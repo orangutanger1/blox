@@ -18,6 +18,10 @@ export interface ParsedArgs {
   baseUrl: string | null;
   since: number | null;
   json: boolean;
+  // Resume a prior SDK session by id (Options.resume) or continue the most
+  // recent session in the project (Options.continue). Mutually exclusive.
+  resume: string | null;
+  continueSession: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -39,6 +43,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let baseUrl: string | null = null;
   let since: number | null = null;
   let json = false;
+  let resume: string | null = null;
+  let continueSession = false;
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -83,6 +89,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (!Number.isInteger(n) || n <= 0) throw new Error('--since must be a positive integer number of days (e.g. 7 or 7d)');
       since = n;
     } else if (a === '--json') json = true;
+    else if (a === '--resume') {
+      const v = argv[++i];
+      if (v == null) throw new Error('--resume needs a session id');
+      resume = v;
+    } else if (a === '--continue') continueSession = true;
     else if (a === 'init' && command === null && positional.length === 0) command = 'init';
     else if (a === 'doctor' && command === null && positional.length === 0) command = 'doctor';
     else if (a === 'serve' && command === null && positional.length === 0) command = 'serve';
@@ -95,6 +106,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
   if (imagePath !== null && imageFromDock) {
     throw new Error('--image and --image-from-dock are mutually exclusive');
+  }
+  if (resume !== null && continueSession) {
+    throw new Error('--resume and --continue are mutually exclusive');
   }
   return {
     command,
@@ -116,5 +130,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     baseUrl,
     since,
     json,
+    resume,
+    continueSession,
   };
 }

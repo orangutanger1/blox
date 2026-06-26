@@ -72,6 +72,24 @@ describe('buildQueryOptions', () => {
     expect(o.hooks.PreToolUse?.[0].matcher).toBeUndefined();
     expect(o.hooks.PreToolUse?.[0].hooks).toHaveLength(1);
   });
+
+  it('omits resume/continue by default', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest);
+    expect(o.resume).toBeUndefined();
+    expect(o.continue).toBeUndefined();
+  });
+
+  it('passes resume through when promptCtx.resume is set', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest, undefined, { resume: 'sess-9' });
+    expect(o.resume).toBe('sess-9');
+    expect(o.continue).toBeUndefined();
+  });
+
+  it('sets continue when promptCtx.continueSession is true', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest, undefined, { continueSession: true });
+    expect(o.continue).toBe(true);
+    expect(o.resume).toBeUndefined();
+  });
 });
 
 const askConfig: BloxConfig = { ...config, mode: 'ask', effort: 'xhigh' };
