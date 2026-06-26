@@ -17,8 +17,23 @@ fragility.
    daemon for non-Claude. (Desktop slice is being specced now; the deeper
    CLI+desktop rework is a separate, larger effort — see "Native routing,
    deeper" below.)
-2. **Incremental digest** — `buildDigest` rebuilds project context every run;
-   cache + diff only changed instances → fewer tokens/run.
+2. ~~**Incremental digest**~~ — KILLED 2026-06-26. Premise was wrong: the
+   digest is a path/kind listing only (no script bodies) and already truncated
+   at `MAX_PER_GROUP=30`, so its per-run token cost is small and fixed.
+   `buildDigest`'s cost is a filesystem walk (ms), not tokens — caching it
+   saves a directory scan, not tokens. YAGNI.
+   - **Prompt caching** (the real "biggest token win") is ALSO not buildable —
+     it's already on. blox runs on the Agent SDK (`query()`), handing it a
+     `systemPrompt` string; the SDK/Claude Code sets `cache_control`
+     breakpoints internally for native Claude. The SDK's `total_cost_usd`
+     already reflects cache read/write pricing, which is what blox ledgers.
+     There is no `messages.create` for blox to place breakpoints on. Nothing
+     to build on the native path; CCR-routed (non-Claude) caching depends on
+     the downstream provider, also outside blox's control.
+   - Only residual: native `AuditEntry` records `costUsd`/`turns`, not
+     `cache_read_input_tokens`, so cache hit-rate isn't *observable* (cost
+     already benefits). Small optional observability follow-up, not a
+     token-savings feature — do only if cache effectiveness needs measuring.
 3. **Warm Studio channel** — persistent Rojo serve + MCP + verify loop instead
    of cold spin-up per run; batch `execute_luau` verifies.
 4. **Asset cache** — mesh/procedural jobs are slow + async; dedupe by
