@@ -204,6 +204,14 @@ describe('relay subcommand', () => {
   });
 });
 
+describe('eval subcommand', () => {
+  it('parses a leading eval token into command', () => {
+    const a = parseArgs(['eval']);
+    expect(a.command).toBe('eval');
+    expect(a.prompt).toBeNull();
+  });
+});
+
 describe('--resume / --continue', () => {
   it('defaults resume to null and continueSession to false', () => {
     const a = parseArgs(['do', 'thing']);

@@ -15,6 +15,8 @@ import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
 import { runReport } from './reportCommand.js';
+import { runEvalSuite, formatEvalSummary, type EvalRunner } from './eval/harness.js';
+import { defaultSuite } from './eval/suite.js';
 import { basename } from 'node:path';
 import { pullScripts, mockPulledScripts } from './onboard/pull.js';
 import { planLayout } from './onboard/layout.js';
@@ -58,6 +60,37 @@ async function main(): Promise<void> {
   if (command === 'report') {
     console.log(runReport({ projectPath: projectPath ?? process.cwd(), since: args.since, json: args.json }));
     process.exit(0);
+  }
+
+  if (command === 'eval') {
+    // Benchmark the configured model against the default suite. Each task is a
+    // real --auto run: it makes paid model calls and needs a connected Studio to
+    // be meaningful. The harness scoring/aggregation is unit-tested; this is the
+    // thin live wiring. ponytail: routed (CCR) models would need ensureCcr/env
+    // like the daemon — eval runs the configured model directly for now.
+    const cwd = projectPath ?? process.cwd();
+    const config = { ...loadConfig(cwd, overridesFromArgs(args)), mode: 'auto' as const };
+    const digest = buildDigest(config.projectPath);
+    const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
+    let session: ServeSession | undefined;
+    try {
+      session = await ensureServe(config.projectPath);
+    } catch {
+      console.error('warning: rojo serve unavailable — Studio may see stale files during eval');
+    }
+    const env = buildAuthEnv({ override: args.authMode });
+    const runTask: EvalRunner = async (task) => {
+      const report = await runOnce(config, task.prompt, { bridge, digest, env });
+      return { status: report.status, numTurns: report.numTurns, costUsd: report.costUsd };
+    };
+    try {
+      const summary = await runEvalSuite(defaultSuite, runTask);
+      console.log(formatEvalSummary(summary));
+      process.exitCode = summary.failed === 0 ? 0 : 1;
+    } finally {
+      if (session) await stopServe(session);
+    }
+    return;
   }
 
   if (command === 'serve') {
@@ -239,7 +272,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
     );
     process.exit(2);
   }
