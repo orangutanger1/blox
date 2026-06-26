@@ -49,6 +49,8 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('filter');
     expect(p).toContain('Verify loop');
     expect(p).toContain('execute_luau');
+    // batch-verify nudge: fewer MCP round-trips per verification
+    expect(p).toContain('one execute_luau call');
     expect(p).toContain('multi_edit');
     expect(p).toContain('generate_mesh');
     expect(p).toContain('Assets (generate & verify)');

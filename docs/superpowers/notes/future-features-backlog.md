@@ -34,14 +34,23 @@ fragility.
      `cache_read_input_tokens`, so cache hit-rate isn't *observable* (cost
      already benefits). Small optional observability follow-up, not a
      token-savings feature — do only if cache effectiveness needs measuring.
-3. **Warm Studio channel** — persistent Rojo serve + MCP + verify loop instead
-   of cold spin-up per run; batch `execute_luau` verifies.
-4. **Asset cache** — mesh/procedural jobs are slow + async; dedupe by
-   prompt-hash.
-5. **Eval harness** — benchmark a set of Roblox build tasks → objectively tune
-   `routedMaxTurns` per model and prove model quality instead of guessing.
-6. **Resume / replay** — record run transcript; resume after Studio disconnect
-   (Codex-like).
+3. **Warm Studio channel** — LARGELY DONE / SDK-owned (2026-06-26). The daemon
+   already keeps Rojo serve warm across runs (`ensureServe` is reuse-first), and
+   builds the digest once. `createStudioMcpBridge()` is a *pure config object*
+   (no process/connection) — the StudioMCP proxy is spawned by the Agent SDK
+   *inside each `query()`* and torn down per query, so blox can't keep the MCP
+   channel warm without SDK support. The one blox-side win — "batch
+   `execute_luau` verifies" — shipped as a system-prompt nudge (fewer
+   round-trips per verification). No further blox work without SDK changes.
+4. **Asset cache** — SHIPPED (PR #35). Advisory prompt-hash dedupe for
+   `generate_mesh`: records prompt→tag, hints reuse on a repeat. generate_mesh
+   only; procedural/wait_job cross-call linking deferred.
+5. **Eval harness** — needs live Studio to run builds; can scaffold a runner +
+   task suite + scorer (self-tests against the mock bridge), gated behind live
+   Studio for real benchmarking of `routedMaxTurns`/model quality.
+6. **Resume / replay** — SHIPPED (PR #34) as SDK-native `--resume`/`--continue`.
+   The SDK persists every session to `~/.claude/projects/`; blox wires the flags
+   + surfaces the session id. No custom transcript recording needed.
 
 ## Larger rework candidates (own specs later)
 
