@@ -35,7 +35,7 @@ export class PanelServer {
   private server: Server | null = null;
   private lastPollAt = 0;
   private pendingImage: { resolve: (i: ImageInput) => void; timer: ReturnType<typeof setTimeout> } | null = null;
-  private opts: Required<Omit<PanelServerOptions, 'port'>> & { port: number };
+  private opts: Required<Omit<PanelServerOptions, 'port' | 'projectPath' | 'rollingBudget'>> & { port: number };
   private controller: PanelController | null = null;
   private authProvider: (() => AuthInfo) | null = null;
   private authCache: AuthInfo | null = null;
