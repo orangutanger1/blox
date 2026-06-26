@@ -45,9 +45,15 @@ fragility.
 4. **Asset cache** — SHIPPED (PR #35). Advisory prompt-hash dedupe for
    `generate_mesh`: records prompt→tag, hints reuse on a repeat. generate_mesh
    only; procedural/wait_job cross-call linking deferred.
-5. **Eval harness** — needs live Studio to run builds; can scaffold a runner +
-   task suite + scorer (self-tests against the mock bridge), gated behind live
-   Studio for real benchmarking of `routedMaxTurns`/model quality.
+5. **Eval harness** — SHIPPED (PR #37). `blox eval [--mock]` runs a default
+   suite of Roblox build tasks and prints a pass/fail scorecard. The scoring +
+   aggregation core (`src/eval/harness.ts`) is pure and unit-tested (injected
+   runner); the CLI handler is thin live wiring. Real benchmarking is
+   live-gated (each task is a paid `--auto` run needing a connected Studio).
+   ponytail ceilings: coarse pass criteria (run succeeded within turn/cost
+   ceilings) — add per-task `execute_luau` correctness probes when pass-rate
+   stops discriminating model quality; routed/CCR models need the daemon's
+   ensureCcr/env wiring (eval runs the configured model directly for now).
 6. **Resume / replay** — SHIPPED (PR #34) as SDK-native `--resume`/`--continue`.
    The SDK persists every session to `~/.claude/projects/`; blox wires the flags
    + surfaces the session id. No custom transcript recording needed.
