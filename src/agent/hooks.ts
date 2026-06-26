@@ -1,5 +1,6 @@
 import type { HookCallback, HookInput, HookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import { syncProject, realSpawn, type SpawnFn } from '../sync/rojo.js';
+import { assetCacheKey, lookupAsset, recordAsset } from './assetCache.js';
 
 export const EXECUTE_LUAU_TOOL = 'mcp__Roblox_Studio__execute_luau';
 export const GEN_MESH_TOOL = 'mcp__Roblox_Studio__generate_mesh';
@@ -98,6 +99,66 @@ export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
       }
     } catch {
       // A broken channel must never stall the run — fall through to continue.
+    }
+    return { continue: true };
+  };
+}
+
+// PreToolUse asset dedupe (advisory). Before a generate_mesh call, check
+// whether an identical prompt already produced an asset; if so, inject a hint
+// naming the prior tag so the agent can reuse it instead of paying for another
+// ~29s generation. ALWAYS continues — the recorded tag may be stale (the prior
+// asset could have been rejected/deleted), so the decision is the agent's, not
+// a hard block. Reuse mechanics (re-tagging / re-parenting) are Studio-side.
+//
+// ponytail: generate_mesh only. procedural_model's prompt and tag arrive in
+// different tool calls (the wait_job chain); deduping that needs job-id linking.
+export function buildAssetDedupeHook(projectPath: string): HookCallback {
+  return async (input: HookInput): Promise<HookJSONOutput> => {
+    if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+    if (input.tool_name !== GEN_MESH_TOOL) return { continue: true };
+    let key: string | null = null;
+    try {
+      key = assetCacheKey((input.tool_input ?? {}) as Record<string, unknown>);
+    } catch {
+      return { continue: true };
+    }
+    if (!key) return { continue: true };
+    const hit = lookupAsset(projectPath, key);
+    if (!hit) return { continue: true };
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext:
+          `An identical asset was generated earlier (tag "${hit.tag}", prompt "${hit.prompt}"). ` +
+          'If that asset still exists in the DataModel, reuse it (e.g. CollectionService:GetTagged) ' +
+          'instead of regenerating — generation is slow and costs tokens. If it is gone, regenerate.',
+      },
+    };
+  };
+}
+
+// PostToolUse asset recorder. After a successful generate_mesh, store
+// prompt→tag so a later identical prompt hits buildAssetDedupeHook. Records
+// nothing when no tag was extractable. Never throws (observability, not control).
+export function buildAssetRecordHook(projectPath: string): HookCallback {
+  return async (input: HookInput): Promise<HookJSONOutput> => {
+    if (input.hook_event_name !== 'PostToolUse') return { continue: true };
+    if (input.tool_name !== GEN_MESH_TOOL) return { continue: true };
+    try {
+      const key = assetCacheKey((input.tool_input ?? {}) as Record<string, unknown>);
+      if (!key) return { continue: true };
+      const tag = extractAssetTag(input.tool_response);
+      if (!tag) return { continue: true };
+      const promptRaw = (input.tool_input as Record<string, unknown>)?.textPrompt;
+      recordAsset(projectPath, key, {
+        tag,
+        tool: 'generate_mesh',
+        prompt: typeof promptRaw === 'string' ? promptRaw : '',
+      });
+    } catch {
+      // recording is best-effort — a failure must never affect the run
     }
     return { continue: true };
   };

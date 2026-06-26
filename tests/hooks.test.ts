@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { buildSyncHook, buildAssetResultHook, extractAssetTag, jobLandedNothing, rejectMessage, GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, extractAssetTag, jobLandedNothing, rejectMessage, GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
 import type { ResultGateChannel } from '../src/agent/hooks.js';
+import { lookupAsset, assetCacheKey, recordAsset } from '../src/agent/assetCache.js';
 import type { SpawnFn } from '../src/sync/rojo.js';
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
 
@@ -190,6 +194,79 @@ describe('buildAssetResultHook', () => {
     const input = postInput(GEN_MESH_TOOL, meshResponse) as unknown as { tool_input: unknown };
     input.tool_input = circular;
     const out = (await hook(input as never, 't9', { signal })) as BlockOut;
+    expect(out.continue).toBe(true);
+  });
+});
+
+function preMesh(projectPath: string, textPrompt: unknown): HookInput {
+  return {
+    hook_event_name: 'PreToolUse',
+    tool_name: GEN_MESH_TOOL,
+    tool_input: { textPrompt },
+    tool_use_id: 't',
+    session_id: 's',
+    transcript_path: '',
+    cwd: projectPath,
+  } as unknown as HookInput;
+}
+
+describe('buildAssetDedupeHook (PreToolUse, advisory)', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'blox-dedupe-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('continues with no hint when the prompt was never generated before', async () => {
+    const hook = buildAssetDedupeHook(dir);
+    const out = (await hook(preMesh(dir, 'a fresh rock'), 't', { signal })) as SyncOut;
+    expect(out.continue).toBe(true);
+    expect(out.hookSpecificOutput?.additionalContext).toBeUndefined();
+  });
+
+  it('injects a reuse hint naming the prior tag on a cache hit', async () => {
+    const key = assetCacheKey({ textPrompt: 'a barrel' })!;
+    recordAsset(dir, key, { tag: 'Assistant-MeshGen-99', tool: 'generate_mesh', prompt: 'a barrel' });
+    const hook = buildAssetDedupeHook(dir);
+    const out = (await hook(preMesh(dir, 'A  Barrel '), 't', { signal })) as SyncOut;
+    expect(out.continue).toBe(true); // advisory — never blocks
+    expect(out.hookSpecificOutput?.additionalContext).toContain('Assistant-MeshGen-99');
+  });
+
+  it('ignores non-mesh tools and inputs with no prompt', async () => {
+    const hook = buildAssetDedupeHook(dir);
+    const other = { ...preMesh(dir, 'x'), tool_name: 'mcp__Roblox_Studio__execute_luau' } as HookInput;
+    expect(((await hook(other, 't', { signal })) as SyncOut).hookSpecificOutput).toBeUndefined();
+    expect(((await hook(preMesh(dir, 42), 't', { signal })) as SyncOut).hookSpecificOutput).toBeUndefined();
+  });
+});
+
+describe('buildAssetRecordHook (PostToolUse, recorder)', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'blox-record-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('records prompt→tag after a successful generate_mesh', async () => {
+    const hook = buildAssetRecordHook(dir);
+    const input = { ...postInput(GEN_MESH_TOOL, meshResponse), tool_input: { textPrompt: 'a low-poly barrel' } } as HookInput;
+    const out = (await hook(input, 't9', { signal })) as { continue?: boolean };
+    expect(out.continue).toBe(true);
+    const key = assetCacheKey({ textPrompt: 'a low-poly barrel' })!;
+    expect(lookupAsset(dir, key)?.tag).toBe('Assistant-MeshGen-1f2e3d4c-0000-4000-8000-aabbccddeeff');
+  });
+
+  it('records nothing when no tag could be extracted', async () => {
+    const hook = buildAssetRecordHook(dir);
+    const input = { ...postInput(GEN_MESH_TOOL, { content: [{ type: 'text', text: 'no tag here' }] }), tool_input: { textPrompt: 'x' } } as HookInput;
+    await hook(input, 't9', { signal });
+    expect(lookupAsset(dir, assetCacheKey({ textPrompt: 'x' })!)).toBeNull();
+  });
+
+  it('never throws on a circular tool_input', async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const hook = buildAssetRecordHook(dir);
+    const input = postInput(GEN_MESH_TOOL, meshResponse) as unknown as { tool_input: unknown };
+    input.tool_input = circular;
+    const out = (await hook(input as never, 't9', { signal })) as { continue?: boolean };
     expect(out.continue).toBe(true);
   });
 });

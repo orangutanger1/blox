@@ -3,7 +3,7 @@ import type { StudioBridge, McpServerConfig } from '../bridge/types.js';
 import type { ProjectDigest } from '../context/digest.js';
 import type { HookCallbackMatcher, HookEvent, CanUseTool, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { buildSystemPrompt } from './systemPrompt.js';
-import { buildSyncHook, buildAssetResultHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL } from './hooks.js';
+import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL } from './hooks.js';
 import type { ResultGateChannel } from './hooks.js';
 import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permission.js';
 import { buildGuardrailHook } from './guardrail.js';
@@ -101,15 +101,20 @@ export function buildQueryOptions(
       PreToolUse: [
         { hooks: [buildGuardrailHook(config.projectPath)] },
         { matcher: EXECUTE_LUAU_TOOL, hooks: [buildSyncHook(config.projectPath)] },
+        // Advisory prompt-hash dedupe before a (slow) mesh generation.
+        { matcher: GEN_MESH_TOOL, hooks: [buildAssetDedupeHook(config.projectPath)] },
       ],
-      ...(ask && gate
-        ? {
-            PostToolUse: [
+      PostToolUse: [
+        // Record prompt→tag so the dedupe hook can hit on a repeat. Runs in all
+        // modes; independent of the ask-mode result gate below.
+        { matcher: GEN_MESH_TOOL, hooks: [buildAssetRecordHook(config.projectPath)] },
+        ...(ask && gate
+          ? [
               { matcher: GEN_MESH_TOOL, hooks: [buildAssetResultHook(gate)] },
               { matcher: WAIT_JOB_TOOL, hooks: [buildAssetResultHook(gate)] },
-            ],
-          }
-        : {}),
+            ]
+          : []),
+      ],
     },
   };
 }

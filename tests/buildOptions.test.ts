@@ -67,6 +67,14 @@ describe('buildQueryOptions', () => {
     expect(pre?.[1].hooks).toHaveLength(1);
   });
 
+  it('registers the asset dedupe (Pre) and recorder (Post) hooks on generate_mesh', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest);
+    const pre = o.hooks.PreToolUse ?? [];
+    const post = o.hooks.PostToolUse ?? [];
+    expect(pre.some((m) => m.matcher === GEN_MESH_TOOL)).toBe(true);
+    expect(post.some((m) => m.matcher === GEN_MESH_TOOL)).toBe(true);
+  });
+
   it('registers the guardrail hook in ask mode too', () => {
     const o = buildQueryOptions(askConfig, createMockStudioBridge(), digest);
     expect(o.hooks.PreToolUse?.[0].matcher).toBeUndefined();
@@ -150,16 +158,20 @@ const fullGate = {
 };
 
 describe('asset result hook wiring', () => {
-  it('registers PostToolUse hooks for both gen tools in ask mode with a gate', () => {
+  it('registers the result-gate hooks for both gen tools in ask mode with a gate (plus the always-on recorder)', () => {
     const options = buildQueryOptions(askConfig, createMockStudioBridge(), digest, fullGate);
     const post = options.hooks.PostToolUse ?? [];
-    expect(post.map((m) => m.matcher).sort()).toEqual([GEN_MESH_TOOL, WAIT_JOB_TOOL].sort());
+    // recorder(mesh) + result-gate(mesh) + result-gate(wait_job)
+    expect(post.map((m) => m.matcher).sort()).toEqual([GEN_MESH_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL].sort());
+    expect(post.filter((m) => m.matcher === WAIT_JOB_TOOL)).toHaveLength(1);
     expect(post.every((m) => m.hooks.length === 1)).toBe(true);
   });
 
-  it('registers no PostToolUse hooks in auto mode or without a gate', () => {
-    expect(buildQueryOptions(config, createMockStudioBridge(), digest, fullGate).hooks.PostToolUse).toBeUndefined();
-    expect(buildQueryOptions(askConfig, createMockStudioBridge(), digest, undefined).hooks.PostToolUse).toBeUndefined();
+  it('registers only the recorder (no result-gate hooks) in auto mode or without a gate', () => {
+    const auto = buildQueryOptions(config, createMockStudioBridge(), digest, fullGate).hooks.PostToolUse ?? [];
+    expect(auto.map((m) => m.matcher)).toEqual([GEN_MESH_TOOL]); // recorder only
+    const noGate = buildQueryOptions(askConfig, createMockStudioBridge(), digest, undefined).hooks.PostToolUse ?? [];
+    expect(noGate.map((m) => m.matcher)).toEqual([GEN_MESH_TOOL]); // recorder only, no wait_job gate
   });
 });
 
