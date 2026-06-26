@@ -22,6 +22,10 @@ export interface RunOnceDeps {
   sink?: EventSink;
   image?: ImageInput;
   verify?: boolean;
+  // Native SDK session continuation, forwarded to buildQueryOptions. Mutually
+  // exclusive (the CLI enforces it); resume wins if both are set.
+  resume?: string;
+  continueSession?: boolean;
   dockDeniedTools?: () => string[];
   resultDecisions?: () => ResultRecord[];
   abortController?: AbortController;
@@ -49,6 +53,8 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
     image: !!deps.image,
     verify: deps.verify,
+    resume: deps.resume,
+    continueSession: deps.continueSession,
   });
   const agent = await runAgent(prompt, options, {
     sink: deps.sink,

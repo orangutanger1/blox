@@ -203,3 +203,31 @@ describe('relay subcommand', () => {
     expect(a.prompt).toBe('add-member alice@team.com');
   });
 });
+
+describe('--resume / --continue', () => {
+  it('defaults resume to null and continueSession to false', () => {
+    const a = parseArgs(['do', 'thing']);
+    expect(a.resume).toBeNull();
+    expect(a.continueSession).toBe(false);
+  });
+
+  it('parses --resume with a session id', () => {
+    const a = parseArgs(['--resume', 'sess-abc-123', 'keep', 'going']);
+    expect(a.resume).toBe('sess-abc-123');
+    expect(a.prompt).toBe('keep going');
+  });
+
+  it('parses --continue as a boolean flag', () => {
+    const a = parseArgs(['--continue', 'next', 'step']);
+    expect(a.continueSession).toBe(true);
+    expect(a.prompt).toBe('next step');
+  });
+
+  it('throws when --resume has no session id', () => {
+    expect(() => parseArgs(['--resume'])).toThrow(/--resume/);
+  });
+
+  it('rejects --resume together with --continue', () => {
+    expect(() => parseArgs(['--resume', 'x', '--continue'])).toThrow(/--resume.*--continue|mutually exclusive/);
+  });
+});

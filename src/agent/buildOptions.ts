@@ -15,6 +15,11 @@ export type PanelGateChannel = GateChannel & ResultGateChannel;
 export interface PromptContext {
   image?: boolean;
   verify?: boolean;
+  // Resume a prior SDK session by id, or continue the project's most recent
+  // session. Mutually exclusive (the CLI enforces this); if both are somehow
+  // set, resume wins. Forwarded to the SDK's native Options.resume/continue.
+  resume?: string;
+  continueSession?: boolean;
 }
 
 export interface QueryOptionsLike {
@@ -38,6 +43,10 @@ export interface QueryOptionsLike {
   // thinking to reasoning-disabled, which 400s any model that mandates reasoning
   // (e.g. gemini-2.5-pro). Native Claude keeps it.
   thinking?: { type: 'adaptive' };
+  // Native SDK session continuation. resume loads a specific session id;
+  // continue picks the project's most recent. Omitted for a fresh run.
+  resume?: string;
+  continue?: boolean;
   allowedTools: string[];
   mcpServers: Record<string, McpServerConfig>;
   hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
@@ -80,6 +89,11 @@ export function buildQueryOptions(
       : { allowDangerouslySkipPermissions: true as const }),
     ...(config.effort ? { effort: config.effort } : {}),
     settingSources: [],
+    ...(promptCtx.resume
+      ? { resume: promptCtx.resume }
+      : promptCtx.continueSession
+        ? { continue: true }
+        : {}),
     ...(routed ? {} : { thinking: { type: 'adaptive' as const } }),
     allowedTools: ask ? nonGatedAllowedTools(allTools) : allTools,
     mcpServers: bridge.mcpServers(),

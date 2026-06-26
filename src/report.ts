@@ -51,6 +51,11 @@ export function formatReport(r: RunReport): string {
     `changed files (${r.changedFiles.length}):`,
     ...r.changedFiles.map((f) => `  ${f}`),
     r.commitSha ? `commit: ${r.commitSha}` : 'commit: (none)',
+    // Resume hint. The gated block already prints `session: <id>` with its own
+    // re-run guidance, so suppress the duplicate there.
+    ...(r.sessionId && !(r.gatedActions && r.gatedActions.length)
+      ? [`resume: blox --resume ${r.sessionId} "<follow-up>"`]
+      : []),
   ];
   if (r.detail) lines.push(`detail: ${r.detail}`);
   return lines.join('\n');

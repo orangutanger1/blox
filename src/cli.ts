@@ -239,7 +239,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list',
     );
     process.exit(2);
   }
@@ -350,6 +350,8 @@ async function main(): Promise<void> {
         sink: panel ?? undefined,
         image,
         verify: args.verify,
+        resume: args.resume ?? undefined,
+        continueSession: args.continueSession,
         // Direct-Anthropic one-shot: inject the linked credential (subscription
         // vs API key), honoring a per-run --auth override.
         env: routed ? ccrRunEnv(true) : buildAuthEnv({ override: args.authMode }),

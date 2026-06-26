@@ -79,6 +79,46 @@ describe('formatReport — autonomy', () => {
     expect(out).toContain('session: sess-9');
     expect(out).toContain('--auto');
   });
+
+  it('prints a resume hint with the session id on an ordinary run', () => {
+    const out = formatReport({
+      prompt: 'build a tower',
+      changedFiles: [],
+      commitSha: 'abc',
+      numTurns: 3,
+      costUsd: 0.2,
+      status: 'success',
+      sessionId: 'sess-77',
+    });
+    expect(out).toContain('--resume sess-77');
+  });
+
+  it('omits the resume hint when there is no session id', () => {
+    const out = formatReport({
+      prompt: 'x',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 1,
+      costUsd: 0,
+      status: 'success',
+    });
+    expect(out).not.toContain('--resume');
+  });
+
+  it('does not duplicate the resume hint on a gated run (session already shown)', () => {
+    const out = formatReport({
+      prompt: 'make a rock',
+      changedFiles: [],
+      commitSha: null,
+      numTurns: 2,
+      costUsd: 0.1,
+      status: 'error',
+      stopReason: 'gated',
+      sessionId: 'sess-9',
+      gatedActions: [{ tool: 'mcp__Roblox_Studio__generate_mesh', input: {} }],
+    });
+    expect(out).not.toContain('--resume');
+  });
 });
 
 describe('formatReport — deniedByUser', () => {
