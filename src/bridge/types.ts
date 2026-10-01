@@ -10,6 +10,8 @@ export interface StudioLaunch {
 }
 
 export interface StudioBridge {
+  /** 'blox' = the blox toolset (sync/tests/playtest); 'studio' = raw Studio MCP (legacy + mock). */
+  kind?: 'blox' | 'studio';
   /** MCP servers exposed to the agent, keyed by server name. */
   mcpServers(): Record<string, McpServerConfig>;
   /** Fully-qualified tool names the agent may call without prompting. */

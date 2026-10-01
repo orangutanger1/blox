@@ -1,0 +1,2 @@
+{ "id": "t1-basic", "level": "1 basic creation", "title": "Minimal playable experience",
+  "prompt": "This is an empty Roblox project. Make it a minimal playable experience: a large anchored baseplate Part named \"Baseplate\" (at least 100 x 100 studs, its top surface at about Y = 0), a SpawnLocation on it, and a server script that prints \"Game ready\" when the server starts. Players must spawn and stand on the baseplate. Verify it works in a running game." }

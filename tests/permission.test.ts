@@ -1,3 +1,5 @@
+import { isGatedCall } from '../src/agent/permission.js';
+import { unwrapStudioTool, BLOX_STUDIO_TOOL } from '../src/agent/hooks.js';
 import { describe, it, expect } from 'vitest';
 import {
   GATED_TOOLS,
@@ -134,5 +136,23 @@ describe('drift guard', () => {
     for (const g of GATED_TOOLS) {
       expect(advertised).toContain(`mcp__Roblox_Studio__${g}`);
     }
+  });
+});
+
+
+describe('blox bridge gating', () => {
+  it('gates studio_tool by the raw tool it forwards to', () => {
+    expect(isGatedCall('mcp__blox__studio_tool', { name: 'generate_mesh' })).toBe('generate_mesh');
+    expect(isGatedCall('mcp__blox__studio_tool', { name: 'inspect_instance' })).toBeNull();
+    expect(isGatedCall('mcp__blox__playtest', {})).toBeNull();
+    expect(isGatedCall('mcp__Roblox_Studio__start_stop_play', {})).toBe('mcp__Roblox_Studio__start_stop_play');
+  });
+  it('keeps studio_tool out of auto-approved tools in ask mode', () => {
+    expect(nonGatedAllowedTools(['mcp__blox__status', 'mcp__blox__studio_tool'])).toEqual(['mcp__blox__status']);
+  });
+  it('unwraps studio_tool calls for the asset hooks', () => {
+    const u = unwrapStudioTool({ hook_event_name: 'PreToolUse', tool_name: BLOX_STUDIO_TOOL, tool_input: { name: 'generate_mesh', args: { textPrompt: 'rock' } } } as never) as unknown as { tool_name: string; tool_input: unknown };
+    expect(u.tool_name).toBe('mcp__Roblox_Studio__generate_mesh');
+    expect(u.tool_input).toEqual({ textPrompt: 'rock' });
   });
 });

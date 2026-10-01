@@ -3,3 +3,5 @@ dist/
 *.rbxl
 *.rbxlx
 .env
+scratch/
+bench-*.log

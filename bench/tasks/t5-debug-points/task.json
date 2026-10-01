@@ -1,0 +1,2 @@
+{ "id": "t5-debug-points", "level": "5 debugging", "title": "Points never increase",
+  "prompt": "Players in this game should earn 1 Point every second (shown in leaderstats as \"Points\"), but their Points never go up. Find the cause, fix it, and verify the fix in a running game. Keep the rate at 1 point per second." }

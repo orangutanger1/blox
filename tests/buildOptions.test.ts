@@ -187,3 +187,33 @@ describe('buildQueryOptions — screenshot→UI context', () => {
     expect(o.systemPrompt).not.toContain('Screenshot → UI');
   });
 });
+
+describe('buildQueryOptions on the blox toolset bridge', () => {
+  const bloxBridge = {
+    kind: 'blox' as const,
+    mcpServers: () => ({ blox: { type: 'sdk' } }),
+    allowedTools: () => ['mcp__blox__status', 'mcp__blox__run_tests', 'mcp__blox__studio_tool'],
+  };
+  it('uses the agent guide prompt and drops the legacy rojo-sourcemap hook', () => {
+    const o = buildQueryOptions(config, bloxBridge, digest);
+    expect(o.systemPrompt).toContain('# Building Roblox games with blox');
+    expect(o.systemPrompt).toContain('run_tests');
+    const matchers = o.hooks.PreToolUse!.map((m) => m.matcher);
+    expect(matchers).not.toContain('mcp__Roblox_Studio__execute_luau');
+    expect(matchers).toContain('mcp__blox__studio_tool'); // asset dedupe via passthrough
+    expect(o.allowedTools).toContain('mcp__blox__run_tests');
+  });
+  it('routes the ask-mode asset result gate through studio_tool', () => {
+    const gate = { isConnected: () => true, request: async () => ({ decision: 'allow' as const, source: 'dock' as const }), requestResult: async () => ({ decision: 'approve' as const, source: 'dock' as const }) };
+    const o = buildQueryOptions({ ...config, mode: 'ask' }, bloxBridge, digest, gate);
+    expect(o.hooks.PostToolUse!.filter((m) => m.matcher === 'mcp__blox__studio_tool').length).toBe(2);
+    expect(o.allowedTools).not.toContain('mcp__blox__studio_tool');
+  });
+});
+
+describe('tool exposure', () => {
+  it('removes Bash and web tools from the runner entirely (bypassPermissions ignores allowedTools)', () => {
+    const o = buildQueryOptions(config, createMockStudioBridge(), digest);
+    expect(o.disallowedTools).toEqual(expect.arrayContaining(['Bash', 'WebFetch', 'WebSearch']));
+  });
+});

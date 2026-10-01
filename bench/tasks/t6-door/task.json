@@ -1,0 +1,2 @@
+{ "id": "t6-door", "level": "6 iterative runtime debugging", "title": "Pressure-plate door",
+  "prompt": "In this game, stepping on the red pressure plate should open the door (door CanCollide false and Transparency 0.5) for 3 seconds, after which it closes again (CanCollide true, Transparency 0). Players report it does nothing. Run the game, observe what actually happens, fix the problem, and verify the fix in a running game." }

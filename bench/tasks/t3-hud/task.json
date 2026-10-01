@@ -1,0 +1,2 @@
+{ "id": "t3-hud", "level": "3 UI integration", "title": "Coins HUD",
+  "prompt": "This game already has coin pickups (leaderstats.Coins). Add a HUD: a ScreenGui named \"HUD\" containing a TextLabel named \"CoinsLabel\" in the top-left corner of the screen that shows the local player's coins as \"Coins: N\" and updates live whenever the Coins value changes. Do not break the coin pickups. Verify it in a running game." }

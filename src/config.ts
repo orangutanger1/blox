@@ -53,6 +53,11 @@ export const BloxConfigSchema = z.object({
     .prefault({}),
   policy: PolicySchema.optional(),
   relay: RelaySchema.optional(),
+  // Which attached Studio to drive when several are open: a name substring
+  // (e.g. the place name) or a studio id. BLOX_STUDIO env overrides.
+  studio: z.object({ match: z.string().optional() }).prefault({}),
+  testDir: z.string().default('tests'),
+  worldDir: z.string().default('world'),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
