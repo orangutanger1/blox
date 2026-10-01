@@ -1,0 +1,210 @@
+{
+  "label": "baseline-legacy",
+  "agent": "legacy (/home/myen/blox-legacy/dist/cli.js)",
+  "startedAt": "2026-10-01T03:08:33.498Z",
+  "finishedAt": "2026-10-01T03:41:06.654Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t1-basic",
+      "level": "1 basic creation",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 315,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t1-basic",
+      "notes": [],
+      "turns": 35,
+      "costUsd": 1.2716,
+      "live": {
+        "passed": 0,
+        "total": 4,
+        "failures": [
+          "Baseplate: anchored BasePart, >=100x100, top near Y=0: fail — .bench-checks/basic.spec.luau:6: expected a value/instance, got nil",
+          "SpawnLocation exists: fail — .bench-checks/basic.spec.luau:14: expected a value/instance, got nil",
+          "player spawns and stands on the baseplate: fail — .bench-checks/basic.spec.luau:20: expected true, got false",
+          "server printed \"Game ready\" this session: fail — .bench-checks/basic.spec.luau:29: expected true, got false"
+        ]
+      },
+      "synced": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t2-coins",
+      "level": "2 gameplay mechanic",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 332,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t2-coins",
+      "notes": [],
+      "turns": 33,
+      "costUsd": 1.3074,
+      "live": {
+        "passed": 0,
+        "total": 4,
+        "failures": [
+          "coins: leaderstats.Coins IntValue exists: fail — .bench-checks/coins.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "coins: at least 5 anchored Coin parts under Workspace.Coins: fail — .bench-checks/coins.spec.luau:22: expected >= 5, got 0",
+          "coins: touching a coin gives exactly +1 and disables that coin: fail — .bench-checks/coins.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "coins: a collected coin comes back after ~5s: fail — .bench-checks/coins.spec.luau:6: waitFor timed out: no leaderstats.Coins"
+        ]
+      },
+      "synced": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t3-hud",
+      "level": "3 UI integration",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 368,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t3-hud",
+      "notes": [],
+      "turns": 42,
+      "costUsd": 1.5401,
+      "live": {
+        "passed": 0,
+        "total": 6,
+        "failures": [
+          "coins: leaderstats.Coins IntValue exists: fail — .bench-checks/01-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "coins: at least 5 anchored Coin parts under Workspace.Coins: fail — .bench-checks/01-coins-regression.spec.luau:22: expected >= 5, got 0",
+          "coins: touching a coin gives exactly +1 and disables that coin: fail — .bench-checks/01-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "hud: CoinsLabel is a visible TextLabel in the top-left quadrant: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "hud: text reads \"Coins: N\" for the current value: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "hud: label updates live when Coins changes: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui"
+        ]
+      },
+      "synced": {
+        "passed": 6,
+        "total": 6,
+        "failures": []
+      }
+    },
+    {
+      "task": "t4-obby",
+      "level": "4 world building",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 350,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t4-obby",
+      "notes": [],
+      "turns": 37,
+      "costUsd": 1.5615,
+      "live": {
+        "passed": 0,
+        "total": 3,
+        "failures": [
+          "obby: Model with anchored Platform1..Platform6: fail — .bench-checks/obby.spec.luau:3: waitFor timed out: no Workspace.Obby",
+          "obby: platforms climb, each jump reachable (rise <= 4.5, gap <= 10): fail — .bench-checks/obby.spec.luau:3: waitFor timed out: no Workspace.Obby",
+          "obby: touching Finish sets the Finished attribute and prints: fail — .bench-checks/obby.spec.luau:3: waitFor timed out: no Workspace.Obby"
+        ]
+      },
+      "synced": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      }
+    },
+    {
+      "task": "t5-debug-points",
+      "level": "5 debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 257,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t5-debug-points",
+      "notes": [],
+      "turns": 33,
+      "costUsd": 1.2799,
+      "live": {
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      },
+      "synced": {
+        "passed": 2,
+        "total": 2,
+        "failures": []
+      }
+    },
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 1,
+      "timedOut": false,
+      "durationSec": 47,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t6-door",
+      "notes": [],
+      "live": {
+        "passed": 1,
+        "total": 3,
+        "failures": [
+          "door: opens when a player steps on the plate: fail — .bench-checks/door.spec.luau:10: expected a value/instance, got nil",
+          "door: closes again after ~3 seconds: fail — Door is not a valid member of Workspace \"Workspace\""
+        ]
+      },
+      "synced": {
+        "passed": 1,
+        "total": 3,
+        "failures": [
+          "door: opens when a player steps on the plate: fail — .bench-checks/door.spec.luau:14: waitFor timed out: door did not open",
+          "door: no infinite-yield warnings at runtime: fail — .bench-checks/door.spec.luau:26: Infinite yield possible on 'Workspace:WaitForChild(\"Pressureplate\")'"
+        ]
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 1,
+      "timedOut": false,
+      "durationSec": 3,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy/t7-shop",
+      "notes": [],
+      "live": {
+        "passed": 1,
+        "total": 9,
+        "failures": [
+          "coins: leaderstats.Coins IntValue exists: fail — .bench-checks/02-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "coins: at least 5 anchored Coin parts under Workspace.Coins: fail — .bench-checks/02-coins-regression.spec.luau:22: expected >= 5, got 0",
+          "coins: touching a coin gives exactly +1 and disables that coin: fail — .bench-checks/02-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:6: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "regression: CoinsLabel still shows current coins: fail — .bench-checks/03-shop.spec.luau:6: waitFor timed out: no ScreenGui named HUD in PlayerGui"
+        ]
+      },
+      "synced": {
+        "passed": 5,
+        "total": 9,
+        "failures": [
+          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:31: expected a value/instance, got nil"
+        ]
+      }
+    }
+  ]
+}
