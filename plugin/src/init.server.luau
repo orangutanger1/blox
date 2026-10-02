@@ -419,3 +419,47 @@ task.spawn(function()
 		end
 	end
 end)
+
+-- Multiplayer lane: while `blox multiplayer` runs it offers one job on a second
+-- localhost port; the plugin runs it with plugin-security StudioTestService
+-- (the Studio MCP cannot) and posts the test's EndTest value back.
+local RunService = game:GetService("RunService")
+local StudioTestService = game:GetService("StudioTestService")
+local LANE = "http://127.0.0.1:35769/lane"
+
+local function laneRequest(method: string, path: string, body: { [string]: any }?): { [string]: any }?
+	local ok, res = pcall(function()
+		return HttpService:RequestAsync({
+			Url = LANE .. path,
+			Method = method,
+			Headers = { ["Content-Type"] = "application/json" },
+			Body = if body then HttpService:JSONEncode(body) else nil,
+		})
+	end)
+	if not ok or not res.Success then
+		return nil
+	end
+	local decoded
+	ok, decoded = pcall(HttpService.JSONDecode, HttpService, res.Body)
+	return if ok then decoded else nil
+end
+
+if RunService:IsEdit() then
+	task.spawn(function()
+		while true do
+			local job = laneRequest("GET", "/job")
+			if job and job.id and job.kind == "multiplayer" then
+				local ok, result = pcall(function()
+					return StudioTestService:ExecuteMultiplayerTestAsync(job.clients, {})
+				end)
+				laneRequest("POST", "/result", {
+					id = job.id,
+					ok = ok,
+					result = if ok then result else nil,
+					error = if ok then nil else tostring(result),
+				})
+			end
+			task.wait(1.5)
+		end
+	end)
+end

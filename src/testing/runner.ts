@@ -77,12 +77,15 @@ export function discoverSpecs(projectPath: string, testDir = 'tests', filter?: s
 // results. loadstring() is unavailable in playtest DataModels, so each spec is
 // inlined as a function; specLines records where each one starts so failure
 // positions map back to the spec file.
-export function testProgram(specs: SpecFile[], testTimeoutSec: number): { code: string; specLines: number[] } {
+// extraParams: names passed to every spec function after waitFor (the
+// multiplayer lane passes `mp`); they must be in scope where the code runs.
+export function testProgram(specs: SpecFile[], testTimeoutSec: number, opts: { extraParams?: string[] } = {}): { code: string; specLines: number[] } {
+  const extra = (opts.extraParams ?? []).map((p) => `, ${p}`).join('');
   const parts: string[] = ['local __SPECFNS = {}'];
   const specLines: number[] = [];
   let line = 2; // next user-code line number
   specs.forEach((s, i) => {
-    parts.push(`__SPECFNS[${i + 1}] = function(test, it, describe, expect, waitFor)`);
+    parts.push(`__SPECFNS[${i + 1}] = function(test, it, describe, expect, waitFor${extra})`);
     line += 1;
     specLines.push(line);
     const body = s.source.endsWith('\n') ? s.source.slice(0, -1) : s.source;
@@ -152,7 +155,7 @@ for i, specFn in __SPECFNS do
 	local prefix = ""
 	local function test(name, fn) table.insert(tests, { name = prefix .. name, fn = fn }) end
 	local function describe(name, fn) local old = prefix prefix = prefix .. name .. " > " fn() prefix = old end
-	local ok, err = pcall(specFn, test, test, describe, expect, waitFor)
+	local ok, err = pcall(specFn, test, test, describe, expect, waitFor${extra})
 	if not ok then
 		table.insert(fileErrors, { file = file, message = tostring(err) })
 	else
