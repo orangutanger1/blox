@@ -493,7 +493,10 @@ export const TOOLS: BloxTool[] = [
         tolerance: a.tolerance as number | undefined,
       });
       if (v && !v.ok) report.notes.push('design.json is invalid — FTUE targets and pace checks skipped');
-      writeJson(ctx.projectPath, 'metrics-report.json', report);
+      // One file holds both modes: keep the other mode's latest results.
+      const prev = readJson<{ results?: { id: string }[] }>(ctx.projectPath, 'metrics-report.json');
+      const kept = (prev?.results ?? []).filter((r) => !r.id.startsWith(`${a.action}:`));
+      writeJson(ctx.projectPath, 'metrics-report.json', { ...report, results: [...kept, ...report.results] });
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: formatMetrics(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} ${a.action}` };

@@ -93,3 +93,14 @@ describe('botProgram', () => {
     expect(readFileSync(join(p, 'bots/b.luau'), 'utf8')).toBeTruthy();
   });
 });
+
+describe('metrics report keeps the other mode', () => {
+  it('soak after ftue keeps the ftue results', async () => {
+    const c = ctx({ elapsed: 40, players: { '1': { joinedAt: 0, steps: { 'auto:first-currency': 1 } } }, events: [], samples: [0, 5, 10, 15, 20, 25, 30, 35].map((t) => ({ t, memMb: 300, stats: [] })) });
+    await call({ action: 'ftue', seconds: 0, bot: 'idle' }, c);
+    await call({ action: 'soak', seconds: 0, bot: 'idle' }, c);
+    const ids = readJson<{ results: { id: string }[] }>(c.projectPath, 'metrics-report.json')!.results.map((r) => r.id);
+    expect(ids).toContain('ftue:auto:first-currency');
+    expect(ids).toContain('soak:errors');
+  });
+});
