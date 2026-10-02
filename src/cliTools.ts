@@ -107,6 +107,16 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.tolerance === 'string' ? { tolerance: Number(o.tolerance) } : {}),
         },
       };
+    case 'ui':
+      return {
+        tool: 'ui',
+        args: {
+          action: f.rest[0] ?? 'lint',
+          ...(typeof o.seconds === 'string' ? { seconds: Number(o.seconds) } : {}),
+          ...(typeof o.prepare === 'string' ? { prepare: o.prepare } : {}),
+          ...(typeof o.devices === 'string' ? { devices: o.devices.split(',') } : {}),
+        },
+      };
     case 'tool':
       return { tool: f.rest[0] ?? '', args: f.rest[1] ? JSON.parse(f.rest.slice(1).join(' ')) : {} };
     default:
@@ -180,13 +190,14 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox design [get|validate|simulate|codegen]  blox design set '<json>'
            blox kit [list]                blox kit apply <name>   (format kits: proven loops)
            blox metrics ftue|soak|install [--seconds N] [--bot walk|idle|<file>] [--archetype id]
+           blox ui lint|install [--devices a,b] [--prepare '<client luau>']
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {

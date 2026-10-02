@@ -39,6 +39,10 @@ outside folders mapped in default.project.json never reach Studio.
 kit {action:"list"} then kit {action:"apply", name} gives a tested loop (modules, world,
 specs, design.json) to reskin and tune instead of writing systems from scratch.
 
+## UI
+Build HUDs with BloxUI (ui {action:"install"}; kits include it): scale-sized, 44px touch
+targets, safe-area aware. Then ui {action:"lint"} checks every device size; fix all errors.
+
 ## Design first (economy games)
 design {action:"set"} a .blox/design.json (economy, archetypes, assertions such as
 "first egg <= 60s"), then design {action:"simulate"}; tune numbers until assertions
