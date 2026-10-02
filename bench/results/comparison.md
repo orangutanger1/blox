@@ -108,3 +108,56 @@ dropped to save time.
   are confounded across those rows. The models themselves are compared on the same agent.
 - Cost for OpenRouter runs is OpenRouter's reported `usage.cost`; provider caching
   differs (GLM reported no cache writes).
+
+# Built-in openai runner + turn cuts (2026-10-01, later)
+
+Core suite, live checks, one run each. Raw: `runner-openai-gpt-6-luna.*`, `turns-blox-opus55.*`.
+
+| agent | model | tasks | live checks | cost | time | turns |
+|---|---|---|---|---|---|---|
+| blox runner `--runner claude`, before turn cuts | Opus 5.5 | 3/3 | 16/16 | $0.94 | 214s | 44 |
+| blox runner `--runner claude`, after turn cuts | Opus 5.5 | 3/3 | 16/16 | **$0.68** | **146s** | **26** |
+| blox runner `--runner openai` (new) | GPT-6 Luna | 3/3 | 16/16 | $0.02 | 395s | 47 |
+
+| task | Opus before | Opus after | Luna `--runner openai` |
+|---|---|---|---|
+| t2-coins | 10 turns · $0.34 | 10 · $0.32 | 17 · $0.006 |
+| t6-door | 8 · $0.17 | 7 · $0.15 | 9 · $0.002 |
+| t7-shop | 26 · $0.43 | **9 · $0.21** | 21 · $0.008 |
+
+## What changed
+
+- **`--runner openai`**: the built-in runner on a vendor-neutral loop over any
+  OpenAI-compatible endpoint (shared with the bench agent). It uses the same toolset,
+  prompt, path guardrails, `--ask` gates and budget, calls tools in-process, and needs
+  no CCR translation. Luna through it matches the bench-agent result (3/3).
+- **Turn cuts, aimed at the t7 replay** (26 turns, about 20 of them spent on a manual
+  UI click: run_luau to set coins, a raw `user_mouse_input` rejected for
+  `datamodel_type:"client"`, a `Players.LocalPlayer…` path Studio can't resolve):
+  - `playtest` inputs gained `click {target}` (a real click on a GUI button, with paths
+    normalized to the `LocalPlayer.…` form Studio resolves, and an explained failure
+    when the click lands on Roblox's CoreGui) and `luau {context, code}` (arrange or
+    check state between inputs).
+  - `studio_tool` fixes `datamodel_type` casing.
+  - The guide shows a UI flow as one playtest call and says to batch independent calls.
+  The rerun verified the whole shop in one playtest: a click at 0 coins (rejected),
+  then a coin pickup, then a click at 12 coins (bought). t7 went from 26 turns to 9.
+- Opus still makes one tool call per turn (reads 3 files in 3 turns) despite the
+  batching line, so that lever is unrealized for it.
+
+## Bugs found on the CCR-routed path (dock smoke, Luna via the Claude runner)
+
+- The Agent SDK prices a routed `provider,slug` model at Claude rates: it reported
+  $1.64 for 12 Luna turns (real cost about $0.003) and stopped a $0.5-capped run after
+  about 8 tool calls. Routed runs no longer pass the SDK budget cap (the routed turn
+  cap bounds them), and their cost is recorded as unknown, not ledgered at Claude prices.
+- After yielding that error result the SDK threw, so the dock showed 0 turns / $0. The
+  runner now keeps a result the SDK yielded before throwing.
+- Through CCR, Luna mangled absolute file paths. `--runner openai` (relative paths,
+  no translation) did not.
+
+## Caveats
+
+- n = 1 per cell; turn counts vary ±50% between runs of the same agent, so the Opus
+  t2/t6 deltas are noise. The t7 change has a mechanism (one playtest instead of a
+  manual click session) and matches the replay.

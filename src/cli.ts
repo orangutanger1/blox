@@ -33,6 +33,7 @@ import { startDaemon } from './panel/daemon.js';
 import {
   runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore,
   setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv, authInfo,
+  setRelay, clearRelay, checkRelay, relayPreflight,
 } from './auth.js';
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
@@ -102,6 +103,11 @@ async function main(): Promise<void> {
     const bridge = studio
       ? createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-eval' })
       : createMockStudioBridge();
+    const relayBlock = await relayPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    if (relayBlock) {
+      console.error(relayBlock);
+      process.exit(1);
+    }
     const env = buildAuthEnv({ override: args.authMode });
     const runTask: EvalRunner = async (task) => {
       const report = await runOnce(config, task.prompt, { bridge, digest, env });
@@ -228,13 +234,41 @@ async function main(): Promise<void> {
       console.log('API key removed.');
       process.exit(0);
     }
-    if (sub === 'use' && (parts[1] === 'subscription' || parts[1] === 'key')) {
-      const mode = parts[1] === 'key' ? 'apiKey' : 'subscription';
+    if (sub === 'relay' && parts[1] === 'clear') {
+      clearRelay();
+      console.log('team relay unlinked.');
+      process.exit(0);
+    }
+    if (sub === 'relay' && parts[1]) {
+      const url = parts[1].replace(/\/+$/, '');
+      if (!/^https?:\/\//.test(url)) {
+        console.error('usage: blox auth relay <http(s)://relay-host:port>');
+        process.exit(2);
+      }
+      const token = await promptSecret('paste your member token (input hidden): ');
+      if (!token) {
+        console.error('no token entered');
+        process.exit(2);
+      }
+      const check = await checkRelay({ url, token }, null);
+      if (!check.ok) {
+        console.error(check.message);
+        process.exit(1);
+      }
+      setRelay({ url, token });
+      console.log(`linked team relay ${url}${check.member ? ` as ${check.member}` : ''}; runs now go through it (\`blox auth use subscription|key\` to switch back).`);
+      if (url.startsWith('http://') && !/^http:\/\/(127\.0\.0\.1|localhost)(:|$)/.test(url)) {
+        console.log('note: plain http — your token crosses the network unencrypted; put the relay behind TLS outside a trusted LAN.');
+      }
+      process.exit(0);
+    }
+    if (sub === 'use' && (parts[1] === 'subscription' || parts[1] === 'key' || parts[1] === 'relay')) {
+      const mode = parts[1] === 'key' ? 'apiKey' : parts[1] === 'relay' ? 'relay' : 'subscription';
       setMode(mode);
       console.log(`active auth mode: ${mode}`);
       process.exit(0);
     }
-    console.error('usage: blox auth login | logout | status | key set | key clear | use subscription|key');
+    console.error('usage: blox auth login | logout | status | key set | key clear | relay <url> | relay clear | use subscription|key|relay');
     process.exit(2);
   }
 
@@ -296,7 +330,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor [--fix]  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--model <id>] [--runner claude|openai] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key|relay]  |  blox doctor [--fix]  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|relay <url>|relay clear|use subscription|key|relay  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
     );
     process.exit(2);
   }
@@ -379,13 +413,19 @@ async function main(): Promise<void> {
     });
     // A routed model (`provider,slug`) only routes if the SDK talks to CCR, not
     // api.anthropic.com — the daemon already does this; the one-shot must too.
-    const routed = (config.model ?? '').includes(',');
+    // The openai runner talks to the provider directly (no CCR translation).
+    const routed = config.runner !== 'openai' && (config.model ?? '').includes(',');
     if (routed) {
       ensureCcrInstalled((m) => console.log(m));
       if (!(await ensureCcr((m) => console.log(m)))) {
         console.error('CCR router unavailable — cannot run a routed model. Install: npm i -g @musistudio/claude-code-router');
         process.exit(1);
       }
+    }
+    const relayBlock = await relayPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    if (relayBlock) {
+      console.error(relayBlock);
+      process.exit(1);
     }
     let report;
     try {

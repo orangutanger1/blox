@@ -49,14 +49,29 @@ export class RelayServer {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true });
     if (req.method === 'GET' && url.pathname === '/api/v1/usage') return this.usage(req, url, res);
+    if (req.method === 'GET' && url.pathname === '/api/v1/check') return this.check(req, url, res);
     if (req.method === 'POST' && url.pathname === '/v1/messages') return this.messages(req, res);
-    return json(res, 404, { error: 'not found' });
+    return apiError(res, 404, 'not_found_error', 'not found');
+  }
+
+  // Client preflight: the same auth + policy decision /v1/messages would make,
+  // without spending anything.
+  private check(req: IncomingMessage, url: URL, res: ServerResponse): void {
+    const presented = (req.headers['x-api-key'] as string) ?? '';
+    const member = authMember(loadMembers(this.opts.relay.membersPath), presented);
+    if (!member) return apiError(res, 401, 'authentication_error', 'unknown member token');
+    const model = url.searchParams.get('model');
+    if (model !== null) {
+      const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
+      if (reject) return apiError(res, reject.status, 'permission_error', reject.error);
+    }
+    json(res, 200, { ok: true, member });
   }
 
   private usage(req: IncomingMessage, url: URL, res: ServerResponse): void {
     const presented = (req.headers['x-api-key'] as string) ?? '';
     const member = authMember(loadMembers(this.opts.relay.membersPath), presented);
-    if (!member) return json(res, 401, { error: 'unknown member token' });
+    if (!member) return apiError(res, 401, 'authentication_error', 'unknown member token');
     const sinceRaw = url.searchParams.get('since');
     const n = sinceRaw != null ? Number(sinceRaw.replace(/d$/, '')) : NaN;
     const sinceDays = Number.isInteger(n) && n > 0 ? n : null;
@@ -73,7 +88,7 @@ export class RelayServer {
     // 1. auth
     const presented = (req.headers['x-api-key'] as string) ?? '';
     const member = authMember(loadMembers(this.opts.relay.membersPath), presented);
-    if (!member) return json(res, 401, { error: 'unknown member token' });
+    if (!member) return apiError(res, 401, 'authentication_error', 'unknown member token');
 
     // 2. buffer body + read model
     const body = await readBytes(req);
@@ -82,7 +97,7 @@ export class RelayServer {
 
     // 3. enforce
     const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
-    if (reject) return json(res, reject.status, { error: reject.error });
+    if (reject) return apiError(res, reject.status, 'permission_error', reject.error);
 
     // 4. proxy with the REAL key, tee the response for usage
     const u = new URL('/v1/messages', this.opts.relay.upstream);
@@ -133,6 +148,11 @@ function json(res: ServerResponse, status: number, obj: unknown): void {
   if (res.writableEnded) return;
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(obj));
+}
+// Anthropic's error shape, so Claude clients show the relay's reason verbatim
+// instead of an opaque status code.
+function apiError(res: ServerResponse, status: number, type: string, message: string): void {
+  json(res, status, { type: 'error', error: { type, message: `blox relay: ${message}` } });
 }
 function safeJson(s: string): unknown { try { return JSON.parse(s); } catch { return {}; } }
 async function readBytes(req: IncomingMessage): Promise<Buffer> {

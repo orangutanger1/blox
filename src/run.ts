@@ -8,6 +8,7 @@ import type { PanelGateChannel } from './agent/buildOptions.js';
 import type { ResultRecord } from './panel/gates.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
+import { runOpenAiAgent } from './agent/openaiRunner.js';
 import { syncProject, realSpawn } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
 import type { RunReport } from './report.js';
@@ -50,19 +51,33 @@ async function gitUserEmail(projectPath: string): Promise<string> {
 export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceDeps): Promise<RunReport> {
   enforcePolicy(config); // throws PolicyError on violation, before any agent/model work
 
-  const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
-    image: !!deps.image,
-    verify: deps.verify,
-    resume: deps.resume,
-    continueSession: deps.continueSession,
-  });
-  const agent = await runAgent(prompt, options, {
-    sink: deps.sink,
-    dockDeniedTools: deps.dockDeniedTools,
-    image: deps.image,
-    abortController: deps.abortController,
-    env: deps.env,
-  });
+  let agent;
+  if (config.runner === 'openai') {
+    const ctx = deps.bridge.toolCtx;
+    if (!ctx) throw new Error('--runner openai needs the blox toolset (a real Studio session, not --mock)');
+    if (deps.resume || deps.continueSession) throw new Error('--resume/--continue are Claude-runner sessions; not supported with --runner openai');
+    agent = await runOpenAiAgent(prompt, config, ctx, deps.digest, {
+      image: deps.image,
+      verify: deps.verify,
+      sink: deps.sink,
+      gate: deps.gate,
+      abortController: deps.abortController,
+    });
+  } else {
+    const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
+      image: !!deps.image,
+      verify: deps.verify,
+      resume: deps.resume,
+      continueSession: deps.continueSession,
+    });
+    agent = await runAgent(prompt, options, {
+      sink: deps.sink,
+      dockDeniedTools: deps.dockDeniedTools,
+      image: deps.image,
+      abortController: deps.abortController,
+      env: deps.env,
+    });
+  }
   const sync = await syncProject(config.projectPath);
 
   const user = await gitUserEmail(config.projectPath);
@@ -75,11 +90,17 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     : { sha: null, files: [] };
 
   const status = agent.status === 'success' && sync.ok ? 'success' : 'error';
+  // The Agent SDK prices a CCR-routed "provider,slug" model at Claude rates
+  // (observed ~500x too high for GPT-6 Luna); don't ledger that as spend.
+  if (config.runner !== 'openai' && config.model.includes(',')) {
+    agent = { ...agent, costUsd: 0, costUnknown: true };
+  }
+  const cost = agent.costUnknown ? { costUsd: 0, costUnknown: true as const } : { costUsd: agent.costUsd };
 
   try {
     appendAuditEntry(config.projectPath, {
       ts: new Date().toISOString(),
-      user, model: config.model, turns: agent.numTurns, costUsd: agent.costUsd,
+      user, model: config.model, turns: agent.numTurns, ...cost,
       status, commit: commit.sha, prompt, stopReason: agent.stopReason,
     });
   } catch (e) {
@@ -91,7 +112,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     changedFiles: commit.files,
     commitSha: commit.sha,
     numTurns: agent.numTurns,
-    costUsd: agent.costUsd,
+    ...cost,
     model: config.model,
     ...(agent.tokens ? { tokens: agent.tokens } : {}),
     status,

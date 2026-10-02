@@ -177,9 +177,9 @@ export const TOOLS: BloxTool[] = [
       server_code: z.string().optional().describe('Luau run in the server DataModel; return values are reported'),
       client_code: z.string().optional().describe('Luau run in the client DataModel (LocalPlayer, PlayerGui)'),
       inputs: z
-        .array(z.object({ kind: z.enum(['navigate', 'keyboard', 'mouse', 'wait']), args: z.record(z.string(), z.unknown()) }))
+        .array(z.object({ kind: z.enum(['click', 'luau', 'navigate', 'keyboard', 'mouse', 'wait']), args: z.record(z.string(), z.unknown()) }))
         .optional()
-        .describe('navigate {x,y,z}|{instance_path}; mouse {actions:[{action:"mouseButtonClick",mouse_button:"left",instance_path}]} (also moveTo/mouseButtonDown/Up/scrollUp/Down, x,y); keyboard {actions:[{action:"keyPress",key_code:"E"}]} (also keyDown/keyUp/textInput+text_inputs); wait {seconds}'),
+        .describe('run in order: click {target:"PlayerGui.HUD.Button"} (real click on a GUI button); luau {context:"server"|"client", code} (arrange/check state between inputs, e.g. give coins); navigate {x,y,z}|{instance_path}; keyboard {actions:[{action:"keyPress",key_code:"E"}]} (also keyDown/keyUp/textInput+text_inputs); mouse {actions:[…]} (raw: moveTo/mouseButtonClick/scroll, x,y|instance_path); wait {seconds}'),
       screenshot: z.boolean().optional(),
       camera_position: vec3.optional(),
       look_at: vec3.optional(),
@@ -198,6 +198,9 @@ export const TOOLS: BloxTool[] = [
       }
       for (const c of [a.server_code, a.client_code]) {
         if (typeof c === 'string' && EXTERNAL_HTTP.test(c)) return { text: 'blocked: probes may not make external HTTP requests', isError: true, summary: 'blocked' };
+      }
+      for (const i of (a.inputs as InputStep[] | undefined) ?? []) {
+        if (i.kind === 'luau' && typeof i.args.code === 'string' && EXTERNAL_HTTP.test(i.args.code)) return { text: 'blocked: probes may not make external HTTP requests', isError: true, summary: 'blocked' };
       }
       const r = await playtest(ctx.session, ctx.projectPath, {
         seconds: typeof a.seconds === 'number' ? a.seconds : undefined,
@@ -311,7 +314,13 @@ export const TOOLS: BloxTool[] = [
       }
       if (name === 'http_get') return { text: 'blocked: external web requests are not allowed', isError: true, summary: 'blocked' };
       if (name === 'multi_edit') return { text: 'blocked: edit script files on disk and sync instead of multi_edit', isError: true, summary: 'blocked' };
-      const r = await ctx.session.call(name, (a.args as Record<string, unknown>) ?? {}, 600_000);
+      const args = { ...((a.args as Record<string, unknown>) ?? {}) };
+      // Studio wants Edit/Server/Client exactly; "client" is the usual guess.
+      if (typeof args.datamodel_type === 'string') {
+        const dm = ({ edit: 'Edit', server: 'Server', client: 'Client' } as Record<string, string>)[args.datamodel_type.toLowerCase()];
+        if (dm) args.datamodel_type = dm;
+      }
+      const r = await ctx.session.call(name, args, 600_000);
       // A rejected call usually means wrong arguments: hand back the real schema
       // so the next attempt is informed instead of guessed.
       let hint = '';

@@ -8,7 +8,7 @@ import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
 import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
-import { buildAuthEnv, authInfo } from '../auth.js';
+import { buildAuthEnv, authInfo, relayPreflight } from '../auth.js';
 import { runOnce } from '../run.js';
 import { PolicyError } from '../policy.js';
 import { buildDigest } from '../context/digest.js';
@@ -118,7 +118,13 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     // not api.anthropic.com. Point ANTHROPIC_BASE_URL at CCR for this run. The
     // x-api-key path (ANTHROPIC_API_KEY) is what CCR accepts; clear any inherited
     // AUTH_TOKEN so the SDK doesn't send a competing bearer.
-    const useCcr = ccr.provider !== null;
+    const relayBlock = await relayPreflight({ model: modelString, runner: config.runner });
+    if (relayBlock) {
+      log(relayBlock);
+      server.emit({ type: 'run_finished', status: 'error', stopReason: 'error', turns: 0, costUsd: 0, detail: relayBlock });
+      return;
+    }
+    const useCcr = ccr.provider !== null && config.runner !== 'openai';
     if (useCcr) await ensureCcr(log);
     // Direct-Anthropic runs pick the linked credential (subscription vs API key);
     // CCR/BYO-model runs keep their own endpoint + key override.

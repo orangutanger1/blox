@@ -37,6 +37,9 @@ export const BloxConfigSchema = z.object({
   // Any model id the configured endpoint accepts (direct, CCR-routed, or other
   // providers); this is only the default.
   model: z.string().default('claude-opus-5-5'),
+  // Which agent loop drives a run: the Claude Agent SDK, or a vendor-neutral
+  // loop over any OpenAI-compatible endpoint (OpenRouter, OpenAI, local).
+  runner: z.enum(['claude', 'openai']).default('claude'),
   maxTurns: z.number().int().positive().default(40),
   maxBudgetUsd: z.number().positive().default(5),
   mode: z.enum(['auto', 'ask']).default('auto'),
@@ -82,6 +85,7 @@ export function overridesFromArgs(a: {
   effort: 'high' | 'xhigh' | null;
   mode: 'auto' | 'ask' | null;
   model: string | null;
+  runner?: 'claude' | 'openai' | null;
 }): Partial<BloxConfig> {
   const o: Partial<BloxConfig> = {};
   if (a.projectPath) o.projectPath = a.projectPath;
@@ -90,5 +94,6 @@ export function overridesFromArgs(a: {
   if (a.effort != null) o.effort = a.effort;
   if (a.mode != null) o.mode = a.mode;
   if (a.model != null) o.model = a.model;
+  if (a.runner != null) o.runner = a.runner;
   return o;
 }

@@ -113,7 +113,7 @@ describe('RelayServer', () => {
     const res = await fetch(`${base}/api/v1/usage`);
     expect(res.status).toBe(401);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('unknown member token');
+    expect(body.error.message).toBe('blox relay: unknown member token');
   });
 
   it('GET /api/v1/usage returns 401 with a bogus token', async () => {
@@ -122,7 +122,7 @@ describe('RelayServer', () => {
     const res = await fetch(`${base}/api/v1/usage`, { headers: { 'x-api-key': 'blx_bogus' } });
     expect(res.status).toBe(401);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.error).toBe('unknown member token');
+    expect(body.error.message).toBe('blox relay: unknown member token');
   });
 
   it('serves GET /api/v1/usage from the relay ledger (requires valid member token)', async () => {

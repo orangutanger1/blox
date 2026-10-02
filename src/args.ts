@@ -1,7 +1,7 @@
 export interface ParsedArgs {
   command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | 'relay' | 'eval' | null;
   prompt: string | null;
-  authMode: 'subscription' | 'apiKey' | null;
+  authMode: 'subscription' | 'apiKey' | 'relay' | null;
   mock: boolean;
   projectPath: string | null;
   maxTurns: number | null;
@@ -15,6 +15,7 @@ export interface ParsedArgs {
   imageFromDock: boolean;
   verify: boolean;
   model: string | null;
+  runner: 'claude' | 'openai' | null;
   key: string | null;
   baseUrl: string | null;
   since: number | null;
@@ -29,7 +30,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let mock = false;
   let projectPath: string | null = null;
   let command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | 'relay' | 'eval' | null = null;
-  let authMode: 'subscription' | 'apiKey' | null = null;
+  let authMode: 'subscription' | 'apiKey' | 'relay' | null = null;
   let maxTurns: number | null = null;
   let maxBudgetUsd: number | null = null;
   let effort: 'high' | 'xhigh' | null = null;
@@ -41,6 +42,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let imageFromDock = false;
   let verify = false;
   let model: string | null = null;
+  let runner: 'claude' | 'openai' | null = null;
   let key: string | null = null;
   let baseUrl: string | null = null;
   let since: number | null = null;
@@ -82,8 +84,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const v = argv[++i];
       if (v === 'key') authMode = 'apiKey';
       else if (v === 'subscription') authMode = 'subscription';
-      else throw new Error('--auth must be subscription or key');
+      else if (v === 'relay') authMode = 'relay';
+      else throw new Error('--auth must be subscription, key or relay');
     } else if (a === '--model') model = argv[++i] ?? null;
+    else if (a === '--runner') {
+      const v = argv[++i];
+      if (v !== 'claude' && v !== 'openai') throw new Error('--runner must be claude or openai');
+      runner = v;
+    }
     else if (a === '--key') key = argv[++i] ?? null;
     else if (a === '--base-url') baseUrl = argv[++i] ?? null;
     else if (a === '--since') {
@@ -131,6 +139,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     imageFromDock,
     verify,
     model,
+    runner,
     key,
     baseUrl,
     since,

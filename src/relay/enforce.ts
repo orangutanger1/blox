@@ -22,7 +22,7 @@ export function enforceRelay(args: {
     let spent = 0;
     for (const e of readRelayEntries(args.ledgerPath)) {
       const t = Date.parse(e.ts);
-      if (!Number.isNaN(t) && t >= cutoff && typeof e.costUsd === 'number') spent += e.costUsd;
+      if (!Number.isNaN(t) && t >= cutoff && Number.isFinite(e.costUsd)) spent += e.costUsd;
     }
     if (spent >= p.rollingBudget.maxUsd) {
       return { status: 403, error: `team rolling budget reached: $${spent.toFixed(2)} spent in the last ${p.rollingBudget.windowDays}d meets/exceeds the $${p.rollingBudget.maxUsd} cap` };

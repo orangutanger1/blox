@@ -74,6 +74,9 @@ export interface GatedAction {
 export interface AgentRunResult {
   numTurns: number;
   costUsd: number;
+  // costUsd is 0 because the real price is not known (CCR-routed model on the
+  // Claude runner, or an endpoint that reports no cost).
+  costUnknown?: boolean;
   tokens?: TokenUsage;
   status: 'success' | 'error';
   stopReason: StopReason;
@@ -252,27 +255,33 @@ export async function runAgent(
     ...(stderr ? { stderr } : {}),
   };
   try {
-    for await (const message of query({ prompt: input, options: queryOptions as never })) {
-      lastActivity = Date.now();
-      if (sink) {
-        // The panel is observability, never control flow: a throwing sink must
-        // not take down the run (spec §7).
-        try {
-          for (const e of eventsFromMessage(message)) sink.emit(e);
-          if (message.type === 'assistant') {
-            turns += 1;
-            sink.emit({ type: 'status', turns });
+    try {
+      for await (const message of query({ prompt: input, options: queryOptions as never })) {
+        lastActivity = Date.now();
+        if (sink) {
+          // The panel is observability, never control flow: a throwing sink must
+          // not take down the run (spec §7).
+          try {
+            for (const e of eventsFromMessage(message)) sink.emit(e);
+            if (message.type === 'assistant') {
+              turns += 1;
+              sink.emit({ type: 'status', turns });
+            }
+          } catch {
+            // swallow — degraded panel beats a dead run
           }
-        } catch {
-          // swallow — degraded panel beats a dead run
+        }
+        if (message.type === 'result') {
+          result = summarizeResult(
+            message as unknown as ResultMessageLike,
+            extras.dockDeniedTools?.() ?? [],
+          );
         }
       }
-      if (message.type === 'result') {
-        result = summarizeResult(
-          message as unknown as ResultMessageLike,
-          extras.dockDeniedTools?.() ?? [],
-        );
-      }
+    } catch (e) {
+      // The SDK throws after yielding an error result (e.g. "Reached maximum
+      // budget"); keep that result so turns/cost reach the report, ledger and dock.
+      if (result.detail === 'no result') throw e;
     }
   } finally {
     clearInterval(watchdog);

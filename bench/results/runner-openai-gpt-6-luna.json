@@ -1,0 +1,108 @@
+{
+  "label": "runner-openai-gpt-6-luna",
+  "agent": "blox --runner openai (/home/myen/blox)",
+  "startedAt": "2026-10-02T04:06:29.447Z",
+  "finishedAt": "2026-10-02T04:14:18.854Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t2-coins",
+      "level": "2 gameplay mechanic",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 116,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/runner-openai-gpt-6-luna/t2-coins",
+      "notes": [],
+      "turns": 17,
+      "costUsd": 0.0055,
+      "tokens": {
+        "input": 51,
+        "cacheRead": 104133,
+        "cacheWrite": 10734,
+        "output": 6132
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 15,
+      "bloxToolErrors": 3,
+      "live": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      },
+      "synced": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 51,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/runner-openai-gpt-6-luna/t6-door",
+      "notes": [],
+      "turns": 9,
+      "costUsd": 0.0023,
+      "tokens": {
+        "input": 27,
+        "cacheRead": 32703,
+        "cacheWrite": 6091,
+        "output": 2370
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 8,
+      "bloxToolErrors": 0,
+      "live": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      "synced": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 228,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/runner-openai-gpt-6-luna/t7-shop",
+      "notes": [],
+      "turns": 21,
+      "costUsd": 0.0092,
+      "tokens": {
+        "input": 63,
+        "cacheRead": 178528,
+        "cacheWrite": 17587,
+        "output": 10485
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 15,
+      "bloxToolErrors": 3,
+      "live": {
+        "passed": 9,
+        "total": 9,
+        "failures": []
+      },
+      "synced": {
+        "passed": 9,
+        "total": 9,
+        "failures": []
+      }
+    }
+  ]
+}

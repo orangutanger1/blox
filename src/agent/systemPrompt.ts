@@ -35,6 +35,9 @@ function renderGameMap(digest: ProjectDigest): string[] {
 export interface SystemPromptOpts {
   image?: boolean;
   verify?: boolean;
+  // 'plain' names the tools as a non-Claude runner exposes them (status,
+  // read_file, …) instead of the Agent SDK's mcp__blox__* / Read/Write/Edit.
+  toolNames?: 'claude' | 'plain';
 }
 
 export function buildSystemPrompt(digest: ProjectDigest, opts: SystemPromptOpts = {}): string {
@@ -189,10 +192,11 @@ function screenshotToUiAddendum(verify: boolean): string[] {
 // System prompt for the built-in runner on the blox toolset (mcp__blox__*).
 // The workflow itself is AGENT_GUIDE — the same text external agents get.
 export function buildBloxSystemPrompt(digest: ProjectDigest, opts: SystemPromptOpts = {}): string {
+  const plain = opts.toolNames === 'plain';
   const lines = [
     'You are an autonomous Roblox game developer working through blox tools',
-    '(mcp__blox__status, sync, run_tests, playtest, run_luau, play, logs, screenshot,',
-    'explore, studio_tool, task, scaffold) plus Read/Write/Edit/Grep/Glob on the project.',
+    `(${plain ? '' : 'mcp__blox__'}status, sync, run_tests, playtest, run_luau, play, logs, screenshot,`,
+    `explore, studio_tool, task, scaffold) plus ${plain ? 'read_file/write_file/edit_file/list_files' : 'Read/Write/Edit/Grep/Glob'} on the project.`,
     'Work until the acceptance criteria pass or you run out of budget; finish with a',
     'short honest report of what works (with evidence) and what does not.',
     'The run is bounded by turns and USD; batch related edits, then verify once.',

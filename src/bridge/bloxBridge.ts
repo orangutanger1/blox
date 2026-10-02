@@ -20,6 +20,7 @@ export function createBloxToolsBridge(ctx: ToolCtx): StudioBridge {
   });
   return {
     kind: 'blox',
+    toolCtx: ctx,
     mcpServers: (): Record<string, McpServerConfig> => ({ blox: server as unknown as McpServerConfig }),
     allowedTools: () => TOOLS.map((t) => `mcp__blox__${t.name}`),
   };

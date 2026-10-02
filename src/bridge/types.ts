@@ -1,3 +1,5 @@
+import type { ToolCtx } from '../tools/registry.js';
+
 export type McpServerConfig =
   | { type?: 'stdio'; command: string; args?: string[]; cwd?: string; env?: Record<string, string> }
   | { type: 'sse' | 'http'; url: string; headers?: Record<string, string> }
@@ -16,4 +18,6 @@ export interface StudioBridge {
   mcpServers(): Record<string, McpServerConfig>;
   /** Fully-qualified tool names the agent may call without prompting. */
   allowedTools(): string[];
+  /** The blox toolset's context, for runners that call tools in-process (--runner openai). */
+  toolCtx?: ToolCtx;
 }
