@@ -78,7 +78,8 @@ export class StudioError extends Error {
   }
 }
 
-const NO_STUDIO_RE = /no active studio|unable to find an active studio|no studio available|studio .*not (found|connected)|invalid studio/i;
+const NO_STUDIO_RE =
+  /no active studio|unable to find an active studio|no studio available|no (roblox )?studio instance|studio .*not (found|connected)|not connected to studio|invalid studio/i;
 
 export interface StudioSessionOptions {
   launch?: StudioLaunch;
@@ -97,7 +98,7 @@ export function selectStudio(studios: StudioInfo[], match?: string): StudioInfo 
     throw new StudioError(
       'no_studio',
       'No Roblox Studio instance is attached to the MCP server.',
-      'Open Roblox Studio with a place, and enable Assistant → Settings → "Studio as MCP server". Studio re-attaches every ~5s.',
+      'Open Roblox Studio with a place, and enable Assistant → Settings → "Studio as MCP server". Studio re-attaches every ~5s. Still nothing? `blox doctor` checks for a process blocking Studio\'s MCP port.',
     );
   }
   if (match) {

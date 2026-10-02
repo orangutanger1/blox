@@ -37,9 +37,15 @@ function defaultRobloxDirs(platform: NodeJS.Platform, env: Record<string, string
   return [];
 }
 
+const STUDIO_EXES = ['RobloxStudioBeta.exe', 'RobloxStudio.exe'];
+
 // Newest (by mtime) Versions/<hash>/StudioMCP.exe across the candidate dirs.
+// Studio updates can leave "zombie" version dirs that still hold StudioMCP.exe
+// but no Studio exe; that proxy launches fine yet never sees a Studio (0 tools).
+// Prefer dirs that also contain a Studio exe; zombies are a last resort.
 export function findStudioMcpExe(dirs: string[]): string | null {
-  let best: { path: string; mtime: number } | null = null;
+  let paired: { path: string; mtime: number } | null = null;
+  let orphan: { path: string; mtime: number } | null = null;
   for (const dir of dirs) {
     const versions = join(dir, 'Versions');
     let entries: string[] = [];
@@ -52,13 +58,18 @@ export function findStudioMcpExe(dirs: string[]): string | null {
       const exe = join(versions, v, 'StudioMCP.exe');
       try {
         const st = statSync(exe);
-        if (!best || st.mtimeMs > best.mtime) best = { path: exe, mtime: st.mtimeMs };
+        const live = STUDIO_EXES.some((n) => existsSync(join(versions, v, n)));
+        const best = live ? paired : orphan;
+        if (!best || st.mtimeMs > best.mtime) {
+          if (live) paired = { path: exe, mtime: st.mtimeMs };
+          else orphan = { path: exe, mtime: st.mtimeMs };
+        }
       } catch {
         /* no proxy in this version dir */
       }
     }
   }
-  return best?.path ?? null;
+  return (paired ?? orphan)?.path ?? null;
 }
 
 export function resolveStudioLaunch(le: LauncherEnv = { platform: process.platform, env: process.env }): StudioLaunch {

@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findStudioMcpExe, resolveStudioLaunch } from '../src/studio/launcher.js';
 
-function robloxDir(versions: Record<string, number | null>): string {
+// Each version dir gets StudioMCP.exe (mtime given; null = none) plus
+// RobloxStudioBeta.exe unless listed in `zombies` (update left the proxy behind).
+function robloxDir(versions: Record<string, number | null>, zombies: string[] = []): string {
   const root = mkdtempSync(join(tmpdir(), 'blox-roblox-'));
   for (const [v, mtime] of Object.entries(versions)) {
     const d = join(root, 'Versions', v);
@@ -14,6 +16,7 @@ function robloxDir(versions: Record<string, number | null>): string {
       writeFileSync(exe, '');
       utimesSync(exe, mtime, mtime);
     }
+    if (!zombies.includes(v)) writeFileSync(join(d, 'RobloxStudioBeta.exe'), '');
   }
   return root;
 }
@@ -22,6 +25,14 @@ describe('findStudioMcpExe', () => {
   it('picks the newest StudioMCP.exe across version dirs (stale mcp.bat case)', () => {
     const dir = robloxDir({ 'version-old': 1000, 'version-new': 2000, 'version-noexe': null });
     expect(findStudioMcpExe([dir])).toBe(join(dir, 'Versions', 'version-new', 'StudioMCP.exe'));
+  });
+  it('skips a newer zombie version dir that has no Studio exe', () => {
+    const dir = robloxDir({ 'version-live': 1000, 'version-zombie': 2000 }, ['version-zombie']);
+    expect(findStudioMcpExe([dir])).toBe(join(dir, 'Versions', 'version-live', 'StudioMCP.exe'));
+  });
+  it('falls back to a zombie proxy when no paired install exists', () => {
+    const dir = robloxDir({ 'version-zombie': 2000 }, ['version-zombie']);
+    expect(findStudioMcpExe([dir])).toBe(join(dir, 'Versions', 'version-zombie', 'StudioMCP.exe'));
   });
   it('returns null when nothing is installed', () => {
     expect(findStudioMcpExe([join(tmpdir(), 'definitely-missing-blox')])).toBeNull();

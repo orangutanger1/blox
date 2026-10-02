@@ -10,6 +10,7 @@ export interface ParsedArgs {
   mode: 'auto' | 'ask' | null;
   onConflict: 'abort' | 'suffix' | null;
   force: boolean;
+  fix: boolean;
   imagePath: string | null;
   imageFromDock: boolean;
   verify: boolean;
@@ -35,6 +36,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let mode: 'auto' | 'ask' | null = null;
   let onConflict: 'abort' | 'suffix' | null = null;
   let force = false;
+  let fix = false;
   let imagePath: string | null = null;
   let imageFromDock = false;
   let verify = false;
@@ -69,6 +71,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (v !== 'abort' && v !== 'suffix') throw new Error('--on-conflict must be abort or suffix');
       onConflict = v;
     } else if (a === '--force') force = true;
+    else if (a === '--fix') fix = true;
     else if (a === '--image') {
       const v = argv[++i];
       if (v == null) throw new Error('--image needs a file path');
@@ -123,6 +126,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     mode,
     onConflict,
     force,
+    fix,
     imagePath,
     imageFromDock,
     verify,

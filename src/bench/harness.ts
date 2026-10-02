@@ -31,6 +31,7 @@ export interface BenchTask {
   title: string;
   prompt: string;
   dir: string; // absolute task dir (seed/, solution/, checks/)
+  core?: boolean; // in the default agent-run suite
 }
 
 export interface CheckOutcome {
@@ -76,6 +77,15 @@ export function loadTasks(root: string, ids?: string[]): BenchTask[] {
       return { ...j, dir: join(tasksDir, d) };
     })
     .filter((t) => !ids?.length || ids.includes(t.id));
+}
+
+// Tasks for an agent run. Each live task costs real money (~$1.5 with a
+// frontier model), so the default is the small core suite; `--tasks all` or an
+// explicit id list widens it.
+export function pickRunTasks(root: string, ids?: string[]): BenchTask[] {
+  if (ids?.length === 1 && ids[0] === 'all') return loadTasks(root);
+  if (ids?.length) return loadTasks(root, ids);
+  return loadTasks(root).filter((t) => t.core);
 }
 
 // Wipe user content so every task starts from the same empty place. Only run
@@ -201,7 +211,7 @@ export interface BenchOptions {
 
 export async function runBench(session: StudioSession, opts: BenchOptions): Promise<BenchReport> {
   const log = opts.log ?? ((s: string) => console.error(s));
-  const tasks = loadTasks(opts.root, opts.tasks);
+  const tasks = pickRunTasks(opts.root, opts.tasks);
   const runsDir = join(opts.root, 'runs', opts.label);
   const report: BenchReport = {
     label: opts.label,

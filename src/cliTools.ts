@@ -151,7 +151,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox screenshot [--camera x,y,z --look-at x,y,z]
            blox task ['{"action":"get"}']  blox tool <name> '<json args>'
 Observe:   blox dashboard [--port 35780]
-Measure:   blox bench --agent <cmd> [--tasks id,id] [--label name]
+Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;

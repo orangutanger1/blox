@@ -10,6 +10,7 @@ import { stopPlay } from './studio/play.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
+import { checkStudioPort, fixOrphanProxy } from './studio/port.js';
 import { ccrStatus, formatCcrStatus, ensureCcr, ensureCcrInstalled, ccrRunEnv } from './ccrServe.js';
 import { allCcrModels } from './ccr.js';
 import { writeProvider, type ProviderKind } from './model.js';
@@ -65,6 +66,14 @@ async function main(): Promise<void> {
   if (command === 'doctor') {
     const report = await runDoctor(studioLauncher());
     console.log(formatDoctorReport(report));
+    const studioPort = await checkStudioPort();
+    if (studioPort.checked) {
+      console.log(`  port:    ${studioPort.issue === 'none' ? 'ok' : studioPort.issue.toUpperCase()} — ${studioPort.detail}`);
+      if (args.fix) {
+        const fixed = await fixOrphanProxy(studioPort);
+        if (fixed) console.log(`  fix:     ${fixed}; reopen Studio (or toggle "Studio as MCP server") so it re-registers`);
+      }
+    }
     const serve = await checkRojoServe(rojoServeUrl());
     console.log(formatServeCheck(serve));
     // BYO-model + dock readiness: CCR router and the panel daemon. Both optional
@@ -287,7 +296,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor [--fix]  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
     );
     process.exit(2);
   }

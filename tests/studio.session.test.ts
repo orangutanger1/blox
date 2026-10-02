@@ -58,6 +58,15 @@ describe('StudioSession', () => {
     const ids = f.calls.filter((c) => c.name === 'execute_luau').map((c) => c.args.studio_id);
     expect(ids).toEqual(['old', 'new']);
   });
+  it.each(['No Roblox Studio instance is connected', 'Not connected to Studio'])('treats "%s" as a transient drop', async (msg) => {
+    let n = 0;
+    const f = fakeStudio({
+      studios: [[{ id: 'a', name: 'P' }]],
+      luau: () => (n++ === 0 ? { content: [{ type: 'text', text: msg }], isError: true } : 'fine'),
+    });
+    const s = new StudioSession({ launch, connector: async () => f.client, sleep: noSleep });
+    expect((await s.call('execute_luau', { code: 'x', datamodel_type: 'Edit' })).content?.[0].text).toBe('fine');
+  });
   it('times out attach with a no_studio error and a setup hint', async () => {
     const f = fakeStudio({ studios: [[]] });
     const s = new StudioSession({ launch, connector: async () => f.client, sleep: noSleep, attachTimeoutMs: 0 });

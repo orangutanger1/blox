@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { substitute, parseAgentStats, formatBenchMarkdown, loadTasks, prepareWorkdir, type BenchReport } from '../src/bench/harness.js';
+import { substitute, parseAgentStats, formatBenchMarkdown, loadTasks, pickRunTasks, prepareWorkdir, type BenchReport } from '../src/bench/harness.js';
 import { agentSpec } from '../src/bench/cli.js';
 
 describe('bench helpers', () => {
@@ -56,5 +56,15 @@ describe('task loading + workdir prep', () => {
     expect(top.endsWith('wd')).toBe(true);
     prepareWorkdir(task, wd, 'solution');
     expect(existsSync(join(wd, 'src', 'ServerScriptService', 'B.server.luau'))).toBe(true);
+  });
+  it('agent runs default to the core suite; "all" or ids widen it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'blox-bench-pick-'));
+    for (const [id, core] of [['tA', true], ['tB', false], ['tC', true]] as const) {
+      mkdirSync(join(root, 'tasks', id), { recursive: true });
+      writeFileSync(join(root, 'tasks', id, 'task.json'), JSON.stringify({ id, level: '1', title: id, prompt: 'p', core }));
+    }
+    expect(pickRunTasks(root).map((t) => t.id)).toEqual(['tA', 'tC']);
+    expect(pickRunTasks(root, ['all']).map((t) => t.id)).toEqual(['tA', 'tB', 'tC']);
+    expect(pickRunTasks(root, ['tB']).map((t) => t.id)).toEqual(['tB']);
   });
 });

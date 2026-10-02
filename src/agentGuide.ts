@@ -44,5 +44,10 @@ Files outside mapped folders never reach Studio — check default.project.json.
 - Server state during play: context "server". Client/UI state: context "client".
 - Do not edit scripts in Studio directly; edit files and sync.
 - Visual work (UI layout, look of a map): verify with screenshot, not just existence checks.
+- run_luau must not yield (it has a short time budget): WaitForChild(x, 5) always with a
+  timeout; waits, events, DataStore and HttpService belong in real scripts.
+- Never Destroy/ClearAllChildren broadly: delete exactly what the task names, and inspect
+  a container before clearing it.
+- "No Studio"/disconnect errors are often momentary: retry once before calling Studio offline.
 - Record anything you cannot do or verify with task {action:"block"} — do not claim it works.
 `;
