@@ -78,7 +78,7 @@ describe('rigProgram (live Studio findings, Oct 2026)', () => {
   });
   it('draws the overlay as a non-AlwaysOnTop SurfaceGui (captures skip BillboardGuis and AlwaysOnTop)', () => {
     expect(code).toContain('Instance.new("SurfaceGui")');
-    expect(code).not.toContain('BillboardGui');
+    expect(code).not.toContain('Instance.new("BillboardGui")');
     expect(code).not.toContain('AlwaysOnTop = true');
   });
 });

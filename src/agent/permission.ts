@@ -9,6 +9,12 @@ export const GATED_TOOLS = [
   'generate_material',
   'generate_procedural_model',
   'insert_from_creator_store',
+  // Sep 2026 Studio MCP names/additions: inserting, texturing and segmenting
+  // assets spend credits or change the place; subagent runs Studio's own AI.
+  'insert_asset',
+  'generate_texture',
+  'segment_mesh',
+  'subagent',
   'start_stop_play',
   'character_navigation',
   'user_keyboard_input',

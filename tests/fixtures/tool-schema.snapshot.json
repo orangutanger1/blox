@@ -1,12 +1,14 @@
 {
   "character_navigation": {
     "required": [
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ],
     "props": [
       "datamodel_type",
       "instance_path",
       "speed_multiplier",
+      "studio_id",
       "x",
       "y",
       "z"
@@ -15,11 +17,13 @@
   "execute_luau": {
     "required": [
       "code",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ],
     "props": [
       "code",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ]
   },
   "generate_material": {
@@ -27,145 +31,241 @@
       "baseMaterial",
       "materialDescription",
       "materialId",
-      "materialPattern"
+      "materialPattern",
+      "studio_id"
     ],
     "props": [
+      "async",
       "baseMaterial",
       "materialDescription",
       "materialId",
-      "materialPattern"
+      "materialPattern",
+      "studio_id"
     ]
   },
   "generate_mesh": {
     "required": [
+      "studio_id",
       "textPrompt"
     ],
     "props": [
+      "async",
       "maxTriangles",
+      "partNames",
+      "segmentation",
       "size",
+      "studio_id",
       "textPrompt"
     ]
   },
   "generate_procedural_model": {
     "required": [
-      "prompt"
+      "prompt",
+      "studio_id"
     ],
     "props": [
+      "async",
       "attachedImageUri",
-      "prompt"
+      "partNames",
+      "prompt",
+      "segmentation",
+      "studio_id"
+    ]
+  },
+  "generate_texture": {
+    "required": [
+      "studio_id",
+      "textPrompt"
+    ],
+    "props": [
+      "hintImage",
+      "instance_path",
+      "studio_id",
+      "textPrompt"
     ]
   },
   "get_console_output": {
-    "required": [],
-    "props": []
-  },
-  "insert_from_creator_store": {
     "required": [
-      "searchId"
+      "studio_id"
     ],
     "props": [
+      "studio_id"
+    ]
+  },
+  "insert_asset": {
+    "required": [
+      "assetId",
+      "studio_id"
+    ],
+    "props": [
+      "assetId",
       "assetName",
-      "objectTypes",
-      "searchId"
+      "assetType",
+      "parentPath",
+      "studio_id"
     ]
   },
   "inspect_instance": {
     "required": [
-      "path"
+      "path",
+      "studio_id"
     ],
     "props": [
-      "path"
+      "path",
+      "studio_id"
     ]
   },
   "screen_capture": {
     "required": [
-      "capture_id"
+      "capture_id",
+      "studio_id"
     ],
     "props": [
       "camera_position",
       "capture_id",
-      "look_at_position"
+      "look_at_position",
+      "studio_id"
     ]
   },
   "script_grep": {
     "required": [
-      "query"
+      "query",
+      "studio_id"
     ],
     "props": [
-      "query"
+      "query",
+      "studio_id"
     ]
   },
   "script_read": {
     "required": [
+      "studio_id",
       "target_file"
     ],
     "props": [
       "end_line_one_indexed_inclusive",
       "should_read_entire_file",
       "start_line_one_indexed",
+      "studio_id",
       "target_file"
     ]
   },
   "script_search": {
     "required": [
-      "keywords"
+      "keywords",
+      "studio_id"
     ],
     "props": [
-      "keywords"
+      "keywords",
+      "studio_id"
     ]
   },
-  "search_creator_store": {
+  "search_asset": {
     "required": [
-      "query"
+      "studio_id"
     ],
     "props": [
-      "query"
+      "assetType",
+      "audioMaxDuration",
+      "audioMinDuration",
+      "excludeSources",
+      "facets",
+      "groupId",
+      "groupName",
+      "includeSources",
+      "maxPriceCents",
+      "maxResults",
+      "minPriceCents",
+      "priceFilter",
+      "query",
+      "scope",
+      "studio_id",
+      "tags",
+      "verifiedCreatorsOnly"
     ]
   },
   "search_game_tree": {
-    "required": [],
+    "required": [
+      "datamodel_type",
+      "studio_id"
+    ],
     "props": [
+      "datamodel_type",
       "head_limit",
       "instance_type",
       "keywords",
       "max_depth",
-      "path"
+      "path",
+      "studio_id"
+    ]
+  },
+  "segment_mesh": {
+    "required": [
+      "parts",
+      "studio_id"
+    ],
+    "props": [
+      "instance_path",
+      "parts",
+      "studio_id"
     ]
   },
   "start_stop_play": {
     "required": [
-      "is_start"
+      "is_start",
+      "studio_id"
     ],
     "props": [
-      "is_start"
+      "is_start",
+      "studio_id"
+    ]
+  },
+  "subagent": {
+    "required": [
+      "description",
+      "studio_id",
+      "subagent_type",
+      "task"
+    ],
+    "props": [
+      "description",
+      "studio_id",
+      "subagent_type",
+      "task"
     ]
   },
   "user_keyboard_input": {
     "required": [
       "actions",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ],
     "props": [
       "actions",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ]
   },
   "user_mouse_input": {
     "required": [
       "actions",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ],
     "props": [
       "actions",
-      "datamodel_type"
+      "datamodel_type",
+      "studio_id"
     ]
   },
   "wait_job_finished": {
     "required": [
-      "generationId"
+      "jobId",
+      "studio_id"
     ],
     "props": [
-      "generationId",
+      "jobId",
+      "studio_id",
       "timeout"
     ]
   }

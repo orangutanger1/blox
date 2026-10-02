@@ -37,6 +37,12 @@ const TOOLS = [
   'insert_from_creator_store',
   'wait_job_finished',
   'search_creator_store',
+  // Sep 2026 Studio MCP renames/additions (older builds keep the names above).
+  'search_asset',
+  'insert_asset',
+  'generate_texture',
+  'segment_mesh',
+  'subagent',
 ];
 
 export function createStudioMcpBridge(): StudioBridge {

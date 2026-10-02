@@ -54,10 +54,9 @@ describe('buildSystemPrompt', () => {
     expect(p).toContain('multi_edit');
     expect(p).toContain('generate_mesh');
     expect(p).toContain('Assets (generate & verify)');
-    expect(p).toContain('search_creator_store');
-    expect(p).toContain('insert_from_creator_store');
-    expect(p).toContain('wait_job_finished');
-    expect(p).toContain('Generation ID');
+    expect(p).toContain('search_asset');
+    expect(p).toContain('insert_asset');
+    expect(p).toContain('wait_job_finished(jobId)');
     expect(p).toContain('start_stop_play');
     expect(p).toContain('get_console_output');
     expect(p).toContain('CLIENT context');
