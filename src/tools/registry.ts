@@ -9,7 +9,7 @@ import { formatSyncResult, pushProject, syncDrift } from '../sync/push.js';
 import { formatTestRun, runTests, type TestContext, type TestRunResult } from '../testing/runner.js';
 import { captureScreenshot, formatPlaytest, playtest, type InputStep, type PlaytestResult } from '../testing/playtest.js';
 import {
-  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, withDesignResults, writeJson,
+  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, withSyntheticResults, writeJson,
   type Criterion, type TaskState, type TestSummaryLike,
 } from '../state/store.js';
 import { scaffoldProject } from '../scaffold.js';
@@ -127,7 +127,7 @@ export const TOOLS: BloxTool[] = [
       }
       const lp = readJson<ReturnType<typeof compactPlaytest>>(ctx.projectPath, 'last-playtest.json');
       if (lp) lines.push(`last playtest (${lp.at}): ${lp.ok ? 'ok' : 'problems'}, ${lp.logs.errors.length} runtime error(s)`);
-      lines.push('', formatTask(loadTask(ctx.projectPath), withDesignResults(ctx.projectPath, lt)));
+      lines.push('', formatTask(loadTask(ctx.projectPath), withSyntheticResults(ctx.projectPath, lt)));
       return { text: lines.join('\n'), summary: 'status' };
     },
   },
@@ -167,7 +167,7 @@ export const TOOLS: BloxTool[] = [
       });
       if (!a.filter && !a.contexts) writeJson(ctx.projectPath, 'last-tests.json', compactTests(r));
       const task = loadTask(ctx.projectPath);
-      const crit = task ? `\n${formatTask(task, withDesignResults(ctx.projectPath, r), { compact: true })}` : '';
+      const crit = task ? `\n${formatTask(task, withSyntheticResults(ctx.projectPath, r), { compact: true })}` : '';
       const none = r.total === 0 && r.fileErrors.length === 0 ? '\n(no specs found — add tests/*.spec.luau)' : '';
       return { text: pre + formatTestRun(r) + none + crit, isError: !r.ok, summary: `${r.passed}/${r.total} passed` };
     },
@@ -350,7 +350,7 @@ export const TOOLS: BloxTool[] = [
       text: z.string().optional(),
     },
     async handler(a, ctx) {
-      const lt = withDesignResults(ctx.projectPath, readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json'));
+      const lt = withSyntheticResults(ctx.projectPath, readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json'));
       const now = new Date().toISOString();
       let task = loadTask(ctx.projectPath);
       if (a.action === 'set') {
@@ -427,7 +427,7 @@ export const TOOLS: BloxTool[] = [
       const task = loadTask(ctx.projectPath);
       if (task) {
         // Same persistence the task tool does, so the dashboard sees fresh statuses.
-        const lt = withDesignResults(ctx.projectPath, readJson<TestSummaryLike>(ctx.projectPath, 'last-tests.json'));
+        const lt = withSyntheticResults(ctx.projectPath, readJson<TestSummaryLike>(ctx.projectPath, 'last-tests.json'));
         task.criteria = evaluateCriteria(task, lt).map((c, i) => (task.criteria[i].tests?.length ? c : task.criteria[i]));
         saveTask(ctx.projectPath, task);
       }

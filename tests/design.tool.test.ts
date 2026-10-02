@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 import { StudioSession } from '../src/studio/session.js';
 import { BloxConfigSchema } from '../src/config.js';
-import { readJson, withDesignResults, writeJson } from '../src/state/store.js';
+import { readJson, withSyntheticResults, writeJson } from '../src/state/store.js';
 import { cliArgs, parseFlags } from '../src/cliTools.js';
 
 function ctx(): ToolCtx {
@@ -74,17 +74,17 @@ describe('design tool', () => {
   });
 });
 
-describe('withDesignResults', () => {
+describe('withSyntheticResults', () => {
   it('appends sim assertions as synthetic tests', () => {
     const c = ctx();
     writeJson(c.projectPath, 'sim-report.json', { ranAt: 'x', assertions: [{ id: 'a', ok: true }, { id: 'b', ok: false }] });
-    const r = withDesignResults(c.projectPath, { ranAt: 'y', tests: [{ file: 'f', name: 'n', status: 'pass' }] })!;
+    const r = withSyntheticResults(c.projectPath, { ranAt: 'y', tests: [{ file: 'f', name: 'n', status: 'pass' }] })!;
     expect(r.tests).toEqual([
       { file: 'f', name: 'n', status: 'pass' },
       { file: 'design', name: 'design:a', status: 'pass' },
       { file: 'design', name: 'design:b', status: 'fail' },
     ]);
-    expect(withDesignResults(ctx().projectPath, null)).toBeNull();
+    expect(withSyntheticResults(ctx().projectPath, null)).toBeNull();
   });
 });
 
