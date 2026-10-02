@@ -2,7 +2,8 @@ import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import type { SpecFile } from '../testing/runner.js';
 import { runLaneJob } from './lane.js';
-import { CLEANUP, discoverMpSpecs, installProgram, MAX_CLIENTS, specsModule } from './program.js';
+import { CLEANUP, discoverMpSpecs, installProgram, MAX_CLIENTS, mpScripts, specsModule } from './program.js';
+import { installScript } from '../testing/playHost.js';
 
 export interface MpRunOptions {
   clients?: number;
@@ -46,9 +47,10 @@ export async function runMultiplayer(session: StudioSession, projectPath: string
   if (st.mode !== 'Edit') throw new Error('stop the playtest first: the multiplayer lane starts its own test session');
   const mod = specsModule(found.specs, o.testTimeoutSec ?? 30);
   const report: MpReport = { ranAt: new Date().toISOString(), clients, results: [], fileErrors: [] };
-  const install = await runLuau(session, installProgram(mod.source, { clients, joinTimeout: 60 }), 'edit', { chunkName: 'mp-install', timeoutMs: 60_000 });
-  if (!install.ok) throw new Error(`could not install the multiplayer harness: ${install.error?.message}`);
   try {
+    const install = await runLuau(session, installProgram({ clients, joinTimeout: 60 }), 'edit', { chunkName: 'mp-install', timeoutMs: 60_000 });
+    if (!install.ok) throw new Error(`could not install the multiplayer harness: ${install.error?.message}`);
+    for (const sc of mpScripts(mod.source)) await installScript(session, sc, sc.source, `multiplayer ${sc.path[sc.path.length - 1]}`);
     const lane = await runLaneJob({ kind: 'multiplayer', clients }, { port: o.lanePort, pickupMs: o.pickupMs, timeoutMs: (o.timeoutSec ?? 180) * 1000 });
     if (!lane.ok) {
       report.error = `StudioTestService: ${lane.error ?? 'failed'}`;

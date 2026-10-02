@@ -14,7 +14,12 @@ function setup(mode: 'Edit' | 'Play' = 'Edit') {
   mkdirSync(join(p, 'tests'));
   writeFileSync(join(p, 'tests/a.mp.luau'), '-- @context multiplayer\n-- @clients 3\ntest("x", function()\n\texpect(1).toBe(2)\nend)\n');
   const calls: string[] = [];
-  const f = fakeStudio({ mode, luau: (code) => { calls.push(code.includes('__BloxMpHarness') && code.includes('Instance.new("Script")') ? 'install' : code.includes('__BloxMp') ? 'cleanup' : 'other'); return ok; } });
+  const f = fakeStudio({
+    mode,
+    luau: (code) => { calls.push(code.includes('Instance.new("Folder")') && code.includes('BloxMpRun') ? 'install' : code.includes('__BloxMp') ? 'cleanup' : 'other'); return ok; },
+    // Scripts are created with multi_edit (Studio capability sandbox).
+    tools: { multi_edit: (a) => { calls.push(`script ${String(a.file_path)} ${String(a.className)}`); return 'Created'; } },
+  });
   const session = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
   return { p, calls, session };
 }
@@ -30,6 +35,12 @@ async function plugin(lane: number, result: (clients: number) => unknown) {
   }
 }
 
+const SCRIPTS = [
+  'script game.ServerStorage.__BloxMp.Specs ModuleScript',
+  'script game.ServerScriptService.__BloxMpHarness Script',
+  'script game.StarterPlayer.StarterPlayerScripts.__BloxMpClient LocalScript',
+];
+
 describe('runMultiplayer', () => {
   it('installs, hands the job to the plugin, maps failure lines, and cleans up', async () => {
     const s = setup();
@@ -42,7 +53,7 @@ describe('runMultiplayer', () => {
     const r = await runMultiplayer(s.session, s.p, { lanePort: lane, pickupMs: 3000 });
     await pl;
     expect(asked).toBe(3);
-    expect(s.calls).toEqual(['install', 'cleanup']);
+    expect(s.calls).toEqual(['install', ...SCRIPTS, 'cleanup']);
     expect(r.results[0].message).toBe('tests/a.mp.luau:4: expected 2, got 1');
     expect(formatMp(r)).toMatch(/^multiplayer \(3 clients\): 0\/1 passed/);
   });
@@ -57,7 +68,7 @@ describe('runMultiplayer', () => {
   it('no plugin: readable error and cleanup still runs', async () => {
     const s = setup();
     await expect(runMultiplayer(s.session, s.p, { lanePort: port(), pickupMs: 100 })).rejects.toThrow(/dock plugin did not pick up/);
-    expect(s.calls).toEqual(['install', 'cleanup']);
+    expect(s.calls).toEqual(['install', ...SCRIPTS, 'cleanup']);
   });
   it('requires edit mode and specs', async () => {
     await expect(runMultiplayer(setup('Play').session, setup().p)).rejects.toThrow(/stop the playtest/);
