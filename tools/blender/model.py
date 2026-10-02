@@ -6,7 +6,9 @@ blender -b --factory-startup --python model.py -- <cmd> <args.json>
           helpers in scope, save. Prints stats.
   check   stats vs Roblox limits + turnaround renders (front/right/back/3-4) of
           the model into <views>/ for visual review against the references.
-  export  <out>/model.fbx (mesh + rig, no animation), one <out>/anim_<action>.fbx
+  export  <out>/model.glb (the upload: one vertex-coloured material, 1 unit =
+          1 stud, front = Roblox -Z), <out>/model.fbx (mesh + rig, no
+          animation, for Studio's 3D importer), one <out>/anim_<action>.fbx
           per action (for Studio's Animation Editor import) and
           <out>/preview.json (coloured triangles in Roblox axes, for an
           EditableMesh preview in Studio without uploading).
@@ -212,7 +214,7 @@ def preview_tris():
         mats = [s.material for s in o.material_slots]
         for lt in m.loop_triangles:
             mat = mats[lt.material_index] if lt.material_index < len(mats) else None
-            c = mat.diffuse_color if mat else (0.8, 0.8, 0.8, 1)
+            c = [blox_model.to_srgb(x) for x in (mat.diffuse_color[:3] if mat else (0.6, 0.6, 0.6))]
             pts = []
             for vi in lt.vertices:
                 p = o.matrix_world @ m.vertices[vi].co
@@ -250,6 +252,11 @@ def cmd_export(a):
         json.dump({"triangles": tris}, f)
     files["preview"] = prev
     files["previewTriangles"] = len(tris)
+    # Last: baking replaces materials in this (unsaved) session only.
+    glb = os.path.join(a["out"], "model.glb")
+    files["bake"] = blox_model.bake_vertex_colors(meshes())
+    blox_model.export_glb(glb, meshes() + arms)
+    files["upload"] = glb
     out(files)
 
 

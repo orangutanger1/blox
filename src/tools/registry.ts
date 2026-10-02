@@ -727,7 +727,7 @@ export const TOOLS: BloxTool[] = [
       }
       if (a.action === 'normalize') {
         if (typeof a.file !== 'string') return { text: 'normalize needs file', isError: true, summary: 'no file' };
-        const out = typeof a.out === 'string' ? a.out : a.file.replace(/\.[^.\/]+$/, '') + '.normalized.fbx';
+        const out = typeof a.out === 'string' ? a.out : a.file.replace(/\.[^.\/]+$/, '') + '.normalized.glb';
         const r = await runNormalize({ input: join(P, a.file), out: join(P, out), tris: (a.tris as number | undefined) ?? 10_000, height: (a.height as number | undefined) ?? 0 });
         let note = '';
         if (typeof a.id === 'string') {
@@ -746,14 +746,22 @@ export const TOOLS: BloxTool[] = [
       }
       if (typeof a.id !== 'string') return { text: 'upload needs id', isError: true, summary: 'no id' };
       const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
-      if (r.dryRun) return { text: `DRY RUN — would upload:\n${JSON.stringify(r.plan, null, 2)}\nRe-run with confirm:true only if the human asked for this upload.`, summary: 'dry run' };
-      return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})`, summary: 'uploaded' };
+      // Live 2026-10-02: an FBX through Open Cloud arrived 100× too big (cm units) with
+      // its colours gone; GLB keeps 1 unit = 1 stud and vertex colours.
+      const fbxWarn = r.dryRun && /\.fbx$/i.test(r.plan.file)
+        ? `\nWARNING: FBX uploads arrive 100× too big and lose flat colours. Prefer a GLB: model {action:"export"} writes model.glb; asset {action:"normalize", file} writes .normalized.glb.`
+        : '';
+      if (r.dryRun) return { text: `DRY RUN — would upload:\n${JSON.stringify(r.plan, null, 2)}${fbxWarn}\nRe-run with confirm:true only if the human asked for this upload.`, summary: 'dry run' };
+      const meshNote = /\.(glb|gltf|fbx)$/i.test(loadManifest(P).assets.find((x) => x.id === a.id)?.ref.file ?? '')
+        ? `\nInsert: studio_tool {name:"insert_asset", args:{assetId:"${r.assetId}", assetName:"${a.id}"}}, then set every MeshPart's Color to Color3.new(1, 1, 1): Studio multiplies vertex colours by it (default grey makes the model ~35% darker).`
+        : '';
+      return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})${meshNote}`, summary: 'uploaded' };
     },
   },
   {
     name: 'model',
     description:
-      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.fbx, anim_<name>.fbx per animation, preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the FBX in .blox/assets.json as a candidate; a human approves before upload) | list.',
+      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | list.',
     shape: {
       action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'list']),
       id: z.string().optional(),
@@ -804,19 +812,22 @@ export const TOOLS: BloxTool[] = [
         return { text: formatStats(s, P), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
       }
       if (a.action === 'export') {
-        const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; animations: Record<string, string>; preview: string; previewTriangles: number };
+        const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };
         const rel = (f: string) => f.slice(P.length + 1);
         const anims = Object.entries(r.animations);
         return {
           text: [
-            `exported ${rel(r.model)} (${r.previewTriangles} triangles)`,
+            ...(r.upload ? [`upload file ${rel(r.upload)}: ${r.bake?.materials ?? '?'} material(s) → that many MeshParts; flat colours baked into vertex colours (Roblox drops flat material colours)`] : []),
+            `Studio-import file ${rel(r.model)} (${r.previewTriangles} triangles)`,
             ...anims.map(([n, f]) => `  animation ${n}: ${rel(f)}`),
             `next: model {action:"preview", id:"${id}"} to see it in Studio, then model {action:"import", id:"${id}"}`,
           ].join('\n'),
           summary: 'exported',
         };
       }
-      const exported = join(dir, 'export', 'model.fbx');
+      // The GLB is the upload (vertex colours, 1 unit = 1 stud); older exports only have the FBX.
+      const glb = join(dir, 'export', 'model.glb');
+      const exported = existsSync(glb) ? glb : join(dir, 'export', 'model.fbx');
       if (!existsSync(exported)) return { text: `export first: model {action:"export", id:"${id}"}`, isError: true, summary: 'not exported' };
       if (a.action === 'preview') {
         const prev = JSON.parse(readFileSync(join(dir, 'export', 'preview.json'), 'utf8')) as { triangles: { v: number[][]; c: string }[] };
@@ -848,7 +859,7 @@ export const TOOLS: BloxTool[] = [
         return {
           text: [
             `recorded ${id} → ${file} (candidate). A human approves it: blox asset approve ${id}; then asset {action:"upload", id:"${id}", confirm:true} (needs ROBLOX_OPEN_CLOUD_KEY) and insert it.`,
-            'Without an Open Cloud key: Studio → Home → Import 3D → the FBX above.',
+            `Without an Open Cloud key: Studio → Home → Import 3D → ${join(dir, 'export', 'model.fbx').slice(P.length + 1)}.`,
             ...(anims.length
               ? [`Animations (${anims.join(', ')}): Open Cloud only takes .rbxm animations, so import each FBX in Studio's Animation Editor (… → Import → From FBX Animation) on the imported rig, then publish it.`]
               : []),

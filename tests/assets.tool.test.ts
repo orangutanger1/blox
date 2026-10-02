@@ -73,3 +73,18 @@ describe('asset tool', () => {
     expect(loadManifest(c.projectPath).assets[0].status).toBe('approved');
   });
 });
+
+describe('asset upload dry run', () => {
+  it('warns that an FBX arrives 100× too big; a GLB gets no warning', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const c = ctx();
+    mkdirSync(join(c.projectPath, 'm'));
+    writeFileSync(join(c.projectPath, 'm/a.fbx'), 'x');
+    writeFileSync(join(c.projectPath, 'm/b.glb'), 'x');
+    const entry = (id: string, file: string) => ({ id, kind: 'model', source: 'generated', licence: 'owned', ref: { file }, provenance: { tool: 't', createdAt: '2026-10-02T00:00:00Z' }, status: 'approved' });
+    mkdirSync(join(c.projectPath, '.blox'), { recursive: true });
+    writeFileSync(join(c.projectPath, '.blox/assets.json'), JSON.stringify({ version: 1, creator: { userId: 1 }, assets: [entry('a', 'm/a.fbx'), entry('b', 'm/b.glb')] }));
+    expect((await call({ action: 'upload', id: 'a' }, c)).text).toMatch(/WARNING: FBX uploads arrive 100× too big/);
+    expect((await call({ action: 'upload', id: 'b' }, c)).text).not.toMatch(/WARNING/);
+  });
+});

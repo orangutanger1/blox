@@ -1,8 +1,12 @@
 // Minimal Roblox Open Cloud client. The API key comes from
-// ROBLOX_OPEN_CLOUD_KEY (never stored in the repo). fetch is injectable so
+// ROBLOX_OPEN_CLOUD_KEY, else ~/.config/blox/opencloud.env (0600, outside the
+// repo; non-interactive shells never source ~/.bashrc). fetch is injectable so
 // every caller is testable without a real key; callers gate anything that
 // publishes, spends or changes live state behind explicit human confirmation.
 
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { authConfigDir } from '../auth.js';
 import { ENDPOINTS } from './endpoints.js';
 
 export const OPEN_CLOUD_BASE = 'https://apis.roblox.com';
@@ -21,11 +25,16 @@ export interface Operation {
   error?: { message?: string };
 }
 
-export function openCloudKey(): string | undefined {
-  return process.env.ROBLOX_OPEN_CLOUD_KEY || undefined;
+export function openCloudKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.ROBLOX_OPEN_CLOUD_KEY) return env.ROBLOX_OPEN_CLOUD_KEY;
+  const file = join(authConfigDir(env), 'opencloud.env');
+  if (!existsSync(file)) return undefined;
+  const m = /^\s*(?:export\s+)?ROBLOX_OPEN_CLOUD_KEY=(.*)$/m.exec(readFileSync(file, 'utf8'));
+  const v = m?.[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+  return v || undefined;
 }
 
-export const NO_KEY = 'no Open Cloud API key: a human must create one (Creator Hub → Open Cloud → API Keys, scoped to this experience) and export ROBLOX_OPEN_CLOUD_KEY';
+export const NO_KEY = 'no Open Cloud API key: a human must create one (Creator Hub → Open Cloud → API Keys, scoped to this experience) and export ROBLOX_OPEN_CLOUD_KEY or put `export ROBLOX_OPEN_CLOUD_KEY=...` in ~/.config/blox/opencloud.env (chmod 600)';
 
 export class OpenCloud {
   private readonly key: string;

@@ -16,6 +16,12 @@ Units: 1 Blender unit = 1 stud. Z is up in Blender; export maps it to Roblox Y.
   animate(armature, action, keys, loop=True)
       keys: {frame: {bone: {"rot": (x, y, z) degrees, "loc": (x, y, z)}}}
       Each action is stored on its own NLA track so all of them export.
+
+Export helpers (used by `model export` and `asset normalize`):
+  bake_vertex_colors(objs)   flat material colours → one vertex-coloured material
+  export_glb(path, objs)     Roblox upload format (1 unit = 1 stud, front = -Z;
+                             set MeshPart.Color white after insert)
+Colours are "#rrggbb" sRGB as you see them; materials store them linear.
 """
 import math
 
@@ -40,17 +46,27 @@ def _rgb(color):
     return tuple(color[:3])
 
 
+def to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def to_srgb(c):
+    c = max(0.0, min(1.0, c))
+    return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
 def material(color):
     rgb = _rgb(color)
     key = "C_%02x%02x%02x" % tuple(int(round(c * 255)) for c in rgb)
     m = _mats.get(key) or bpy.data.materials.get(key)
     if m is None:
+        lin = tuple(to_linear(c) for c in rgb)
         m = bpy.data.materials.new(key)
         m.use_nodes = True
         bsdf = m.node_tree.nodes.get("Principled BSDF")
-        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+        bsdf.inputs["Base Color"].default_value = (*lin, 1.0)
         bsdf.inputs["Roughness"].default_value = 0.8
-        m.diffuse_color = (*rgb, 1.0)
+        m.diffuse_color = (*lin, 1.0)
     _mats[key] = m
     return m
 
@@ -200,3 +216,106 @@ def rest(armature):
         pb.rotation_euler = (0, 0, 0)
         pb.rotation_quaternion = (1, 0, 0, 0)
         pb.scale = (1, 1, 1)
+
+
+# --- Roblox export --------------------------------------------------------------
+# Roblox makes one MeshPart per material slot and drops flat material colours
+# (they arrive white/grey); vertex colours and packed image textures survive.
+# Studio reads glTF vertex colours as sRGB, so they are written as sRGB numbers,
+# and multiplies them by MeshPart.Color (set it to white after inserting).
+
+VERTEX_MATERIAL = "BloxVertexColor"
+
+
+def _has_texture(mat):
+    return bool(mat and mat.use_nodes and any(n.type == "TEX_IMAGE" and n.image for n in mat.node_tree.nodes))
+
+
+def _flat_color(mat):
+    if mat is None:
+        return (0.8, 0.8, 0.8)
+    if mat.use_nodes:
+        bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if bsdf is not None and not bsdf.inputs["Base Color"].is_linked:
+            return tuple(bsdf.inputs["Base Color"].default_value[:3])
+    return tuple(mat.diffuse_color[:3])
+
+
+def _vertex_material():
+    m = bpy.data.materials.get(VERTEX_MATERIAL)
+    if m is None:
+        m = bpy.data.materials.new(VERTEX_MATERIAL)
+        m.use_nodes = True
+        nt = m.node_tree
+        bsdf = nt.nodes.get("Principled BSDF")
+        bsdf.inputs["Roughness"].default_value = 0.8
+        attr = nt.nodes.new("ShaderNodeVertexColor")
+        attr.layer_name = "Col"
+        # The attribute holds sRGB numbers (what Studio expects); a gamma node
+        # turns them back into linear so Blender renders still look right.
+        gamma = nt.nodes.new("ShaderNodeGamma")
+        gamma.inputs["Gamma"].default_value = 2.2
+        nt.links.new(attr.outputs["Color"], gamma.inputs["Color"])
+        nt.links.new(gamma.outputs["Color"], bsdf.inputs["Base Color"])
+    return m
+
+
+def bake_vertex_colors(objs):
+    """Bake every untextured material's flat colour into a "Col" corner
+    attribute and replace those materials with one shared vertex-colour
+    material. Textured materials stay (their packed image survives upload).
+    Returns {"materials": n_after, "baked": n_faces, "textured": n_textured}."""
+    vmat = _vertex_material()
+    baked = textured = 0
+    for o in objs:
+        if o.type != "MESH":
+            continue
+        me = o.data
+        mats = [s.material for s in o.material_slots]
+        col = me.color_attributes.get("Col") or me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
+        keep = {}  # old slot index -> new slot index (textured materials)
+        new_mats = [vmat]
+        for i, m in enumerate(mats):
+            if _has_texture(m):
+                keep[i] = len(new_mats)
+                new_mats.append(m)
+        for poly in me.polygons:
+            m = mats[poly.material_index] if poly.material_index < len(mats) else None
+            if poly.material_index in keep:
+                textured += 1
+                rgb = (1.0, 1.0, 1.0)
+            else:
+                rgb = tuple(to_srgb(c) for c in _flat_color(m))
+                baked += 1
+            for li in poly.loop_indices:
+                col.data[li].color = (*rgb, 1.0)
+        idx = [keep.get(p.material_index, 0) for p in me.polygons]
+        me.materials.clear()
+        for m in new_mats:
+            me.materials.append(m)
+        for p, i in zip(me.polygons, idx):
+            p.material_index = i
+        me.color_attributes.active_color = col
+    used = {m.name for o in objs if o.type == "MESH" for m in o.data.materials if m}
+    return {"materials": len(used), "baked": baked, "textured": textured}
+
+
+def export_glb(path, objs, animations=False):
+    """GLB for Open Cloud upload: 1 Blender unit = 1 stud. Blender's front
+    (-Y) exports as glTF +Z, which Roblox's importer turns to its look
+    direction (-Z); verified live. After inserting, set each MeshPart's Color to
+    white: Studio multiplies vertex colours by it (default grey 163)."""
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=path,
+            export_format="GLB",
+            use_selection=True,
+            export_apply=True,
+            export_animations=animations,
+            export_vertex_color="ACTIVE",
+        )
+    except TypeError:  # older/newer exporter without export_vertex_color
+        bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_apply=True, export_animations=animations)
