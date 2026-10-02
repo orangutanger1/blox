@@ -116,15 +116,29 @@ resets the open place between tasks — **point it at a throwaway place.**
 Latest core-suite results (2026-10-01, one run each): legacy blox 0/3 tasks, 2/16 live
 checks, $4.27, 26 min; blox runner 3/3, 16/16, $0.75, 2.6 min; Claude Code + blox MCP
 3/3, 16/16, $0.92, 2.9 min. Non-Claude models through `--agent openai`: GPT-6 Luna
-3/3, 16/16, $0.014, 4.9 min; GLM 5.3 Flash 3/3, 16/16, $0.07, 14.5 min. Details:
+3/3, 16/16, $0.014, 4.9 min; GLM 5.3 Flash 3/3, 16/16, $0.07, 14.5 min. Later the
+same day, after turn cuts: blox runner (Opus 5.5) 3/3, 16/16, $0.68, 2.4 min, 26 turns;
+`--runner openai` with GPT-6 Luna 3/3, 16/16, $0.02, 6.6 min. Details:
 [`bench/results/comparison.md`](bench/results/comparison.md).
 
 ## Built-in runner (optional)
 
-`blox "<prompt>" [--auto|--ask] [--budget USD] [--max-turns N] [--model …]` runs a
-Claude Agent SDK loop over the same toolset (in-process), then commits the project and
+`blox "<prompt>" [--auto|--ask] [--budget USD] [--max-turns N] [--model …] [--runner claude|openai]`
+runs an agent loop over the same toolset (in-process), then commits the project and
 leaves Studio synced. `--ask` gates credit-spending asset generation (dock panel can
-approve). Routed non-Claude models via claude-code-router: `blox model add …`.
+approve).
+
+- `--runner claude` (default): the Claude Agent SDK. Non-Claude models can still be
+  routed through claude-code-router (`blox model add …`, `--model provider,slug`).
+- `--runner openai`: a vendor-neutral loop (`src/agent/chatLoop.ts`) over any
+  OpenAI-compatible `/chat/completions` endpoint, with no translation layer.
+  `--model provider,slug` uses a provider added with `blox model add`
+  (e.g. `openrouter,openai/gpt-6-luna`); a bare slug uses `OPENAI_BASE_URL`
+  (default OpenRouter) with `OPENAI_API_KEY` / `OPENROUTER_API_KEY`, else the stored
+  OpenRouter key. Same system prompt, path guardrails, `--ask` gates and budget (from
+  provider-reported cost; endpoints that report none are bounded by `--max-turns`
+  only). Not supported: `--resume`/`--continue` and the post-generation asset review.
+  Set `"runner": "openai"` in `blox.config.json` to make it the default (the dock uses it too).
 
 ## Other commands (unchanged, peripheral to the agent loop)
 
@@ -133,6 +147,24 @@ Rojo project), `blox panel install|serve` (Studio dock UI for the built-in runne
 `blox auth …`, `blox model …`, `blox report` / `blox relay …` (team spend policy and
 hosted key relay), `blox eval` (superseded by `blox bench`). See
 [`docs/superpowers`](docs/superpowers) for their design notes.
+
+### Team relay, member side
+
+An admin runs `blox relay serve` and hands each member a token (`blox relay add-member
+<email>`). A member links once:
+
+```bash
+blox auth relay http://relay-host:8787   # prompts for the token, checks it, stores it (0600)
+blox auth status                         # shows the linked relay
+blox auth use subscription|key|relay     # switch; `blox auth relay clear` unlinks
+```
+
+In relay mode Claude runs send the member token to the relay, never a real key. Before
+each run (CLI, dock, `blox eval`) blox asks the relay whether the token, model and team
+budget allow it, and stops with the relay's reason (revoked token, model not
+allowlisted, rolling budget spent) before any work. Runs that would bypass the relay
+(`--runner openai`, CCR-routed `provider,slug` models) are refused in relay mode. The
+relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
 
 ## Tests
 

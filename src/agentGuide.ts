@@ -29,7 +29,9 @@ outside folders mapped in default.project.json never reach Studio.
 3. Write code, world builders and tests.
 4. run_tests: syncs, runs every spec, returns failures with file:line + runtime errors.
 5. playtest: run the game a few seconds, probe server/client with Luau, optional input
-   and screenshot; returns typed errors/warnings.
+   and screenshot; returns typed errors/warnings. A UI flow is one call: inputs
+   [{kind:"luau",args:{context:"server",code:"<set up state>"}}, {kind:"click",
+   args:{target:"PlayerGui.HUD.Button"}}, …] then server_code/client_code to check.
 6. Fix and repeat until every criterion passes. Only passing tests / playtest
    observations count as proof, not a successful tool call.
 
@@ -39,8 +41,9 @@ running across calls), sync (push without testing), studio_tool (last resort: ra
 tools for assets/meshes/inspect_instance; output is larger and unstructured).
 
 ## Working efficiently
-Every call costs time and context:
-- Write all files a step needs, then run_tests once, not once per file.
+Every turn resends the whole conversation, so turns are the main cost:
+- Make independent calls in the same turn (read every file you need at once,
+  write every file a step needs at once), then run_tests once.
 - Don't re-read files you just wrote or re-run checks whose inputs didn't change.
 - Probe narrowly: filtered explore, run_luau returning only the values you need.
 - Fix every failure you can see before the next run.

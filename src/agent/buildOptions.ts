@@ -28,8 +28,8 @@ export interface QueryOptionsLike {
   systemPrompt: string;
   maxTurns: number;
   // Native SDK option: the query stops with an error_max_budget_usd result
-  // once this USD cap is exceeded.
-  maxBudgetUsd: number;
+  // once this USD cap is exceeded. Omitted for CCR-routed models (see below).
+  maxBudgetUsd?: number;
   permissionMode: 'bypassPermissions' | 'default';
   // Present only in --auto; required by the SDK whenever permissionMode is
   // 'bypassPermissions'.
@@ -95,7 +95,11 @@ export function buildQueryOptions(
       ? buildBloxSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify })
       : buildSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify }),
     maxTurns: routed ? Math.min(config.maxTurns, routedMaxTurns()) : config.maxTurns,
-    maxBudgetUsd: config.maxBudgetUsd,
+    // The SDK prices a routed "provider,slug" model at Claude rates (observed:
+    // a $0.5 cap hit after ~8 GPT-6 Luna turns that cost <$0.01), so its cap
+    // would stop routed runs early; they are bounded by the routed turn cap.
+    // --runner openai uses provider-reported cost instead.
+    ...(routed ? {} : { maxBudgetUsd: config.maxBudgetUsd }),
     permissionMode: ask ? 'default' : 'bypassPermissions',
     ...(ask
       ? { canUseTool: buildCanUseTool(gate) }

@@ -7,7 +7,8 @@ import { resolveStudioLaunch } from '../studio/launcher.js';
 import { formatBenchMarkdown, runBench, validateTasks, type AgentSpec } from './harness.js';
 
 // blox bench — see harness.ts. Agent profiles:
-//   blox          this checkout's built-in runner (blox "<prompt>")
+//   blox          this checkout's built-in runner (blox "<prompt>"); --runner openai
+//                 runs it on the vendor-neutral loop (needs --model)
 //   legacy        another blox checkout's runner: --legacy-cli <path/to/dist/cli.js>
 //   claude-code   `claude -p` with this checkout's blox MCP server wired in
 //   openai        dist/bench/openaiAgent.js: any OpenAI-compatible endpoint
@@ -21,9 +22,11 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
   const turns = typeof o['max-turns'] === 'string' ? o['max-turns'] : '60';
   const modelId = typeof o.model === 'string' ? o.model : undefined;
   const model = modelId ? ['--model', modelId] : [];
+  const runner = typeof o.runner === 'string' ? o.runner : undefined;
   const runnerArgs = ['--project', '{project}', '--auto', '--budget', budget, '--max-turns', turns, ...model, '{prompt}'];
   if (name === 'blox') {
-    return { name: `blox (${repoRoot})`, model: modelId, argv: [process.execPath, join(repoRoot, 'dist', 'cli.js'), ...runnerArgs] };
+    const argv = [process.execPath, join(repoRoot, 'dist', 'cli.js'), ...(runner ? ['--runner', runner] : []), ...runnerArgs];
+    return { name: `blox${runner ? ` --runner ${runner}` : ''} (${repoRoot})`, model: modelId, argv };
   }
   if (name === 'legacy') {
     const cli = o['legacy-cli'];

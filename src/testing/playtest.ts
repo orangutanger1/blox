@@ -17,9 +17,10 @@ export interface Screenshot {
 }
 
 export interface InputStep {
-  kind: 'navigate' | 'keyboard' | 'mouse' | 'wait';
+  kind: 'navigate' | 'keyboard' | 'mouse' | 'click' | 'luau' | 'wait';
   // navigate: {x,y,z} or {instance_path}; keyboard/mouse: {actions:[…]} (raw
-  // Studio schema); wait: {seconds}
+  // Studio schema); click: {target} (a GuiButton path); luau: {context, code}
+  // (arrange or check state between inputs); wait: {seconds}
   args: Record<string, unknown>;
 }
 
@@ -73,11 +74,66 @@ export async function captureScreenshot(
   return { path: saveArtifact(projectPath, label, mimeType, img.data), mimeType, data: img.data };
 }
 
-const INPUT_TOOL: Record<Exclude<InputStep['kind'], 'wait'>, string> = {
+const INPUT_TOOL: Record<'navigate' | 'keyboard' | 'mouse', string> = {
   navigate: 'character_navigation',
   keyboard: 'user_keyboard_input',
   mouse: 'user_mouse_input',
 };
+
+// Studio's input tools resolve instance paths from LocalPlayer
+// ("LocalPlayer.PlayerGui.HUD.Button"); agents naturally write the DataModel
+// path ("game.Players.LocalPlayer…", "Players.LocalPlayer…") or start at PlayerGui.
+export function clientPath(p: string): string {
+  const s = p.trim().replace(/^game\./, '').replace(/^Players\./, '');
+  if (s.startsWith('LocalPlayer.') || s.startsWith('Workspace.') || s.startsWith('game.')) return s;
+  if (/^(PlayerGui|PlayerScripts|Backpack|Character)\b/.test(s)) return `LocalPlayer.${s}`;
+  return s;
+}
+
+function normalizeInputArgs(step: InputStep): Record<string, unknown> {
+  const args = { ...step.args };
+  if (typeof args.instance_path === 'string') args.instance_path = clientPath(args.instance_path);
+  if (Array.isArray(args.actions)) {
+    args.actions = args.actions.map((a) =>
+      a && typeof a === 'object' && typeof (a as { instance_path?: unknown }).instance_path === 'string'
+        ? { ...a, instance_path: clientPath((a as { instance_path: string }).instance_path) }
+        : a);
+  }
+  return args;
+}
+
+// Explain the one click failure agents can't diagnose from the raw text.
+function clickText(raw: string): string {
+  return /hits CoreGUI/i.test(raw)
+    ? `${raw} — the click landed on Roblox's own UI (top bar/menus), not the game's button; move the button out of that area`
+    : raw;
+}
+
+export async function runInput(session: StudioSession, step: InputStep): Promise<{ kind: string; ok: boolean; text: string }> {
+  if (step.kind === 'wait') {
+    await sleep(Math.min(30, Number(step.args.seconds ?? 1)) * 1000);
+    return { kind: 'wait', ok: true, text: `waited ${step.args.seconds ?? 1}s` };
+  }
+  if (step.kind === 'luau') {
+    const ctx = step.args.context === 'client' ? 'client' : 'server';
+    const r = await runLuau(session, String(step.args.code ?? ''), ctx, { chunkName: 'inputLuau' });
+    return { kind: `luau ${ctx}`, ok: r.ok, text: r.ok ? JSON.stringify(r.values) : `ERROR: ${r.error?.message}` };
+  }
+  if (step.kind === 'click') {
+    const target = clientPath(String(step.args.target ?? step.args.instance_path ?? ''));
+    const r = await session.call('user_mouse_input', {
+      datamodel_type: 'Client',
+      actions: [{ action: 'mouseButtonClick', mouse_button: 'left', instance_path: target }],
+    }, 60_000);
+    const text = clickText(resultText(r));
+    // Let the click's handlers (and any remote round trip) run before the next step.
+    await sleep(Math.min(10, Number(step.args.settle ?? 0.5)) * 1000);
+    return { kind: `click ${target}`, ok: !r.isError && !/hits CoreGUI/i.test(text), text: text.slice(0, 300) };
+  }
+  const r = await session.call(INPUT_TOOL[step.kind], { datamodel_type: 'Client', ...normalizeInputArgs(step) }, 60_000);
+  const text = step.kind === 'mouse' ? clickText(resultText(r)) : resultText(r);
+  return { kind: step.kind, ok: !r.isError && !/hits CoreGUI/i.test(text), text: text.slice(0, 300) };
+}
 
 export async function playtest(session: StudioSession, projectPath: string, opts: PlaytestOptions = {}): Promise<PlaytestResult> {
   const t0 = Date.now();
@@ -92,15 +148,7 @@ export async function playtest(session: StudioSession, projectPath: string, opts
   };
   try {
     await sleep(Math.max(0, (opts.seconds ?? 3) * 1000));
-    for (const step of opts.inputs ?? []) {
-      if (step.kind === 'wait') {
-        await sleep(Math.min(30, Number(step.args.seconds ?? 1)) * 1000);
-        result.inputs.push({ kind: 'wait', ok: true, text: `waited ${step.args.seconds ?? 1}s` });
-        continue;
-      }
-      const r = await session.call(INPUT_TOOL[step.kind], { datamodel_type: 'Client', ...step.args }, 60_000);
-      result.inputs.push({ kind: step.kind, ok: !r.isError, text: resultText(r).slice(0, 300) });
-    }
+    for (const step of opts.inputs ?? []) result.inputs.push(await runInput(session, step));
     if (opts.serverCode) result.server = await runLuau(session, opts.serverCode, 'server', { chunkName: 'serverCode' });
     if (opts.clientCode) result.client = await runLuau(session, opts.clientCode, 'client', { chunkName: 'clientCode' });
     if (opts.screenshot) {

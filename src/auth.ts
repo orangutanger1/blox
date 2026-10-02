@@ -4,10 +4,17 @@ import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
-export type AuthMode = 'subscription' | 'apiKey';
+// relay = a team's `blox relay serve`: runs go through it with a per-member
+// token; the team's real key never leaves the relay host.
+export type AuthMode = 'subscription' | 'apiKey' | 'relay';
+export interface RelayLink {
+  url: string;
+  token: string;
+}
 export interface AuthStore {
   mode?: AuthMode;
   apiKey?: string;
+  relay?: RelayLink;
 }
 
 // User-level credential store lives outside the project (blox.config.json is
@@ -31,8 +38,12 @@ export function loadAuthStore(path: string = authStorePath()): AuthStore {
     if (!raw || typeof raw !== 'object') return {};
     const r = raw as Record<string, unknown>;
     const store: AuthStore = {};
-    if (r.mode === 'subscription' || r.mode === 'apiKey') store.mode = r.mode;
+    if (r.mode === 'subscription' || r.mode === 'apiKey' || r.mode === 'relay') store.mode = r.mode;
     if (typeof r.apiKey === 'string' && r.apiKey) store.apiKey = r.apiKey;
+    const rl = r.relay as Record<string, unknown> | undefined;
+    if (rl && typeof rl.url === 'string' && rl.url && typeof rl.token === 'string' && rl.token) {
+      store.relay = { url: rl.url, token: rl.token };
+    }
     return store;
   } catch {
     return {};
@@ -63,11 +74,26 @@ export function setMode(mode: AuthMode, path: string = authStorePath()): void {
   saveAuthStore(s, path);
 }
 
-// apiKey only takes effect when a key is actually stored; everything else
-// resolves to subscription (the engine's stored `claude` login).
+export function setRelay(link: RelayLink, path: string = authStorePath()): void {
+  const s = loadAuthStore(path);
+  s.relay = { url: link.url.replace(/\/+$/, ''), token: link.token };
+  s.mode = 'relay';
+  saveAuthStore(s, path);
+}
+
+export function clearRelay(path: string = authStorePath()): void {
+  const s = loadAuthStore(path);
+  delete s.relay;
+  if (s.mode === 'relay') delete s.mode;
+  saveAuthStore(s, path);
+}
+
+// apiKey / relay only take effect when their credential is actually stored;
+// everything else resolves to subscription (the engine's stored `claude` login).
 export function effectiveAuthMode(store: AuthStore, override?: AuthMode | null): AuthMode {
   const want = override ?? store.mode;
   if (want === 'apiKey' && store.apiKey) return 'apiKey';
+  if (want === 'relay' && store.relay) return 'relay';
   return 'subscription';
 }
 
@@ -95,6 +121,15 @@ export function buildAuthEnv(opts: BuildAuthEnvOpts = {}): Record<string, string
   if (mode === 'apiKey') {
     const env = copy();
     env.ANTHROPIC_API_KEY = store.apiKey!;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    return env;
+  }
+  if (mode === 'relay') {
+    // The relay authenticates the member token from x-api-key.
+    const env = copy();
+    env.ANTHROPIC_BASE_URL = store.relay!.url;
+    env.ANTHROPIC_API_KEY = store.relay!.token;
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
     return env;
@@ -188,6 +223,7 @@ export function formatAuthStatus(sub: SubscriptionStatus | { error: string }, st
     lines.push('subscription: not linked — run `blox auth login`');
   }
   lines.push(`api key: ${store.apiKey ? 'stored' : 'not set — run `blox auth key set`'}`);
+  lines.push(`team relay: ${store.relay ? `linked (${store.relay.url})` : 'not linked — run `blox auth relay <url>`'}`);
   if (store.mode === 'apiKey' && !store.apiKey) {
     lines.push('note: mode is apiKey but no key stored — runs fall back to subscription');
   }
@@ -207,9 +243,49 @@ export function authInfo(
   const store = opts.store ?? loadAuthStore();
   const mode = effectiveAuthMode(store, opts.override);
   if (mode === 'apiKey') return { mode, label: 'API key' };
+  if (mode === 'relay') return { mode, label: 'Team relay' };
   const sub = readSubscriptionStatus(opts.runner ?? defaultRunner);
   if ('error' in sub || !sub.loggedIn) return { mode: 'subscription', label: 'Subscription — not linked' };
   return { mode: 'subscription', label: sub.plan ? `Subscription (${sub.plan})` : 'Subscription' };
+}
+
+export type RelayCheck =
+  | { ok: true; member?: string }
+  | { ok: false; reason: 'unreachable' | 'token' | 'policy'; message: string };
+
+// Ask the relay, before any model call, whether this member may run this model
+// now (token valid, model allowed, team budget not spent). The relay answers
+// with the same rules it enforces on /v1/messages.
+export async function checkRelay(link: RelayLink, model: string | null, fetchImpl: typeof fetch = fetch): Promise<RelayCheck> {
+  const url = `${link.url}/api/v1/check${model ? `?model=${encodeURIComponent(model)}` : ''}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { headers: { 'x-api-key': link.token }, signal: AbortSignal.timeout(10_000) });
+  } catch (e) {
+    return { ok: false, reason: 'unreachable', message: `team relay unreachable at ${link.url} (${(e as Error).message})` };
+  }
+  let body: { member?: string; error?: { message?: string } | string } = {};
+  try { body = (await res.json()) as typeof body; } catch { /* non-JSON */ }
+  const msg = typeof body.error === 'string' ? body.error : body.error?.message ?? `HTTP ${res.status}`;
+  if (res.status === 401) return { ok: false, reason: 'token', message: `team relay rejected your member token (${msg}); ask your admin for a new one, then \`blox auth relay ${link.url}\`` };
+  if (res.status === 403) return { ok: false, reason: 'policy', message: `team relay policy: ${msg}` };
+  if (res.status === 404) return { ok: false, reason: 'unreachable', message: `${link.url} is not a blox relay (or is older than this client)` };
+  if (!res.ok) return { ok: false, reason: 'unreachable', message: `team relay error at ${link.url}: ${msg}` };
+  return { ok: true, member: body.member };
+}
+
+// Run-start gate for relay mode: null when the run may proceed (or relay mode
+// is not active), else the user-facing reason. The relay still enforces on every
+// request; this just fails before any work instead of on the first model call.
+export async function relayPreflight(
+  opts: { override?: AuthMode | null; model: string; runner: 'claude' | 'openai'; store?: AuthStore; fetchImpl?: typeof fetch },
+): Promise<string | null> {
+  const store = opts.store ?? loadAuthStore();
+  if (effectiveAuthMode(store, opts.override) !== 'relay') return null;
+  if (opts.runner !== 'claude') return 'team relay mode routes Claude runs only; --runner openai would bypass it (switch with `blox auth use subscription|key`)';
+  if (opts.model.includes(',')) return `team relay mode routes Claude runs only; the routed model "${opts.model}" would bypass it`;
+  const r = await checkRelay(store.relay!, opts.model, opts.fetchImpl);
+  return r.ok ? null : r.message;
 }
 
 // Interactive hidden input for `blox auth key set`. I/O only — not unit-tested.

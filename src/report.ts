@@ -4,6 +4,7 @@ export interface RunReport {
   commitSha: string | null;
   numTurns: number;
   costUsd: number;
+  costUnknown?: boolean;
   model?: string;
   tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   status: 'success' | 'error';
@@ -23,7 +24,7 @@ export function formatReport(r: RunReport): string {
     `blox run — ${r.status}`,
     `prompt: ${r.prompt}`,
     ...(r.mode ? [`mode: ${r.mode}${r.effort ? `  effort: ${r.effort}` : ''}`] : []),
-    `turns: ${r.numTurns}  cost: $${r.costUsd.toFixed(4)}`,
+    `turns: ${r.numTurns}  cost: ${r.costUnknown ? 'unknown' : `$${r.costUsd.toFixed(4)}`}`,
     ...(r.model ? [`model: ${r.model}`] : []),
     ...(r.tokens
       ? [`tokens: input=${r.tokens.input} cache_read=${r.tokens.cacheRead} cache_write=${r.tokens.cacheWrite} output=${r.tokens.output}`]

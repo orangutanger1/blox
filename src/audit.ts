@@ -7,6 +7,7 @@ export interface AuditEntry {
   model: string;
   turns: number;
   costUsd: number;
+  costUnknown?: boolean;
   status: 'success' | 'error';
   commit: string | null;
   prompt: string;

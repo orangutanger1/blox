@@ -43,6 +43,8 @@ describe('buildQueryOptions', () => {
   it('clamps routed maxTurns to 12 (default) but leaves native at config value', () => {
     const routed = buildQueryOptions({ ...config, model: 'openrouter,openai/gpt-4o' }, createMockStudioBridge(), digest);
     expect(routed.maxTurns).toBe(12); // min(40, 12)
+    // the SDK prices routed models at Claude rates, so its USD cap is not used
+    expect(routed.maxBudgetUsd).toBeUndefined();
     const native = buildQueryOptions(config, createMockStudioBridge(), digest);
     expect(native.maxTurns).toBe(40);
   });
