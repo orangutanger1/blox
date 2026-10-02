@@ -22,6 +22,9 @@ export class RelayServer {
   private opts: RelayServerOptions;
   constructor(opts: RelayServerOptions) { this.opts = opts; }
 
+  // Set when upstream rejected the team key (401); cleared by the next success.
+  // /check reports it so runs fail before starting.
+  private upstreamKeyRejected = false;
   private nowDate(): Date { return new Date(this.opts.now?.() ?? Date.now()); }
 
   start(): Promise<number> {
@@ -65,6 +68,7 @@ export class RelayServer {
       const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
       if (reject) return apiError(res, reject.status, 'permission_error', reject.error);
     }
+    if (this.upstreamKeyRejected) return apiError(res, 503, 'api_error', TEAM_KEY_REJECTED);
     json(res, 200, { ok: true, member });
   }
 
@@ -88,7 +92,9 @@ export class RelayServer {
     // 1. auth
     const presented = (req.headers['x-api-key'] as string) ?? '';
     const member = authMember(loadMembers(this.opts.relay.membersPath), presented);
-    if (!member) return apiError(res, 401, 'authentication_error', 'unknown member token');
+    // 403, not 401: the Agent SDK retries a 401 silently for minutes but fails
+    // fast on 403, and neither can be fixed by retrying.
+    if (!member) return apiError(res, 403, 'authentication_error', 'unknown member token');
 
     // 2. buffer body + read model
     const body = await readBytes(req);
@@ -116,6 +122,12 @@ export class RelayServer {
     delete headers['upgrade'];
 
     const up = reqFn(u, { method: 'POST', headers }, (upRes: IncomingMessage) => {
+      if (upRes.statusCode === 401) {
+        this.upstreamKeyRejected = true;
+        upRes.resume();
+        return apiError(res, 403, 'authentication_error', TEAM_KEY_REJECTED);
+      }
+      if ((upRes.statusCode ?? 0) < 400) this.upstreamKeyRejected = false;
       res.writeHead(upRes.statusCode ?? 502, upRes.headers);
       const tee = new PassThrough();
       const chunks: Buffer[] = [];
@@ -143,6 +155,8 @@ export class RelayServer {
     up.end(body);
   }
 }
+
+const TEAM_KEY_REJECTED = "upstream rejected the team's API key; ask the relay admin to fix it";
 
 function json(res: ServerResponse, status: number, obj: unknown): void {
   if (res.writableEnded) return;

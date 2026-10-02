@@ -176,8 +176,10 @@ In relay mode Claude runs send the member token to the relay, never a real key. 
 each run (CLI, dock, `blox eval`) blox asks the relay whether the token, model and team
 budget allow it, and stops with the relay's reason (revoked token, model not
 allowlisted, rolling budget spent) before any work. Runs that would bypass the relay
-(`--runner openai`, CCR-routed `provider,slug` models) are refused in relay mode. The
-relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
+(`--runner openai`, CCR-routed `provider,slug` models) are refused in relay mode. If
+upstream rejects the team key, the relay answers 403 (the Agent SDK would retry a 401
+for minutes), so the run stops in seconds, and `/check` refuses new runs until a
+request succeeds again. The relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
 
 ## Tests
 
