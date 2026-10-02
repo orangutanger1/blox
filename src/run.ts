@@ -58,7 +58,7 @@ async function gitUserEmail(projectPath: string): Promise<string> {
 export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceDeps): Promise<RunReport> {
   enforcePolicy(config); // throws PolicyError on violation, before any agent/model work
 
-  const openaiRun = (cfg: BloxConfig, p: string) => {
+  const openaiRun = (cfg: BloxConfig, p: string, session: { resume?: string; continueSession?: boolean } = {}) => {
     const ctx = deps.bridge.toolCtx;
     if (!ctx) throw new Error('--runner openai needs the blox toolset (a real Studio session, not --mock)');
     return runOpenAiAgent(p, cfg, ctx, deps.digest, {
@@ -67,13 +67,13 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
       sink: deps.sink,
       gate: deps.gate,
       abortController: deps.abortController,
+      ...session,
     });
   };
 
   let agent;
   if (config.runner === 'openai') {
-    if (deps.resume || deps.continueSession) throw new Error('--resume/--continue are Claude-runner sessions; not supported with --runner openai');
-    agent = await openaiRun(config, prompt);
+    agent = await openaiRun(config, prompt, { resume: deps.resume, continueSession: deps.continueSession });
   } else {
     const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
       image: !!deps.image,
