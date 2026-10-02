@@ -144,7 +144,9 @@ approve).
   (default OpenRouter) with `OPENAI_API_KEY` / `OPENROUTER_API_KEY`, else the stored
   OpenRouter key. Same system prompt, path guardrails, `--ask` gates and budget (from
   provider-reported cost; endpoints that report none are bounded by `--max-turns`
-  only). Not supported: `--resume`/`--continue` and the post-generation asset review.
+  only), the dock's post-generation asset review, and `--resume <id>` / `--continue`
+  (conversations are saved under `$XDG_STATE_HOME/blox/chat-sessions`, outside the
+  project, with images dropped).
   Set `"runner": "openai"` in `blox.config.json` to make it the default (the dock uses it too).
 - **Usage-limit fallback**: with `"fallbackModel": "openrouter,openai/gpt-6-luna"` in
   `blox.config.json` (or `--fallback-model`), a subscription run that hits its plan's

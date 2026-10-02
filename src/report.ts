@@ -81,7 +81,7 @@ export function formatReport(r: RunReport): string {
     // Resume hint. The gated block already prints `session: <id>` with its own
     // re-run guidance, so suppress the duplicate there.
     ...(r.sessionId && !(r.gatedActions && r.gatedActions.length)
-      ? [`resume: blox --resume ${r.sessionId} "<follow-up>"`]
+      ? [`resume: blox${r.sessionId.startsWith('oa-') ? ' --runner openai' : ''} --resume ${r.sessionId} "<follow-up>"`]
       : []),
   ];
   if (r.detail) lines.push(`detail: ${r.detail}`);

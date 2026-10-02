@@ -10,6 +10,10 @@ import { buildBloxSystemPrompt } from './systemPrompt.js';
 import { denyMessage, dockDenyMessage, isGatedCall, type GateChannel } from './permission.js';
 import type { AgentRunResult, GatedAction, StopReason } from './runAgent.js';
 import type { ImageInput } from './imageInput.js';
+import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk';
+import { latestChatSession, loadChatSession, newChatSessionId, saveChatSession, type ChatSession } from './chatSessions.js';
+import type { ChatMessage } from './chatLoop.js';
+import { buildAssetDedupeHook, buildAssetRecordHook, buildAssetResultHook, type ResultGateChannel } from './hooks.js';
 
 // The built-in runner on any OpenAI-compatible endpoint (`--runner openai`).
 // Same blox toolset, system prompt, path guardrails, --ask gates and budget as
@@ -73,10 +77,14 @@ export interface OpenAiRunOptions {
   image?: ImageInput;
   verify?: boolean;
   sink?: EventSink;
-  gate?: GateChannel;
+  gate?: GateChannel & Partial<ResultGateChannel>;
   abortController?: AbortController;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  // Continue a saved conversation (by id, or the project's latest).
+  resume?: string;
+  continueSession?: boolean;
+  sessionsDir?: string;
 }
 
 function stopReason(stop: string): StopReason {
@@ -113,8 +121,50 @@ export async function runOpenAiAgent(
   const first: ContentPart[] = [{ type: 'text', text: prompt }];
   if (o.image) first.push({ type: 'image_url', image_url: { url: `data:${o.image.mediaType};base64,${o.image.base64}` } });
 
+  let prior: ChatSession | null = null;
+  try {
+    if (o.resume) prior = loadChatSession(o.resume, o.sessionsDir);
+    else if (o.continueSession) prior = latestChatSession(config.projectPath, o.sessionsDir);
+  } catch (e) {
+    return { ...base, detail: (e as Error).message };
+  }
+  const sessionId = prior?.id ?? newChatSessionId();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: buildBloxSystemPrompt(digest, { image: !!o.image, verify: o.verify, toolNames: 'plain' }) },
+    ...(prior?.messages ?? []),
+    { role: 'user', content: o.image ? first : prompt },
+  ];
+  const save = () => {
+    try {
+      saveChatSession({ id: sessionId, projectPath: config.projectPath, model: config.model, messages }, o.sessionsDir);
+    } catch (e) {
+      log(`could not save the session for --resume: ${(e as Error).message}`);
+    }
+  };
+
   const ask = config.mode === 'ask';
   let costWarned = false;
+  // The Claude runner's asset hooks, called directly: dedupe hint before a
+  // generation, then record it and park on the dock's approve/reject card.
+  const resultGate: ResultGateChannel | undefined =
+    o.gate?.requestResult ? { isConnected: () => o.gate!.isConnected(), requestResult: o.gate.requestResult.bind(o.gate) } : undefined;
+  const preHooks = [buildAssetDedupeHook(config.projectPath)];
+  const postHooks = [buildAssetRecordHook(config.projectPath), buildAssetResultHook(resultGate)];
+  const runHooks = async (hooks: HookCallback[], input: Record<string, unknown>): Promise<string[]> => {
+    const notes: string[] = [];
+    for (const h of hooks) {
+      try {
+        const r = (await h(input as unknown as HookInput, undefined, { signal: new AbortController().signal })) as {
+          decision?: string; reason?: string; hookSpecificOutput?: { additionalContext?: string };
+        };
+        if (r.decision === 'block' && r.reason) notes.push(r.reason);
+        if (r.hookSpecificOutput?.additionalContext) notes.push(r.hookSpecificOutput.additionalContext);
+      } catch {
+        /* hooks are advisory here; never fail the tool call */
+      }
+    }
+    return notes;
+  };
   try {
     const r = await runChatLoop({
       ...endpoint,
@@ -122,10 +172,7 @@ export async function runOpenAiAgent(
       budgetUsd: config.maxBudgetUsd,
       signal: o.abortController?.signal,
       fetchImpl: o.fetchImpl,
-      messages: [
-        { role: 'system', content: buildBloxSystemPrompt(digest, { image: !!o.image, verify: o.verify, toolNames: 'plain' }) },
-        { role: 'user', content: o.image ? first : prompt },
-      ],
+      messages,
       tools: [...FILE_TOOLS, ...bloxChatTools()],
       log,
       onTurn(turn, names, u) {
@@ -161,18 +208,25 @@ export async function runOpenAiAgent(
             throw new StopRun(denyMessage(gated));
           }
         }
+        const hookInput = { tool_name: qualified, tool_input: args };
+        const before = name === 'studio_tool' ? await runHooks(preHooks, { ...hookInput, hook_event_name: 'PreToolUse' }) : [];
         const out = await invokeTool(tool, args, ctx);
-        const text = (out.isError ? 'ERROR: ' : '') + out.text;
+        const after = name === 'studio_tool' && !out.isError
+          ? await runHooks(postHooks, { ...hookInput, hook_event_name: 'PostToolUse', tool_response: { content: [{ type: 'text', text: out.text }] } })
+          : [];
+        const text = [...before, (out.isError ? 'ERROR: ' : '') + out.text, ...after].join('\n\n');
         if (out.images?.length && !vision) {
           return { text: `${text}\n(${out.images.length} image(s) not shown: this run is text-only${out.artifacts?.length ? `; saved: ${out.artifacts.join(', ')}` : ''})` };
         }
         return { text, images: out.images };
       },
     });
+    save();
     const gatedStop = gatedActions.length > 0;
     const ok = r.stop === 'done' && !gatedStop;
     return {
       ...base,
+      sessionId,
       numTurns: r.turns,
       costUsd: r.costUsd ?? 0,
       ...(r.costUsd === null ? { costUnknown: true } : {}),
@@ -182,6 +236,7 @@ export async function runOpenAiAgent(
       detail: gatedStop ? 'gated' : r.stop === 'done' ? 'success' : r.error ? `model API: ${r.error}` : r.stop,
     };
   } catch (e) {
-    return { ...base, detail: (e as Error).message };
+    save();
+    return { ...base, sessionId, detail: (e as Error).message };
   }
 }

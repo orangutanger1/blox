@@ -14,6 +14,8 @@ import { agentSpec } from '../src/bench/cli.js';
 import { fakeStudio } from './fakeStudio.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'blox-oa-'));
+// Saved sessions go to the state dir; keep test runs out of the real one.
+process.env.XDG_STATE_HOME = tmp();
 
 function ccrFile(providers: unknown[]): string {
   const f = join(tmp(), 'config.json');
@@ -40,11 +42,11 @@ function fakeModel(replies: Reply[]) {
   return { fetchImpl, bodies };
 }
 
-function ctxFor(mode: 'auto' | 'ask' = 'auto') {
+function ctxFor(mode: 'auto' | 'ask' = 'auto', studioOpts: Parameters<typeof fakeStudio>[0] = {}) {
   const projectPath = tmp();
   writeFileSync(join(projectPath, 'default.project.json'), JSON.stringify({ name: 'g', tree: { $className: 'DataModel' } }));
   const config = BloxConfigSchema.parse({ projectPath, model: 'openai/gpt-6-luna', runner: 'openai', mode, maxTurns: 10, maxBudgetUsd: 1 });
-  const f = fakeStudio();
+  const f = fakeStudio(studioOpts);
   const ctx: ToolCtx = {
     session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }),
     projectPath, config, agent: 'test',
@@ -117,6 +119,41 @@ describe('runOpenAiAgent', () => {
     const r = await runOpenAiAgent('x', config, ctx, digest, { env, fetchImpl: m.fetchImpl, gate });
     expect(r).toMatchObject({ status: 'success', deniedByUser: ['mcp__blox__studio_tool'] });
     expect(JSON.stringify(m.bodies[1].messages.at(-1))).toMatch(/denied by the user/);
+  });
+  it('parks a generated asset on the dock review card; a reject reaches the model', async () => {
+    const { config, ctx, digest } = ctxFor('auto', { tools: { generate_mesh: () => JSON.stringify({ tag: 'Asset-tree-1' }) } });
+    const m = fakeModel([{ tool_calls: [{ name: 'studio_tool', args: { name: 'generate_mesh', args: { textPrompt: 'a tree' } } }] }, { content: 'ok' }]);
+    const reviewed: (string | null)[] = [];
+    const gate = {
+      isConnected: () => true,
+      request: async () => ({ decision: 'allow' as const, source: 'dock' as const }),
+      requestResult: async (_tool: string, tag: string | null) => { reviewed.push(tag); return { decision: 'reject' as const, source: 'dock' as const, feedback: 'too dark' }; },
+    };
+    await runOpenAiAgent('x', config, ctx, digest, { env, fetchImpl: m.fetchImpl, gate });
+    expect(reviewed).toEqual(['Asset-tree-1']);
+    expect(JSON.stringify(m.bodies[1].messages.at(-1))).toMatch(/rejected the asset[^]*too dark/);
+    // recorded for dedupe: the same prompt again gets the reuse hint
+    const m2 = fakeModel([{ tool_calls: [{ name: 'studio_tool', args: { name: 'generate_mesh', args: { textPrompt: 'a tree' } } }] }, { content: 'ok' }]);
+    await runOpenAiAgent('x', config, ctx, digest, { env, fetchImpl: m2.fetchImpl });
+    expect(JSON.stringify(m2.bodies[1].messages.at(-1))).toMatch(/identical asset was generated earlier/);
+  });
+  it('saves the conversation and resumes it with --resume / --continue', async () => {
+    const { config, ctx, digest } = ctxFor();
+    const sessionsDir = tmp();
+    const m1 = fakeModel([{ content: 'built the door' }]);
+    const r1 = await runOpenAiAgent('build a door', config, ctx, digest, { env, fetchImpl: m1.fetchImpl, sessionsDir });
+    expect(r1.sessionId).toMatch(/^oa-/);
+    const m2 = fakeModel([{ content: 'made it red' }]);
+    const r2 = await runOpenAiAgent('make it red', config, ctx, digest, { env, fetchImpl: m2.fetchImpl, sessionsDir, resume: r1.sessionId! });
+    expect(r2.sessionId).toBe(r1.sessionId);
+    expect(m2.bodies[0].messages.map((x) => [x.role, x.content])).toEqual([
+      ['system', expect.any(String)], ['user', 'build a door'], ['assistant', 'built the door'], ['user', 'make it red'],
+    ]);
+    const m3 = fakeModel([{ content: 'ok' }]);
+    await runOpenAiAgent('and taller', config, ctx, digest, { env, fetchImpl: m3.fetchImpl, sessionsDir, continueSession: true });
+    expect(m3.bodies[0].messages).toHaveLength(6);
+    const bad = await runOpenAiAgent('x', config, ctx, digest, { env, fetchImpl: m3.fetchImpl, sessionsDir, resume: 'nope' });
+    expect(bad.detail).toMatch(/no saved --runner openai session/);
   });
   it('stops at the budget using provider-reported cost', async () => {
     const { config, ctx, digest } = ctxFor();
