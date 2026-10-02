@@ -44,6 +44,11 @@ Social/PvP rules (theft, trading, rounds) need real clients: tests/<name>.mp.lua
 ("-- @context multiplayer", "-- @clients N"), then multiplayer {}. Specs get mp.players and
 mp.client(player, "invoke", "ReplicatedStorage.Remotes.X", ...) to act as each client.
 
+## Assets
+Prefer code-built geometry. Record every other asset: asset {action:"sanitize", path, id}
+after inserting a Creator Store model (strips scripts, flags backdoors), asset {action:"add"}
+for generated/external ones, asset {action:"lint"}. Approval and uploads are human steps.
+
 ## UI
 Build HUDs with BloxUI (ui {action:"install"}; kits include it): scale-sized, 44px touch
 targets, safe-area aware. Then ui {action:"lint"} checks every device size; fix all errors.
