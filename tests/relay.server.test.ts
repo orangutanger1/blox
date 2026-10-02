@@ -63,11 +63,25 @@ const post = (base: string, key: string, body: unknown) =>
   fetch(`${base}/v1/messages`, { method: 'POST', headers: { 'x-api-key': key, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('RelayServer', () => {
-  it('401s an unknown member token without proxying', async () => {
+  // 403, not 401: the Agent SDK retries 401s silently for minutes.
+  it('403s an unknown member token without proxying', async () => {
     const o = relayOpts();
     const base = await start(o);
     const res = await post(base, 'blx_unknown', { model: 'claude-opus-4-8' });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
+  });
+
+  it('turns an upstream 401 (bad team key) into a 403 and fails /check until it recovers', async () => {
+    const received: { key?: string } = {};
+    const up = await startUpstream(received, 401);
+    const o = relayOpts({ upstream: up });
+    const token = addMember(o.membersPath, 'a@x.com');
+    const base = await start(o);
+    const res = await post(base, token, { model: 'claude-opus-4-8' });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/team's API key/);
+    const check = await fetch(`${base}/api/v1/check`, { headers: { 'x-api-key': token } });
+    expect(check.status).toBe(503);
   });
 
   it('403s a disallowed model', async () => {

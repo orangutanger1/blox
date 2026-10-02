@@ -18,3 +18,11 @@ describe('runAgent turn count', () => {
     expect(statuses).toEqual([1, 2, 3]);
   });
 });
+
+describe('summarizeResult', () => {
+  it('treats an is_error "success" result as an API failure', async () => {
+    const { summarizeResult } = await import('../src/agent/runAgent.js');
+    const r = summarizeResult({ subtype: 'success', is_error: true, result: 'Failed to authenticate. API Error: 403 x', num_turns: 1, total_cost_usd: 0, session_id: 's' });
+    expect(r).toMatchObject({ status: 'error', stopReason: 'error', detail: 'Failed to authenticate. API Error: 403 x' });
+  });
+});

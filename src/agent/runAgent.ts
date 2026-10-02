@@ -112,6 +112,10 @@ export interface AgentRunResult {
 
 interface ResultMessageLike {
   subtype: string;
+  // An API failure (e.g. "Failed to authenticate. API Error: 403 …") arrives as
+  // subtype "success" with is_error set and the message in `result`.
+  is_error?: boolean;
+  result?: string;
   num_turns: number;
   total_cost_usd: number;
   session_id: string;
@@ -153,14 +157,15 @@ export function summarizeResult(
     }
   }
   const gated = gatedActions.length > 0;
-  const baseStatus: 'success' | 'error' = message.subtype === 'success' ? 'success' : 'error';
+  const apiError = message.subtype === 'success' && message.is_error === true;
+  const baseStatus: 'success' | 'error' = message.subtype === 'success' && !apiError ? 'success' : 'error';
   return {
     numTurns: message.num_turns,
     costUsd: message.total_cost_usd,
     ...(message.usage ? { tokens: tokensFromUsage(message.usage) } : {}),
     status: gated ? 'error' : baseStatus,
-    stopReason: gated ? 'gated' : classifyStop(message.subtype),
-    detail: gated ? 'gated' : message.subtype,
+    stopReason: gated ? 'gated' : apiError ? 'error' : classifyStop(message.subtype),
+    detail: gated ? 'gated' : apiError ? String(message.result ?? 'API error').slice(0, 300) : message.subtype,
     sessionId: message.session_id,
     gatedActions,
     deniedByUser,
