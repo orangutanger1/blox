@@ -1,0 +1,93 @@
+{
+  "label": "mm-gpt-6-luna",
+  "agent": "openai-compat agent + blox MCP",
+  "startedAt": "2026-10-02T03:42:45.498Z",
+  "finishedAt": "2026-10-02T03:48:17.744Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t2-coins",
+      "level": "2 gameplay mechanic",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 87,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/mm-gpt-6-luna/t2-coins",
+      "notes": [],
+      "turns": 15,
+      "costUsd": 0.0046959950000000006,
+      "tokens": {
+        "input": 45,
+        "cacheRead": 75537,
+        "cacheWrite": 8701,
+        "output": 5697
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 10,
+      "bloxToolErrors": 3,
+      "live": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 59,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/mm-gpt-6-luna/t6-door",
+      "notes": [],
+      "turns": 12,
+      "costUsd": 0.0017672349999999998,
+      "tokens": {
+        "input": 36,
+        "cacheRead": 40501,
+        "cacheWrite": 3481,
+        "output": 1847
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 7,
+      "bloxToolErrors": 0,
+      "live": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 149,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/mm-gpt-6-luna/t7-shop",
+      "notes": [],
+      "turns": 19,
+      "costUsd": 0.007465985,
+      "tokens": {
+        "input": 57,
+        "cacheRead": 147716,
+        "cacheWrite": 13985,
+        "output": 8470
+      },
+      "model": "openai/gpt-6-luna",
+      "bloxToolCalls": 13,
+      "bloxToolErrors": 3,
+      "live": {
+        "passed": 9,
+        "total": 9,
+        "failures": []
+      }
+    }
+  ]
+}

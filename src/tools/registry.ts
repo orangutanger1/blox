@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BloxConfig } from '../config.js';
-import { StudioError, resultText, type StudioSession } from '../studio/session.js';
+import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from '../studio/session.js';
 import { runLuau, type LuauResult } from '../studio/luau.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs } from '../studio/play.js';
 import { formatSyncResult, pushProject, syncDrift } from '../sync/push.js';
@@ -72,6 +72,14 @@ function filesNewerThan(projectPath: string, iso: string, dirs: string[]): strin
   return out;
 }
 
+// Studio's schema minus the studio_id blox fills in.
+export function schemaText(schema: unknown): string {
+  const sch = JSON.parse(JSON.stringify(schema ?? {})) as { properties?: Record<string, unknown>; required?: string[] };
+  if (sch.properties) delete sch.properties.studio_id;
+  if (sch.required) sch.required = sch.required.filter((r) => r !== 'studio_id');
+  return JSON.stringify(sch);
+}
+
 function compactTests(r: TestRunResult) {
   return { ranAt: r.ranAt, ok: r.ok, passed: r.passed, total: r.total, tests: r.tests, fileErrors: r.fileErrors, logErrors: r.logs?.errors ?? [] };
 }
@@ -84,7 +92,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'status',
     description:
-      'Start here. One-call situational report: attached Studio + play mode, files not yet synced, last test run (and whether files changed since), last playtest errors, and the task/acceptance-criteria checklist.',
+      'Start here: attached Studio + mode, unsynced files, last test run (stale?), last playtest errors, task checklist.',
     shape: {},
     async handler(_a, ctx) {
       const lines = [`project: ${ctx.projectPath}`];
@@ -122,7 +130,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'sync',
     description:
-      'Push project files into Studio (scripts per default.project.json, world/ builders). Incremental and verified; returns created/updated/deleted. Edit mode only. run_tests and playtest sync automatically.',
+      'Push files into Studio (scripts + world/ builders), incremental. Edit mode only; run_tests/playtest already sync.',
     shape: { force: z.boolean().optional().describe('re-push all scripts and rebuild every world builder') },
     async handler(a, ctx) {
       const r = await pushProject(ctx.session, ctx.projectPath, { force: a.force === true, worldDir: ctx.config.worldDir });
@@ -133,7 +141,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_tests',
     description:
-      'Sync, then run tests/*.spec.luau inside Studio: edit specs directly, server/client specs inside one playtest (started and stopped for you). Returns per-test pass/fail with file:line, plus runtime errors seen during the playtest. Updates acceptance-criteria status.',
+      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you). Returns failures with file:line, playtest runtime errors, criteria status.',
     shape: {
       filter: z.string().optional().describe('only spec files whose path contains this'),
       contexts: z.array(context).optional().describe('limit to these spec contexts'),
@@ -155,7 +163,7 @@ export const TOOLS: BloxTool[] = [
       });
       if (!a.filter && !a.contexts) writeJson(ctx.projectPath, 'last-tests.json', compactTests(r));
       const task = loadTask(ctx.projectPath);
-      const crit = task ? `\n\n${formatTask(task, r)}` : '';
+      const crit = task ? `\n${formatTask(task, r, { compact: true })}` : '';
       const none = r.total === 0 && r.fileErrors.length === 0 ? '\n(no specs found — add tests/*.spec.luau)' : '';
       return { text: pre + formatTestRun(r) + none + crit, isError: !r.ok, summary: `${r.passed}/${r.total} passed` };
     },
@@ -163,7 +171,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'playtest',
     description:
-      'Run the game and observe it, in one call: sync → start play → wait until a player/character is ready → wait `seconds` → optional inputs → optional server_code/client_code Luau probes (return values come back serialized) → optional screenshot → typed server+client errors/warnings/output → stop play.',
+      'One call: sync → play → wait for character → wait `seconds` → inputs → server_code/client_code probes (returns serialized) → screenshot → typed errors/warnings/output → stop.',
     shape: {
       seconds: z.number().min(0).max(120).optional().describe('game time before probing (default 3)'),
       server_code: z.string().optional().describe('Luau run in the server DataModel; return values are reported'),
@@ -171,11 +179,11 @@ export const TOOLS: BloxTool[] = [
       inputs: z
         .array(z.object({ kind: z.enum(['navigate', 'keyboard', 'mouse', 'wait']), args: z.record(z.string(), z.unknown()) }))
         .optional()
-        .describe('navigate args {x,y,z}|{instance_path}; keyboard/mouse args {actions:[…]} (Studio input schema); wait {seconds}'),
+        .describe('navigate {x,y,z}|{instance_path}; mouse {actions:[{action:"mouseButtonClick",mouse_button:"left",instance_path}]} (also moveTo/mouseButtonDown/Up/scrollUp/Down, x,y); keyboard {actions:[{action:"keyPress",key_code:"E"}]} (also keyDown/keyUp/textInput+text_inputs); wait {seconds}'),
       screenshot: z.boolean().optional(),
       camera_position: vec3.optional(),
       look_at: vec3.optional(),
-      keep_running: z.boolean().optional().describe('leave play running for follow-up run_luau/screenshot calls; stop with play {action:"stop"}'),
+      keep_running: z.boolean().optional().describe('leave play running; stop with play {action:"stop"}'),
       sync: z.boolean().optional().describe('default true'),
     },
     async handler(a, ctx) {
@@ -212,7 +220,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_luau',
     description:
-      'Run Luau in Studio and get every return value (Instances, Vector3, tables serialized), the log lines it printed, and errors with line numbers. context: edit (default; edit DataModel, require() loads current module source), server/client (need a running playtest — see playtest keep_running or play). Use for inspection and one-off probes; put lasting checks in tests/.',
+      'Run Luau in Studio; returns serialized return values, printed logs, errors with line numbers. context edit (default) or server/client (needs a running playtest). For probes; lasting checks go in tests/.',
     shape: { code: z.string(), context: context.optional() },
     async handler(a, ctx) {
       const code = String(a.code ?? '');
@@ -223,7 +231,7 @@ export const TOOLS: BloxTool[] = [
   },
   {
     name: 'play',
-    description: 'Control the playtest directly: start (waits until a player + character are ready), stop, or state.',
+    description: 'Playtest control: start (waits for character), stop, state.',
     shape: { action: z.enum(['start', 'stop', 'state']) },
     async handler(a, ctx) {
       if (a.action === 'start') {
@@ -240,7 +248,7 @@ export const TOOLS: BloxTool[] = [
   },
   {
     name: 'logs',
-    description: 'Typed log lines (error/warning/output) from a DataModel since N seconds ago. During play use server/client; edit otherwise.',
+    description: 'Typed error/warning/output lines from a DataModel (server/client during play) for the last N seconds.',
     shape: { context: context.optional(), since_seconds: z.number().positive().optional().describe('default 60') },
     async handler(a, ctx) {
       const ctxName = (a.context as 'edit' | 'server' | 'client') ?? 'edit';
@@ -254,7 +262,7 @@ export const TOOLS: BloxTool[] = [
   },
   {
     name: 'screenshot',
-    description: 'Capture the Studio viewport (edit or play) as an image you can see; saved under .blox/artifacts. Optionally aim the camera.',
+    description: 'Image of the Studio viewport (edit or play), optionally aimed; saved under .blox/artifacts.',
     shape: { camera_position: vec3.optional(), look_at: vec3.optional() },
     async handler(a, ctx) {
       const cam = a.camera_position && a.look_at ? { position: a.camera_position as [number, number, number], lookAt: a.look_at as [number, number, number] } : undefined;
@@ -265,8 +273,9 @@ export const TOOLS: BloxTool[] = [
   },
   {
     name: 'explore',
-    description: 'Search the live DataModel tree (Studio search_game_tree). Filter with instance_type (IsA), keywords, path; keep max_depth small.',
+    description: 'Search the live instance tree by instance_type (IsA), keywords, path; keep max_depth small.',
     shape: {
+      context: context.optional().describe('default: edit, or server while playing'),
       path: z.string().optional(),
       instance_type: z.string().optional(),
       keywords: z.string().optional(),
@@ -274,19 +283,27 @@ export const TOOLS: BloxTool[] = [
       head_limit: z.number().int().positive().optional(),
     },
     async handler(a, ctx) {
-      const r = await ctx.session.call('search_game_tree', a);
+      const { context: c, ...rest } = a;
+      const dm = c ? (c as DataModelContext) : (await ctx.session.state()).mode === 'Edit' ? 'edit' : 'server';
+      const r = await ctx.session.call('search_game_tree', { ...rest, datamodel_type: contextToDataModel(dm) });
       return { text: resultText(r), isError: r.isError, summary: 'search_game_tree' };
     },
   },
   {
     name: 'studio_tool',
     description:
-      'Call any other Roblox Studio MCP tool by name (studio_id is added for you). Useful: inspect_instance{path}, search_asset{query}, insert_asset{assetId}, generate_mesh{textPrompt}, generate_material, generate_procedural_model{prompt} + wait_job_finished{generationId}, store_image{filePath}, script_read{target_file}. Pass name "list" to see all tools and their required args.',
+      'Last resort: call a raw Studio MCP tool by name (e.g. inspect_instance, search_asset, insert_asset, generate_mesh). name "list" lists tools; name "list" + args {tool} gives that tool\'s full input schema.',
     shape: { name: z.string(), args: z.record(z.string(), z.unknown()).optional() },
     async handler(a, ctx) {
       const name = String(a.name);
       if (name === 'list') {
         const tools = await ctx.session.listTools();
+        const want = (a.args as Record<string, unknown> | undefined)?.tool;
+        if (typeof want === 'string') {
+          const t = tools.find((x) => x.name === want);
+          return t ? { text: `${t.name}: ${t.description ?? ''}\ninput schema: ${schemaText(t.inputSchema)}`, summary: `schema ${want}` }
+            : { text: `no Studio tool "${want}"`, isError: true, summary: 'no such tool' };
+        }
         return {
           text: tools.map((t) => `${t.name}(${(t.inputSchema?.required ?? []).filter((r) => r !== 'studio_id').join(', ')})`).join('\n'),
           summary: 'list',
@@ -295,14 +312,21 @@ export const TOOLS: BloxTool[] = [
       if (name === 'http_get') return { text: 'blocked: external web requests are not allowed', isError: true, summary: 'blocked' };
       if (name === 'multi_edit') return { text: 'blocked: edit script files on disk and sync instead of multi_edit', isError: true, summary: 'blocked' };
       const r = await ctx.session.call(name, (a.args as Record<string, unknown>) ?? {}, 600_000);
+      // A rejected call usually means wrong arguments: hand back the real schema
+      // so the next attempt is informed instead of guessed.
+      let hint = '';
+      if (r.isError) {
+        const t = (await ctx.session.listTools().catch(() => [])).find((x) => x.name === name);
+        if (t) hint = `\ninput schema for ${name}: ${schemaText(t.inputSchema)}`;
+      }
       const images = (r.content ?? []).filter((b) => b.type === 'image' && b.data).map((b) => ({ data: b.data!, mimeType: b.mimeType ?? 'image/png' }));
-      return { text: resultText(r) || '(no text)', images: images.length ? images : undefined, isError: r.isError, summary: name };
+      return { text: (resultText(r) || '(no text)') + hint, images: images.length ? images : undefined, isError: r.isError, summary: name };
     },
   },
   {
     name: 'task',
     description:
-      'The task record that survives sessions: goal, acceptance criteria (bind each to test names so run_tests marks it pass/fail), notes, blockers. actions: get | set {goal, criteria:[{id,text,tests?}]} | update {id, status: pass|fail|pending, evidence} for criteria without tests | note {text} | block {text} (needs a human) | unblock.',
+      'Persistent goal + acceptance criteria. get | set {goal, criteria:[{id,text,tests?}]} (tests = test names; run_tests then sets status) | update {id,status,evidence} (criteria without tests) | note {text} | block {text} (needs a human) | unblock.',
     shape: {
       action: z.enum(['get', 'set', 'update', 'note', 'block', 'unblock']),
       goal: z.string().optional(),
@@ -351,7 +375,7 @@ export const TOOLS: BloxTool[] = [
   },
   {
     name: 'scaffold',
-    description: 'Create the standard blox project layout in the project dir (default.project.json, src/<Service>/, world/, tests/ with a smoke spec, AGENTS.md). Non-destructive: existing files are kept.',
+    description: 'Create the standard project layout (default.project.json, src/, world/, tests/, AGENTS.md); keeps existing files.',
     shape: { name: z.string().optional() },
     async handler(a, ctx) {
       const r = scaffoldProject(ctx.projectPath, typeof a.name === 'string' ? a.name : undefined);

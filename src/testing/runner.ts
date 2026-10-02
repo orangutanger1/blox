@@ -302,8 +302,15 @@ export async function runTests(session: StudioSession, projectPath: string, opts
 export function formatTestRun(r: TestRunResult): string {
   const lines = [`tests ${r.ok ? 'PASS' : 'FAIL'}: ${r.passed}/${r.total} passed (${r.durationMs}ms)`];
   for (const f of r.fileErrors) lines.push(`  ERROR ${f.file}: ${f.message}`);
-  for (const t of r.tests) {
-    lines.push(`  ${t.status === 'pass' ? 'ok  ' : t.status.toUpperCase()} [${t.context}] ${t.file} › ${t.name}${t.message ? `\n        ${t.message}` : ''}`);
+  // Failures in full; passes as one line of names (they repeat on every run).
+  for (const t of r.tests.filter((x) => x.status !== 'pass')) {
+    lines.push(`  ${t.status.toUpperCase()} [${t.context}] ${t.file} › ${t.name}${t.message ? `\n        ${t.message}` : ''}`);
+  }
+  const ok = r.tests.filter((x) => x.status === 'pass').map((x) => x.name);
+  if (ok.length) {
+    let names = ok.join('; ');
+    if (names.length > 400) names = names.slice(0, 400) + '…';
+    lines.push(`  ok (${ok.length}): ${names}`);
   }
   if (r.logs?.errors.length) {
     lines.push(`  runtime errors during playtest (${r.logs.errors.length}):`);

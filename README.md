@@ -91,9 +91,16 @@ all 7.
 blox bench --validate                       # checks must FAIL on seed, PASS on reference
 blox bench --agent blox --label after       # built-in runner
 blox bench --agent claude-code              # Claude Code + blox MCP
+blox bench --agent openai --model z-ai/glm-5.3-flash   # any OpenAI-compatible model
 blox bench --agent legacy --legacy-cli ../old-blox/dist/cli.js
 blox bench --agent custom --agent-cmd '["codex","exec","{prompt}"]'
 ```
+
+`--agent openai` is a small vendor-neutral agent (`src/bench/openaiAgent.ts`): any
+OpenAI-compatible `/chat/completions` endpoint (`OPENAI_BASE_URL`, default OpenRouter;
+key in `OPENAI_API_KEY` or `OPENROUTER_API_KEY`), four file tools, and blox's MCP
+server over stdio. Everything it knows about Roblox comes from the MCP server's
+instructions and tool schemas, the same surface any MCP client gets.
 
 The bench measures the environment, not one vendor: any agent command works. Per run
 it records pass/fail, cost, time, turns, model and tokens (fresh input / cache read /
@@ -108,7 +115,9 @@ resets the open place between tasks — **point it at a throwaway place.**
 
 Latest core-suite results (2026-10-01, one run each): legacy blox 0/3 tasks, 2/16 live
 checks, $4.27, 26 min; blox runner 3/3, 16/16, $0.75, 2.6 min; Claude Code + blox MCP
-3/3, 16/16, $0.92, 2.9 min. Details: [`bench/results/comparison.md`](bench/results/comparison.md).
+3/3, 16/16, $0.92, 2.9 min. Non-Claude models through `--agent openai`: GPT-6 Luna
+3/3, 16/16, $0.014, 4.9 min; GLM 5.3 Flash 3/3, 16/16, $0.07, 14.5 min. Details:
+[`bench/results/comparison.md`](bench/results/comparison.md).
 
 ## Built-in runner (optional)
 

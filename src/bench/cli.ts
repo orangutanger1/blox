@@ -10,6 +10,8 @@ import { formatBenchMarkdown, runBench, validateTasks, type AgentSpec } from './
 //   blox          this checkout's built-in runner (blox "<prompt>")
 //   legacy        another blox checkout's runner: --legacy-cli <path/to/dist/cli.js>
 //   claude-code   `claude -p` with this checkout's blox MCP server wired in
+//   openai        dist/bench/openaiAgent.js: any OpenAI-compatible endpoint
+//                 (OPENAI_BASE_URL, default OpenRouter) + blox MCP; needs --model
 //   custom        --agent-cmd '["prog","arg","{prompt}"]' ({project}, {promptFile})
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -43,12 +45,21 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
       prepare: (wd) => { setupAgent('claude', wd); },
     };
   }
+  if (name === 'openai') {
+    if (!modelId) throw new Error('--agent openai needs --model <provider model id>');
+    return {
+      name: `openai-compat agent + blox MCP`,
+      model: modelId,
+      argv: [process.execPath, join(repoRoot, 'dist', 'bench', 'openaiAgent.js'), '--project', '{project}', '--model', modelId,
+        '--max-turns', turns, '--budget', budget, '{prompt}'],
+    };
+  }
   if (name === 'custom') {
     const cmd = o['agent-cmd'];
     if (typeof cmd !== 'string') throw new Error('--agent custom needs --agent-cmd \'["prog","{prompt}"]\'');
     return { name: `custom ${cmd}`, model: modelId, argv: JSON.parse(cmd) as string[], cwdIsProject: true };
   }
-  throw new Error(`unknown agent "${name}" (blox | legacy | claude-code | custom)`);
+  throw new Error(`unknown agent "${name}" (blox | legacy | claude-code | openai | custom)`);
 }
 
 export async function runBenchCommand(argv: string[]): Promise<void> {

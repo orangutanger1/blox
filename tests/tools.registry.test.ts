@@ -56,6 +56,27 @@ describe('invokeTool', () => {
   });
 });
 
+describe('studio_tool schema help', () => {
+  it('list {tool} returns the full schema without studio_id', async () => {
+    const r = await call('studio_tool', { name: 'list', args: { tool: 'start_stop_play' } }, ctxWith());
+    expect(r.text).toContain('"is_start"');
+    expect(r.text).not.toContain('studio_id');
+  });
+  it('a rejected raw call comes back with that tool\'s schema', async () => {
+    const r = await call('studio_tool', { name: 'execute_luau', args: { bogus: 1 } }, ctxWith());
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/input schema for execute_luau: .*"datamodel_type"/);
+  });
+});
+
+describe('explore', () => {
+  it('sends the datamodel Studio requires (edit at rest)', async () => {
+    const f = fakeStudio({ tools: { search_game_tree: () => '[]' } });
+    await call('explore', { path: 'Workspace' }, ctxWith(f));
+    expect(f.calls.find((c) => c.name === 'search_game_tree')?.args).toMatchObject({ path: 'Workspace', datamodel_type: 'Edit' });
+  });
+});
+
 describe('task tool', () => {
   it('sets criteria and derives test-bound status from the last run', async () => {
     const ctx = ctxWith();
