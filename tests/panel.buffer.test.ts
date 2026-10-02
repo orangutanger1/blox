@@ -24,6 +24,17 @@ describe('EventBuffer', () => {
     expect(r.cursor).toBe(4);
   });
 
+  it('a fresh client (cursor 0) starts at the latest run, not earlier runs', () => {
+    const b = new EventBuffer();
+    const started = (runId: string) => ({ type: 'run_started' as const, runId, prompt: 'p', mode: 'auto' as const, maxTurns: 1, maxBudgetUsd: 1, model: 'm' });
+    b.append(started('r1'));
+    b.append(log('old'));
+    b.append(started('r2'));
+    b.append(log('new'));
+    expect(b.since(0).events).toEqual([started('r2'), log('new')]);
+    expect(b.since(1).events).toHaveLength(3); // an existing cursor is honored
+  });
+
   it('notifies a waiter exactly once when an event arrives', async () => {
     const b = new EventBuffer();
     let woke = 0;

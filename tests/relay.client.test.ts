@@ -67,15 +67,30 @@ describe('checkRelay preflight', () => {
   });
 });
 
-describe('relayPreflight', () => {
+describe('authPreflight', () => {
   const store = { mode: 'relay' as const, relay: { url: 'http://127.0.0.1:1', token: 't' } };
   it('is a no-op outside relay mode', async () => {
-    const { relayPreflight } = await import('../src/auth.js');
-    expect(await relayPreflight({ model: 'm', runner: 'openai', store: {} })).toBeNull();
+    const { authPreflight } = await import('../src/auth.js');
+    expect(await authPreflight({ model: 'm', runner: 'openai', store: {} })).toBeNull();
   });
   it('refuses runs that would bypass the relay', async () => {
-    const { relayPreflight } = await import('../src/auth.js');
-    expect(await relayPreflight({ model: 'claude-opus-5-5', runner: 'openai', store })).toMatch(/bypass/);
-    expect(await relayPreflight({ model: 'openrouter,x', runner: 'claude', store })).toMatch(/bypass/);
+    const { authPreflight } = await import('../src/auth.js');
+    expect(await authPreflight({ model: 'claude-opus-5-5', runner: 'openai', store })).toMatch(/bypass/);
+    expect(await authPreflight({ model: 'openrouter,x', runner: 'claude', store })).toMatch(/bypass/);
+  });
+  it('API-key mode: refuses a rejected key, proceeds when valid or unreachable', async () => {
+    const { authPreflight } = await import('../src/auth.js');
+    const keyStore = { mode: 'apiKey' as const, apiKey: 'sk-ant-x' };
+    const seen: string[] = [];
+    const reply = (status: number) => (async (url: string, init: { headers: Record<string, string> }) => {
+      seen.push(`${url} ${init.headers['x-api-key']}`);
+      return new Response('{}', { status });
+    }) as unknown as typeof fetch;
+    const base = { model: 'claude-opus-5-5', runner: 'claude' as const, store: keyStore, env: {} };
+    expect(await authPreflight({ ...base, fetchImpl: reply(401) })).toMatch(/API key was rejected/);
+    expect(seen[0]).toBe('https://api.anthropic.com/v1/models?limit=1 sk-ant-x');
+    expect(await authPreflight({ ...base, fetchImpl: reply(200) })).toBeNull();
+    expect(await authPreflight({ ...base, fetchImpl: (async () => { throw new Error('offline'); }) as unknown as typeof fetch })).toBeNull();
+    expect(await authPreflight({ ...base, runner: 'openai', fetchImpl: reply(401) })).toBeNull();
   });
 });

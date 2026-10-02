@@ -274,14 +274,31 @@ export async function checkRelay(link: RelayLink, model: string | null, fetchImp
   return { ok: true, member: body.member };
 }
 
-// Run-start gate for relay mode: null when the run may proceed (or relay mode
-// is not active), else the user-facing reason. The relay still enforces on every
-// request; this just fails before any work instead of on the first model call.
-export async function relayPreflight(
-  opts: { override?: AuthMode | null; model: string; runner: 'claude' | 'openai'; store?: AuthStore; fetchImpl?: typeof fetch },
+// Run-start credential gate: null when the run may proceed, else the
+// user-facing reason. The Agent SDK retries a rejected credential (401) silently
+// for minutes, so check it first. Relay mode asks the relay (token, model,
+// budget); API-key mode asks Anthropic's free model list. A check that can't
+// reach the server lets the run proceed.
+export async function authPreflight(
+  opts: { override?: AuthMode | null; model: string; runner: 'claude' | 'openai'; store?: AuthStore; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv },
 ): Promise<string | null> {
   const store = opts.store ?? loadAuthStore();
-  if (effectiveAuthMode(store, opts.override) !== 'relay') return null;
+  const mode = effectiveAuthMode(store, opts.override);
+  if (mode === 'apiKey') {
+    if (opts.runner !== 'claude' || opts.model.includes(',')) return null; // the key isn't used
+    const base = ((opts.env ?? process.env).ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/$/, '');
+    try {
+      const res = await (opts.fetchImpl ?? fetch)(`${base}/v1/models?limit=1`, {
+        headers: { 'x-api-key': store.apiKey!, 'anthropic-version': '2023-06-01' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.status === 401) return 'the stored Anthropic API key was rejected (401); set a new one with `blox auth key set`, or `blox auth use subscription`';
+    } catch {
+      /* unreachable: let the run report its own error */
+    }
+    return null;
+  }
+  if (mode !== 'relay') return null;
   if (opts.runner !== 'claude') return 'team relay mode routes Claude runs only; --runner openai would bypass it (switch with `blox auth use subscription|key`)';
   if (opts.model.includes(',')) return `team relay mode routes Claude runs only; the routed model "${opts.model}" would bypass it`;
   const r = await checkRelay(store.relay!, opts.model, opts.fetchImpl);

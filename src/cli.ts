@@ -34,7 +34,7 @@ import { startDaemon } from './panel/daemon.js';
 import {
   runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore, effectiveAuthMode,
   setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv, authInfo,
-  setRelay, clearRelay, checkRelay, relayPreflight,
+  setRelay, clearRelay, checkRelay, authPreflight,
 } from './auth.js';
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
@@ -104,9 +104,9 @@ async function main(): Promise<void> {
     const bridge = studio
       ? createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-eval' })
       : createMockStudioBridge();
-    const relayBlock = await relayPreflight({ override: args.authMode, model: config.model, runner: config.runner });
-    if (relayBlock) {
-      console.error(relayBlock);
+    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    if (authBlock) {
+      console.error(authBlock);
       process.exit(1);
     }
     const env = buildAuthEnv({ override: args.authMode });
@@ -423,9 +423,9 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     }
-    const relayBlock = await relayPreflight({ override: args.authMode, model: config.model, runner: config.runner });
-    if (relayBlock) {
-      console.error(relayBlock);
+    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    if (authBlock) {
+      console.error(authBlock);
       process.exit(1);
     }
     let report;
