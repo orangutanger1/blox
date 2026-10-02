@@ -20,6 +20,7 @@ export interface UsageSummary {
   unit?: 'runs' | 'requests';
   // Where the numbers come from: this project's ledger, or the team relay.
   source?: 'local' | 'relay';
+  memberCapUsd?: number; // relay per-member cap in the same window
 }
 
 function bucketsOf(entries: { key: string; cost: number }[]): UsageBucket[] {
@@ -82,7 +83,7 @@ export function renderUsageTable(s: UsageSummary): string {
     lines.push(`  used ${usd(s.totalUsd)}`);
   }
   lines.push('');
-  lines.push('By user');
+  lines.push(s.memberCapUsd != null ? `By user (cap ${usd(s.memberCapUsd)} each)` : 'By user');
   for (const b of s.byUser) lines.push(`  ${b.key}  ${usd(b.costUsd)}  ${b.runs} ${unit}`);
   lines.push('');
   lines.push('By model');
