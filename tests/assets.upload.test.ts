@@ -65,3 +65,17 @@ describe('uploadAsset (fake Open Cloud)', () => {
     await expect(uploadAsset(p, 'rock', { confirm: true, client: new OpenCloud({ apiKey: 'k', fetch: bad }) })).rejects.toThrow(/403: Forbidden: key lacks asset:write/);
   });
 });
+
+describe('planUpload animation', () => {
+  it('an animation .rbxm uploads as assetType Animation', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { planUpload } = await import('../src/assets/upload.js');
+    const dir = mkdtempSync(join(tmpdir(), 'blox-anim-up-'));
+    mkdirSync(join(dir, '.blox'));
+    writeFileSync(join(dir, 'walk.rbxm'), 'x');
+    writeFileSync(join(dir, '.blox/assets.json'), JSON.stringify({ version: 1, creator: { userId: 1 }, assets: [{ id: 'dog-walk', kind: 'animation', source: 'generated', licence: 'owned', ref: { file: 'walk.rbxm' }, provenance: { tool: 't', createdAt: '2026-10-02T00:00:00Z' }, status: 'approved' }] }));
+    expect(planUpload(dir, 'dog-walk').plan).toMatchObject({ assetType: 'Animation', contentType: 'model/x-rbxm' });
+  });
+});

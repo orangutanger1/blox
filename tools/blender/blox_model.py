@@ -201,6 +201,7 @@ def animate(armature, action, keys, loop=True):
                 pb.location = Vector(t["loc"])
                 pb.keyframe_insert("location", frame=f)
     act.frame_range = (frames[0], frames[-1])
+    act["blox_loop"] = bool(loop)
     track = armature.animation_data.nla_tracks.new()
     track.name = action
     track.strips.new(action, frames[0], act)

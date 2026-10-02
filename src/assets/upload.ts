@@ -41,8 +41,10 @@ export function planUpload(projectPath: string, id: string): { plan: UploadPlan;
   if (!entry.ref.file) throw new Error(`"${id}" has no ref.file to upload`);
   const file = join(projectPath, entry.ref.file);
   if (!existsSync(file)) throw new Error(`file not found: ${entry.ref.file}`);
-  const t = TYPES[extname(file).toLowerCase()];
-  if (!t) throw new Error(`unsupported upload type ${extname(file)} (supported: ${Object.keys(TYPES).join(' ')})`);
+  const found = TYPES[extname(file).toLowerCase()];
+  if (!found) throw new Error(`unsupported upload type ${extname(file)} (supported: ${Object.keys(TYPES).join(' ')})`);
+  // A KeyframeSequence .rbxm goes up as an Animation, not a Model.
+  const t = entry.kind === 'animation' && extname(file).toLowerCase() === '.rbxm' ? { ...found, assetType: 'Animation' } : found;
   if (!m.creator?.userId && !m.creator?.groupId) throw new Error('set "creator": {"userId": N} or {"groupId": N} in .blox/assets.json');
   return {
     entry,
