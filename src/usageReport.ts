@@ -15,6 +15,11 @@ export interface UsageSummary {
   errorCount: number;
   byUser: UsageBucket[];
   byModel: UsageBucket[];
+  // What one counted entry is: a blox run (local ledger) or a model request
+  // (relay ledger). Absent = runs.
+  unit?: 'runs' | 'requests';
+  // Where the numbers come from: this project's ledger, or the team relay.
+  source?: 'local' | 'relay';
 }
 
 function bucketsOf(entries: { key: string; cost: number }[]): UsageBucket[] {
@@ -68,7 +73,8 @@ function bar(pct: number, width = 20): string {
 export function renderUsageTable(s: UsageSummary): string {
   const lines: string[] = [];
   const win = s.window.days != null ? `last ${s.window.days}d` : 'all time';
-  lines.push(`blox usage — ${win}`);
+  lines.push(`blox usage — ${win}${s.source === 'relay' ? ' (team relay)' : ''}`);
+  const unit = s.unit ?? 'runs';
   if (s.capUsd != null && s.capPct != null) {
     const pct = Math.round(s.capPct * 100);
     lines.push(`  used ${usd(s.totalUsd)} / cap ${usd(s.capUsd)}  ${bar(s.capPct)}  ${pct}%`);
@@ -77,12 +83,12 @@ export function renderUsageTable(s: UsageSummary): string {
   }
   lines.push('');
   lines.push('By user');
-  for (const b of s.byUser) lines.push(`  ${b.key}  ${usd(b.costUsd)}  ${b.runs} runs`);
+  for (const b of s.byUser) lines.push(`  ${b.key}  ${usd(b.costUsd)}  ${b.runs} ${unit}`);
   lines.push('');
   lines.push('By model');
   for (const b of s.byModel) lines.push(`  ${b.key}  ${usd(b.costUsd)}`);
   lines.push('');
-  lines.push(`${s.runCount} runs, ${s.errorCount} errors in window`);
+  lines.push(`${s.runCount} ${unit}, ${s.errorCount} errors in window`);
   return lines.join('\n');
 }
 

@@ -8,6 +8,7 @@ import { usageFromJson, usageFromSse } from './usage.js';
 import { costUsd } from './pricing.js';
 import { appendRelayEntry, readRelayEntries, type RelayEntry } from './ledger.js';
 import { aggregateUsage } from '../usageReport.js';
+import { DASHBOARD_HTML } from './dashboard.js';
 
 export interface RelayServerOptions {
   relay: Relay;
@@ -51,6 +52,10 @@ export class RelayServer {
   private async route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true });
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY', 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" });
+      return void res.end(DASHBOARD_HTML);
+    }
     if (req.method === 'GET' && url.pathname === '/api/v1/usage') return this.usage(req, url, res);
     if (req.method === 'GET' && url.pathname === '/api/v1/check') return this.check(req, url, res);
     if (req.method === 'POST' && url.pathname === '/v1/messages') return this.messages(req, res);
@@ -82,10 +87,11 @@ export class RelayServer {
     const rb = this.opts.policy?.rollingBudget;
     const summary = aggregateUsage(readRelayEntries(this.opts.relay.ledgerPath), {
       now: this.nowDate(),
-      windowDays: sinceDays ?? rb?.windowDays ?? null,
+      windowDays: sinceRaw === 'all' ? null : sinceDays ?? rb?.windowDays ?? null,
       capUsd: rb?.maxUsd ?? null,
     });
-    json(res, 200, summary);
+    // The relay ledgers one entry per model request, not per blox run.
+    json(res, 200, { ...summary, unit: 'requests', source: 'relay' });
   }
 
   private async messages(req: IncomingMessage, res: ServerResponse): Promise<void> {

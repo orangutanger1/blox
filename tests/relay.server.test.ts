@@ -148,5 +148,20 @@ describe('RelayServer', () => {
     const usage = await (await fetch(`${base}/api/v1/usage`, { headers: { 'x-api-key': token } })).json();
     expect(usage.runCount).toBe(1);
     expect(usage.byUser[0].key).toBe('a@x.com');
+    expect(usage).toMatchObject({ unit: 'requests', source: 'relay' });
+    const all = await (await fetch(`${base}/api/v1/usage?since=all`, { headers: { 'x-api-key': token } })).json();
+    expect(all.window.days).toBeNull();
+  });
+
+  it('serves the dashboard page without data or auth (the page asks for a token)', async () => {
+    const base = await start(relayOpts());
+    const res = await fetch(`${base}/dashboard`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    const html = await res.text();
+    expect(html).toContain('/api/v1/usage');
+    expect(html).toMatch(/const esc = /);
+    expect((await fetch(`${base}/`)).status).toBe(200);
   });
 });

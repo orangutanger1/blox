@@ -11,6 +11,8 @@ export interface UsageSummary {
   errorCount: number;
   byUser: UsageBucket[];
   byModel: UsageBucket[];
+  unit?: 'runs' | 'requests'; // relay ledgers count model requests
+  source?: 'local' | 'relay';
 }
 
 // Mirrors the engine's panel HTTP API (src/panel/server.ts). All methods

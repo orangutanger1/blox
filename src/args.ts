@@ -17,6 +17,7 @@ export interface ParsedArgs {
   model: string | null;
   runner: 'claude' | 'openai' | null;
   fallbackModel: string | null;
+  usageSource: 'auto' | 'local' | 'relay'; // blox report: --local / --relay
   key: string | null;
   baseUrl: string | null;
   since: number | null;
@@ -45,6 +46,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let model: string | null = null;
   let runner: 'claude' | 'openai' | null = null;
   let fallbackModel: string | null = null;
+  let usageSource: 'auto' | 'local' | 'relay' = 'auto';
   let key: string | null = null;
   let baseUrl: string | null = null;
   let since: number | null = null;
@@ -103,6 +105,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (!Number.isInteger(n) || n <= 0) throw new Error('--since must be a positive integer number of days (e.g. 7 or 7d)');
       since = n;
     } else if (a === '--json') json = true;
+    else if (a === '--local') usageSource = 'local';
+    else if (a === '--relay') usageSource = 'relay';
     else if (a === '--resume') {
       const v = argv[++i];
       if (v == null) throw new Error('--resume needs a session id');
@@ -144,6 +148,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     model,
     runner,
     fallbackModel,
+    usageSource,
     key,
     baseUrl,
     since,

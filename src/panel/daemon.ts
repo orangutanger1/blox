@@ -8,7 +8,7 @@ import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
 import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
-import { buildAuthEnv, authInfo, authPreflight, effectiveAuthMode, loadAuthStore } from '../auth.js';
+import { buildAuthEnv, authInfo, authPreflight, effectiveAuthMode, loadAuthStore, fetchRelayUsage } from '../auth.js';
 import { runOnce } from '../run.js';
 import { PolicyError } from '../policy.js';
 import { buildDigest } from '../context/digest.js';
@@ -89,6 +89,11 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     gateTimeoutMs: config.panel.gateTimeoutSeconds * 1000,
     projectPath: config.projectPath,
     rollingBudget: config.policy?.rollingBudget,
+    remoteUsage: (sinceDays) => {
+      const store = loadAuthStore();
+      if (effectiveAuthMode(store) !== 'relay' || !store.relay) return Promise.reject(new Error('not in relay mode'));
+      return fetchRelayUsage(store.relay, sinceDays);
+    },
   });
   server.attachAuth(() => authInfo());
   await server.start();
