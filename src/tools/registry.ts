@@ -470,6 +470,7 @@ export const TOOLS: BloxTool[] = [
       'Game-feel metrics from a real playtest (needs BloxTelemetry; kits include it). ftue {seconds?=60, bot?} → each design.json ftue step reached within targetSec + first currency <= 60s | soak {seconds?=300, bot?, archetype?, tolerance?} → no runtime errors, memory growth <= 10 MB/min, and (with archetype) purchase milestones on the simulator\'s pace | install (adds src/ReplicatedStorage/BloxTelemetry.luau). bot: "walk" (default) | "idle" | project file returning function(player, deadline) run on the server. Criteria bind via tests:["ftue:<id>"|"soak:<check>"]. Failing checks = isError.',
     shape: {
       action: z.enum(['ftue', 'soak', 'install']),
+      sync: z.boolean().optional().describe('default true: push files to Studio first'),
       seconds: z.number().int().min(0).max(900).optional(),
       bot: z.string().optional(),
       archetype: z.string().optional(),
@@ -487,6 +488,13 @@ export const TOOLS: BloxTool[] = [
           artifacts: [rel],
           summary: 'installed',
         };
+      }
+      // Measure the code on disk, not whatever Studio last saw (a stale
+      // Tunables made a live FTUE run measure old numbers).
+      const st = await ctx.session.state();
+      if (a.sync !== false && st.mode === 'Edit') {
+        const s = await pushProject(ctx.session, ctx.projectPath, { worldDir: ctx.config.worldDir });
+        if (!s.ok) return { text: formatSyncResult(s), isError: true, summary: 'sync failed' };
       }
       const raw = readJson<unknown>(ctx.projectPath, 'design.json');
       const v = raw === null ? null : validateDesign(raw);

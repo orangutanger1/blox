@@ -32,7 +32,7 @@ function ctx(dump: unknown | null, seen: string[] = []): ToolCtx {
     agent: 'test',
   };
 }
-const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('metrics')!, args, c);
+const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('metrics')!, { sync: false, ...args }, c);
 const DESIGN = {
   version: 1,
   meta: { title: 'T', format: 'incremental' },

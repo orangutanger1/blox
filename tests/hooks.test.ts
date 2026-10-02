@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, extractAssetTag, jobLandedNothing, rejectMessage, GEN_MESH_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
+import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, extractAssetTag, jobLandedNothing, rejectMessage, GEN_MESH_TOOL, GEN_PROC_TOOL, WAIT_JOB_TOOL } from '../src/agent/hooks.js';
 import type { ResultGateChannel } from '../src/agent/hooks.js';
 import { lookupAsset, assetCacheKey, recordAsset } from '../src/agent/assetCache.js';
 import type { SpawnFn } from '../src/sync/rojo.js';
@@ -133,6 +133,15 @@ describe('buildAssetResultHook', () => {
     expect(out.decision).toBeUndefined();
     expect(calls[0][0]).toBe(GEN_MESH_TOOL);
     expect(calls[0][1]).toBe('Assistant-MeshGen-1f2e3d4c-0000-4000-8000-aabbccddeeff');
+  });
+
+  it('gates synchronous procedural models too (Sep 2026 Studio: no job, tag in the result)', async () => {
+    const calls: unknown[][] = [];
+    const hook = buildAssetResultHook(channel('approve', undefined, calls));
+    const proc = { content: [{ type: 'text', text: '{"generationName":"WoodenBench","generationId":"bd66","tag":"PrimitiveGen_bd66"}' }] };
+    await hook(postInput(GEN_PROC_TOOL, proc), 't9', { signal });
+    expect(calls[0][0]).toBe(GEN_PROC_TOOL);
+    expect(calls[0][1]).toBe('PrimitiveGen_bd66');
   });
 
   it('blocks on reject with stash notice and feedback in the reason', async () => {
