@@ -4,6 +4,8 @@ export interface RunReport {
   commitSha: string | null;
   numTurns: number;
   costUsd: number;
+  model?: string;
+  tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   status: 'success' | 'error';
   stopReason?: string;
   detail?: string;
@@ -22,6 +24,10 @@ export function formatReport(r: RunReport): string {
     `prompt: ${r.prompt}`,
     ...(r.mode ? [`mode: ${r.mode}${r.effort ? `  effort: ${r.effort}` : ''}`] : []),
     `turns: ${r.numTurns}  cost: $${r.costUsd.toFixed(4)}`,
+    ...(r.model ? [`model: ${r.model}`] : []),
+    ...(r.tokens
+      ? [`tokens: input=${r.tokens.input} cache_read=${r.tokens.cacheRead} cache_write=${r.tokens.cacheWrite} output=${r.tokens.output}`]
+      : []),
     ...(r.stopReason ? [`stop: ${r.stopReason}`] : []),
     ...(r.gatedActions && r.gatedActions.length
       ? [

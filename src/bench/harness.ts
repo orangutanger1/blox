@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { DEFAULT_PRICING, costUsd } from '../relay/pricing.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { scaffoldProject } from '../scaffold.js';
@@ -49,6 +50,8 @@ export interface TaskRun {
   durationSec: number;
   costUsd?: number;
   turns?: number;
+  model?: string;
+  tokens?: TokenUsage;
   bloxToolCalls?: number;
   bloxToolErrors?: number;
   live?: CheckOutcome;
@@ -150,8 +153,25 @@ export async function evaluate(session: StudioSession, task: BenchTask, workdir:
   }
 }
 
+// Provider-neutral token counts. Agents report them however they can (see
+// collectAgentStats); the bench never assumes a particular model or vendor.
+export interface TokenUsage {
+  input: number; // fresh (uncached) input
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+}
+
+export interface AgentStats {
+  costUsd?: number;
+  turns?: number;
+  model?: string;
+  tokens?: TokenUsage;
+}
+
 export interface AgentSpec {
   name: string;
+  model?: string; // requested model, if the profile passes one
   argv: string[]; // with {prompt} {project} placeholders
   env?: Record<string, string>;
   cwdIsProject?: boolean;
@@ -162,16 +182,40 @@ export function substitute(argv: string[], vars: Record<string, string>): string
   return argv.map((a) => a.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m));
 }
 
-export function parseAgentStats(stdout: string): { costUsd?: number; turns?: number } {
-  // blox runner report: "turns: 12  cost: $0.4567"
+// Stats from an agent's stdout, for agents with a known output format.
+export function parseAgentStats(stdout: string): AgentStats {
+  // blox runner report: "turns: 12  cost: $0.4567" (+ optional tokens line)
   const m = /turns:\s*(\d+)\s+cost:\s*\$([\d.]+)/.exec(stdout);
-  if (m) return { turns: Number(m[1]), costUsd: Number(m[2]) };
+  if (m) {
+    const out: AgentStats = { turns: Number(m[1]), costUsd: Number(m[2]) };
+    const t = /tokens:\s*input=(\d+)\s+cache_read=(\d+)\s+cache_write=(\d+)\s+output=(\d+)/.exec(stdout);
+    if (t) out.tokens = { input: Number(t[1]), cacheRead: Number(t[2]), cacheWrite: Number(t[3]), output: Number(t[4]) };
+    const mm = /^model:\s*(\S+)/m.exec(stdout);
+    if (mm) out.model = mm[1];
+    return out;
+  }
   // claude -p --output-format json
   const j = /\{[^]*"total_cost_usd"[^]*\}\s*$/.exec(stdout.trim());
   if (j) {
     try {
-      const o = JSON.parse(j[0]) as { total_cost_usd?: number; num_turns?: number };
-      return { costUsd: o.total_cost_usd, turns: o.num_turns };
+      const o = JSON.parse(j[0]) as {
+        total_cost_usd?: number;
+        num_turns?: number;
+        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+        modelUsage?: Record<string, unknown>;
+      };
+      const out: AgentStats = { costUsd: o.total_cost_usd, turns: o.num_turns };
+      if (o.usage) {
+        out.tokens = {
+          input: o.usage.input_tokens ?? 0,
+          cacheRead: o.usage.cache_read_input_tokens ?? 0,
+          cacheWrite: o.usage.cache_creation_input_tokens ?? 0,
+          output: o.usage.output_tokens ?? 0,
+        };
+      }
+      const models = Object.keys(o.modelUsage ?? {});
+      if (models.length) out.model = models.join('+');
+      return out;
     } catch {
       /* not JSON */
     }
@@ -179,11 +223,38 @@ export function parseAgentStats(stdout: string): { costUsd?: number; turns?: num
   return {};
 }
 
-export function runAgentProcess(spec: AgentSpec, argv: string[], workdir: string, logFile: string, timeoutSec: number): Promise<{ code: number | null; timedOut: boolean; stdout: string }> {
+// Generic contract for any agent: if it writes JSON to $BLOX_BENCH_STATS
+// ({ turns?, costUsd?, model?, tokens?: { input, cacheRead, cacheWrite, output } }),
+// that wins over stdout parsing. Missing cost is derived from tokens + model
+// via the pricing table when the model is known.
+export function collectAgentStats(stdout: string, statsFile: string | null, pricing = DEFAULT_PRICING): AgentStats {
+  const stats: AgentStats = parseAgentStats(stdout);
+  if (statsFile && existsSync(statsFile)) {
+    try {
+      const f = JSON.parse(readFileSync(statsFile, 'utf8')) as AgentStats;
+      if (typeof f.turns === 'number') stats.turns = f.turns;
+      if (typeof f.costUsd === 'number') stats.costUsd = f.costUsd;
+      if (typeof f.model === 'string') stats.model = f.model;
+      if (f.tokens && typeof f.tokens === 'object') {
+        const t = f.tokens;
+        stats.tokens = { input: t.input ?? 0, cacheRead: t.cacheRead ?? 0, cacheWrite: t.cacheWrite ?? 0, output: t.output ?? 0 };
+      }
+    } catch {
+      /* malformed stats file: keep stdout stats */
+    }
+  }
+  if (stats.costUsd === undefined && stats.tokens && stats.model) {
+    const c = costUsd(stats.tokens, stats.model, pricing);
+    if (!c.unknownPrice) stats.costUsd = c.usd;
+  }
+  return stats;
+}
+
+export function runAgentProcess(spec: AgentSpec, argv: string[], workdir: string, logFile: string, timeoutSec: number, extraEnv: Record<string, string> = {}): Promise<{ code: number | null; timedOut: boolean; stdout: string }> {
   return new Promise((res) => {
     const child = spawn(argv[0], argv.slice(1), {
       cwd: spec.cwdIsProject ? workdir : process.cwd(),
-      env: { ...process.env, ...(spec.env ?? {}) },
+      env: { ...process.env, ...(spec.env ?? {}), ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const log = createWriteStream(logFile);
@@ -234,11 +305,16 @@ export async function runBench(session: StudioSession, opts: BenchOptions): Prom
         const promptFile = join(workdir, '.bench-prompt.txt');
         writeFileSync(promptFile, task.prompt);
         const argv = substitute(opts.agent.argv, { prompt: task.prompt, project: workdir, promptFile });
-        const r = await runAgentProcess(opts.agent, argv, workdir, join(runsDir, `${task.id}-${attempt}.log`), opts.timeoutSec ?? 1800);
+        // Outside the workdir so agents that commit their tree don't pick it up.
+        const statsFile = join(runsDir, `${task.id}-${attempt}.stats.json`);
+        rmSync(statsFile, { force: true });
+        const r = await runAgentProcess(opts.agent, argv, workdir, join(runsDir, `${task.id}-${attempt}.log`), opts.timeoutSec ?? 1800, { BLOX_BENCH_STATS: statsFile });
         rmSync(promptFile, { force: true });
         run.agentExit = r.code;
         run.timedOut = r.timedOut;
-        Object.assign(run, parseAgentStats(r.stdout));
+        const stats = collectAgentStats(r.stdout, statsFile);
+        if (!stats.model && opts.agent.model) stats.model = opts.agent.model;
+        Object.assign(run, stats);
       }
       run.durationSec = Math.round((Date.now() - t0) / 1000);
       const ev = readEvents(workdir, 100_000);
@@ -298,17 +374,24 @@ export function formatBenchMarkdown(r: BenchReport): string {
     '',
     `agent: \`${r.agent}\` · ${r.startedAt} → ${r.finishedAt}`,
     '',
-    '| task | level | live checks | synced checks | pass | agent exit | turns | cost | time | blox calls (err) |',
-    '|---|---|---|---|---|---|---|---|---|---|',
+    '| task | level | live checks | synced checks | pass | agent exit | turns | cost | time | tokens in / cache read / cache write / out | blox calls (err) |',
+    '|---|---|---|---|---|---|---|---|---|---|---|',
   ];
+  const k = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : String(n));
+  const tok = (t?: TokenUsage) => (t ? `${k(t.input)} / ${k(t.cacheRead)} / ${k(t.cacheWrite)} / ${k(t.output)}` : '-');
   for (const x of r.runs) {
-    lines.push(`| ${x.task}${x.attempt > 1 ? ` #${x.attempt}` : ''} | ${x.level} | ${x.live ? `${x.live.passed}/${x.live.total}` : 'n/a'} | ${x.synced ? `${x.synced.passed}/${x.synced.total}` : 'n/a'} | ${x.pass ? 'PASS' : 'fail'} | ${x.timedOut ? 'timeout' : x.agentExit ?? '-'} | ${x.turns ?? '-'} | ${x.costUsd !== undefined ? `$${x.costUsd.toFixed(2)}` : '-'} | ${x.durationSec}s | ${x.bloxToolCalls !== undefined ? `${x.bloxToolCalls} (${x.bloxToolErrors})` : '-'} |`);
+    lines.push(`| ${x.task}${x.attempt > 1 ? ` #${x.attempt}` : ''} | ${x.level} | ${x.live ? `${x.live.passed}/${x.live.total}` : 'n/a'} | ${x.synced ? `${x.synced.passed}/${x.synced.total}` : 'n/a'} | ${x.pass ? 'PASS' : 'fail'} | ${x.timedOut ? 'timeout' : x.agentExit ?? '-'} | ${x.turns ?? '-'} | ${x.costUsd !== undefined ? `$${x.costUsd.toFixed(2)}` : '-'} | ${x.durationSec}s | ${tok(x.tokens)} | ${x.bloxToolCalls !== undefined ? `${x.bloxToolCalls} (${x.bloxToolErrors})` : '-'} |`);
   }
   const passed = r.runs.filter((x) => x.pass).length;
   const sum = (k: 'live' | 'synced') => r.runs.reduce((a, x) => [a[0] + (x[k]?.passed ?? 0), a[1] + (x[k]?.total ?? 0)], [0, 0]);
   const [lp, lt] = sum('live');
   const [sp, st] = sum('synced');
   lines.push('', `**${passed}/${r.runs.length} tasks fully passing (live)** · live checks ${lp}/${lt} · synced checks ${sp}/${st}`);
+  const cost = r.runs.reduce((a, x) => a + (x.costUsd ?? 0), 0);
+  const secs = r.runs.reduce((a, x) => a + x.durationSec, 0);
+  const turns = r.runs.reduce((a, x) => a + (x.turns ?? 0), 0);
+  const models = [...new Set(r.runs.map((x) => x.model).filter(Boolean))];
+  lines.push('', `totals: cost $${cost.toFixed(2)} · time ${secs}s · turns ${turns}${models.length ? ` · model ${models.join(', ')}` : ''}`);
   const fails = r.runs.filter((x) => x.live && x.live.failures.length);
   if (fails.length) {
     lines.push('', '## Live check failures');

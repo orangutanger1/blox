@@ -9,7 +9,7 @@ describe('loadConfig', () => {
     const dir = mkdtempSync(join(tmpdir(), 'blox-'));
     const cfg = loadConfig(dir);
     expect(cfg.projectPath).toBe(dir);
-    expect(cfg.model).toBe('claude-opus-4-8');
+    expect(cfg.model).toBe('claude-opus-5-5');
     expect(cfg.maxTurns).toBe(40);
     expect(cfg.maxBudgetUsd).toBe(5);
   });

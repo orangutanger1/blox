@@ -92,6 +92,8 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     commitSha: commit.sha,
     numTurns: agent.numTurns,
     costUsd: agent.costUsd,
+    model: config.model,
+    ...(agent.tokens ? { tokens: agent.tokens } : {}),
     status,
     stopReason: agent.stopReason,
     detail: sync.ok ? agent.detail : sync.detail,

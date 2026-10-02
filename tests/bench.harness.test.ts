@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { substitute, parseAgentStats, formatBenchMarkdown, loadTasks, pickRunTasks, prepareWorkdir, type BenchReport } from '../src/bench/harness.js';
+import { substitute, parseAgentStats, collectAgentStats, formatBenchMarkdown, loadTasks, pickRunTasks, prepareWorkdir, type BenchReport } from '../src/bench/harness.js';
 import { agentSpec } from '../src/bench/cli.js';
 
 describe('bench helpers', () => {
@@ -66,5 +66,27 @@ describe('task loading + workdir prep', () => {
     expect(pickRunTasks(root).map((t) => t.id)).toEqual(['tA', 'tC']);
     expect(pickRunTasks(root, ['all']).map((t) => t.id)).toEqual(['tA', 'tB', 'tC']);
     expect(pickRunTasks(root, ['tB']).map((t) => t.id)).toEqual(['tB']);
+  });
+});
+
+describe('agent stats (agent-agnostic)', () => {
+  it('parses the blox runner report incl. model and tokens', () => {
+    const s = parseAgentStats('turns: 12  cost: $0.4567\nmodel: claude-opus-5-5\ntokens: input=100 cache_read=2000 cache_write=300 output=40\n');
+    expect(s).toEqual({ turns: 12, costUsd: 0.4567, model: 'claude-opus-5-5', tokens: { input: 100, cacheRead: 2000, cacheWrite: 300, output: 40 } });
+  });
+  it('parses claude -p json usage + modelUsage', () => {
+    const s = parseAgentStats(JSON.stringify({ total_cost_usd: 1.2, num_turns: 9, usage: { input_tokens: 5, output_tokens: 6, cache_read_input_tokens: 7, cache_creation_input_tokens: 8 }, modelUsage: { 'm-1': {} } }));
+    expect(s).toEqual({ costUsd: 1.2, turns: 9, model: 'm-1', tokens: { input: 5, cacheRead: 7, cacheWrite: 8, output: 6 } });
+  });
+  it('stats file wins and derives cost from tokens when the agent reports none', () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'blox-stats-')), 's.json');
+    writeFileSync(f, JSON.stringify({ turns: 3, model: 'x-model', tokens: { input: 1_000_000, output: 1_000_000 } }));
+    const s = collectAgentStats('unparseable output', f, { 'x-model': { in: 1, out: 2 } });
+    expect(s).toEqual({ turns: 3, model: 'x-model', tokens: { input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 1_000_000 }, costUsd: 3 });
+  });
+  it('unknown model with tokens leaves cost unset (no guessing)', () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'blox-stats-')), 's.json');
+    writeFileSync(f, JSON.stringify({ model: 'gpt-x', tokens: { input: 10, output: 10 } }));
+    expect(collectAgentStats('', f, {}).costUsd).toBeUndefined();
   });
 });

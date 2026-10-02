@@ -17,10 +17,11 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export function agentSpec(name: string, o: Record<string, string | boolean>): AgentSpec {
   const budget = typeof o.budget === 'string' ? o.budget : '4';
   const turns = typeof o['max-turns'] === 'string' ? o['max-turns'] : '60';
-  const model = typeof o.model === 'string' ? ['--model', o.model] : [];
+  const modelId = typeof o.model === 'string' ? o.model : undefined;
+  const model = modelId ? ['--model', modelId] : [];
   const runnerArgs = ['--project', '{project}', '--auto', '--budget', budget, '--max-turns', turns, ...model, '{prompt}'];
   if (name === 'blox') {
-    return { name: `blox (${repoRoot})`, argv: [process.execPath, join(repoRoot, 'dist', 'cli.js'), ...runnerArgs] };
+    return { name: `blox (${repoRoot})`, model: modelId, argv: [process.execPath, join(repoRoot, 'dist', 'cli.js'), ...runnerArgs] };
   }
   if (name === 'legacy') {
     const cli = o['legacy-cli'];
@@ -29,11 +30,12 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
     // pointing at a deleted version dir. --legacy-launch-fix hands it the
     // resolved StudioMCP.exe so the rest of its pipeline can be measured.
     const env = o['legacy-launch-fix'] ? { BLOX_STUDIO_MCP_CMD: resolveStudioLaunch().command } : undefined;
-    return { name: `legacy (${cli})${env ? ' +launch-fix' : ''}`, argv: [process.execPath, cli, ...runnerArgs], env };
+    return { name: `legacy (${cli})${env ? ' +launch-fix' : ''}`, model: modelId, argv: [process.execPath, cli, ...runnerArgs], env };
   }
   if (name === 'claude-code') {
     return {
       name: 'claude-code + blox MCP',
+      model: modelId,
       argv: ['claude', '-p', '{prompt}', '--mcp-config', '{project}/.mcp.json', '--strict-mcp-config',
         '--permission-mode', 'bypassPermissions', '--max-turns', turns, '--output-format', 'json', ...model],
       cwdIsProject: true,
@@ -44,7 +46,7 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
   if (name === 'custom') {
     const cmd = o['agent-cmd'];
     if (typeof cmd !== 'string') throw new Error('--agent custom needs --agent-cmd \'["prog","{prompt}"]\'');
-    return { name: `custom ${cmd}`, argv: JSON.parse(cmd) as string[], cwdIsProject: true };
+    return { name: `custom ${cmd}`, model: modelId, argv: JSON.parse(cmd) as string[], cwdIsProject: true };
   }
   throw new Error(`unknown agent "${name}" (blox | legacy | claude-code | custom)`);
 }
