@@ -31,6 +31,12 @@ import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
 import { gradeSanitize, sanitizeProgram, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
 import { uploadAsset } from '../assets/upload.js';
+import { formatRelease, releaseCheck } from '../release/check.js';
+import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
+import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
+import { applyChanges, propose, type Proposal } from '../liveops/propose.js';
+import { OpenCloud, openCloudKey } from '../opencloud/client.js';
+import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -493,7 +499,10 @@ export const TOOLS: BloxTool[] = [
         tolerance: a.tolerance as number | undefined,
       });
       if (v && !v.ok) report.notes.push('design.json is invalid — FTUE targets and pace checks skipped');
-      writeJson(ctx.projectPath, 'metrics-report.json', report);
+      // One file holds both modes: keep the other mode's latest results.
+      const prev = readJson<{ results?: { id: string }[] }>(ctx.projectPath, 'metrics-report.json');
+      const kept = (prev?.results ?? []).filter((r) => !r.id.startsWith(`${a.action}:`));
+      writeJson(ctx.projectPath, 'metrics-report.json', { ...report, results: [...kept, ...report.results] });
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: formatMetrics(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} ${a.action}` };
@@ -714,6 +723,123 @@ export const TOOLS: BloxTool[] = [
       const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
       if (r.dryRun) return { text: `DRY RUN — would upload:\n${JSON.stringify(r.plan, null, 2)}\nRe-run with confirm:true only if the human asked for this upload.`, summary: 'dry run' };
       return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})`, summary: 'uploaded' };
+    },
+  },
+  {
+    name: 'release',
+    description:
+      'Release readiness and publishing behind human gates. check (every machine gate: tests, design sim, FTUE/soak, multiplayer, UI lint, store lint, assets → READY/NOT READY + the human gates) | build (rojo build → .blox/build/place.rbxl + hash) | publish {confirm} (Place Publishing via Open Cloud: only when check is READY, a human ran `blox release approve` for this exact build, ids are in .blox/release.json and ROBLOX_OPEN_CLOUD_KEY is set; without confirm a dry run). Never publish unless the human asked.',
+    shape: { action: z.enum(['check', 'build', 'publish']), confirm: z.boolean().optional() },
+    async handler(a, ctx) {
+      if (a.action === 'check') {
+        const r = releaseCheck(ctx.projectPath);
+        writeJson(ctx.projectPath, 'release-report.json', r);
+        return { text: formatRelease(r), summary: r.ready ? 'ready' : 'not ready' };
+      }
+      if (a.action === 'build') {
+        const b = await buildPlace(ctx.projectPath);
+        return { text: [`built ${b.file} (sha256 ${b.sha256.slice(0, 12)}…)`, ...b.notes.map((n) => `note: ${n}`), 'Next: a human reviews and runs `blox release approve`.'].join('\n'), artifacts: [b.file], summary: 'built' };
+      }
+      const r = await publishRelease(ctx.projectPath, { confirm: a.confirm === true });
+      if (r.dryRun) return { text: `DRY RUN — would publish ${r.sha256.slice(0, 12)}… to universe ${r.target.universeId} place ${r.target.placeId}. Re-run with confirm:true only if the human asked to publish now.`, summary: 'dry run' };
+      return { text: `published build ${r.sha256.slice(0, 12)}… → version ${r.versionNumber ?? '?'}`, summary: 'published' };
+    },
+  },
+  {
+    name: 'liveops',
+    description:
+      'Post-launch loop. report {from?} (analytics from a Creator Hub export JSON — {retention:{d1,d7,d30}, sessionLengthMin, payerConversion, funnel:[{step,name,users}]} — or the Analytics Query API; graded vs GameAnalytics benchmarks → findings) | propose {finding?} (design changes for the worst finding, each validated by the simulator; never monetization) | apply {proposal} (writes design.json + Tunables locally; ships with the next human-approved release) | push {kind: config|thumbnails, confirm} (live Configs from design tunables / rendered thumbnails to Thumbnail Personalization; dry run unless confirm + key; monetization keys refused).',
+    shape: {
+      action: z.enum(['report', 'propose', 'apply', 'push']),
+      from: z.string().optional(),
+      finding: z.string().optional(),
+      proposal: z.string().optional(),
+      kind: z.enum(['config', 'thumbnails']).optional(),
+      confirm: z.boolean().optional(),
+    },
+    async handler(a, ctx) {
+      const P = ctx.projectPath;
+      if (a.action === 'report') {
+        let analytics;
+        let source: string;
+        if (typeof a.from === 'string') {
+          const file = join(P, a.from);
+          if (!existsSync(file)) return { text: `no file ${a.from}`, isError: true, summary: 'no file' };
+          const v = AnalyticsSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
+          if (!v.success) return { text: `bad analytics export:\n${v.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n')}`, isError: true, summary: 'invalid' };
+          analytics = v.data;
+          source = a.from;
+        } else {
+          if (!openCloudKey()) return { text: 'no analytics source: pass from:"<export.json>" (a human exports it from Creator Hub → Analytics) or set ROBLOX_OPEN_CLOUD_KEY (scope universe.analytics:read) and .blox/release.json', isError: true, summary: 'no source' };
+          analytics = await fetchAnalytics(new OpenCloud(), loadTarget(P).universeId);
+          source = 'analytics-query-api (unverified endpoint)';
+        }
+        const g = gradeAnalytics(analytics);
+        writeJson(P, 'liveops-report.json', { ranAt: new Date().toISOString(), source, analytics, ...g });
+        const lines = [`liveops report (${source}):`, ...g.grades.map((x) => `  ${x.metric}: ${x.value} (${x.band})`), g.findings.length ? 'findings (worst first):' : 'no findings below benchmark', ...g.findings.map((f) => `  ${f.id} [${f.lever}] ${f.detail}`)];
+        if (g.findings.length) lines.push('Next: liveops {action:"propose"}');
+        return { text: lines.join('\n'), summary: `${g.findings.length} findings` };
+      }
+      if (a.action === 'propose') {
+        const rep = readJson<{ findings: Finding[] }>(P, 'liveops-report.json');
+        if (!rep) return { text: 'run liveops {action:"report"} first', isError: true, summary: 'no report' };
+        const f = typeof a.finding === 'string' ? rep.findings.find((x) => x.id === a.finding) : rep.findings.find((x) => x.lever !== 'monetization');
+        if (!f) return { text: a.finding ? `unknown finding ${a.finding}` : 'no findings a design change can address (monetization is a human decision)', isError: !!a.finding, summary: 'nothing' };
+        const dv = validateDesign(readJson<unknown>(P, 'design.json'));
+        if (!dv.ok) return { text: 'propose needs a valid .blox/design.json', isError: true, summary: 'no design' };
+        const ps = propose(dv.doc, f);
+        mkdirSync(join(P, '.blox', 'proposals'), { recursive: true });
+        for (const p of ps) writeJson(P, `proposals/${p.id}.json`, p);
+        const lines = [`${ps.length} proposal(s) for ${f.id} (${f.detail}):`, ...ps.map((p) => `  ${p.id}: ${p.description} — ${p.target.metric} ${Number(p.target.before.toPrecision(4))} → ${Number(p.target.after.toPrecision(4))}, assertions ${p.assertions.after}/${p.assertions.total}`)];
+        if (ps.length) lines.push('Apply one with liveops {action:"apply", proposal}. Live changes still go through a human-approved release or push.');
+        return { text: lines.join('\n'), summary: `${ps.length} proposals` };
+      }
+      if (a.action === 'apply') {
+        if (typeof a.proposal !== 'string') return { text: 'apply needs proposal id', isError: true, summary: 'no id' };
+        const p = readJson<Proposal>(P, `proposals/${a.proposal}.json`);
+        if (!p) return { text: `unknown proposal ${a.proposal}`, isError: true, summary: 'unknown' };
+        if (p.applied) return { text: `proposal ${p.id} already applied at ${p.applied}`, summary: 'already applied' };
+        const dv = validateDesign(readJson<unknown>(P, 'design.json'));
+        if (!dv.ok) return { text: 'design.json is invalid', isError: true, summary: 'invalid' };
+        const r = applyChanges(dv.doc, p.changes);
+        if (!r.ok) return { text: r.error, isError: true, summary: 'stale' };
+        writeJson(P, 'design.json', r.doc);
+        const f = join(P, TUNABLES_PATH);
+        mkdirSync(dirname(f), { recursive: true });
+        writeFileSync(f, renderTunables(r.doc));
+        writeJson(P, `proposals/${p.id}.json`, { ...p, applied: new Date().toISOString() });
+        return { text: `applied ${p.id}: ${p.changes.map((c) => `${c.path} ${c.from} → ${c.to}`).join(', ')}; Tunables regenerated. Next: design simulate, run_tests, metrics ftue, then a human-approved release.`, summary: 'applied' };
+      }
+      // push — target ids only needed for the real call; a dry run shows what would go out.
+      let target: { universeId: number | string; placeId?: number } = { universeId: '<set .blox/release.json>' };
+      try {
+        target = loadTarget(P);
+      } catch (e) {
+        if (a.confirm) throw e;
+      }
+      if (a.kind === 'thumbnails') {
+        const pres = readJson<{ shots?: { id: string; kind: string; file?: string; provenance?: string }[] }>(P, 'presentation.json');
+        const lint = readJson<{ results: { ok: boolean }[] }>(P, 'present-report.json');
+        if (!lint || lint.results.some((r) => !r.ok)) return { text: 'present lint must pass first (present {action:"lint"})', isError: true, summary: 'not ready' };
+        const shots = (pres?.shots ?? []).filter((s) => s.kind === 'thumbnail' && s.file && (s.provenance === 'render' || s.provenance === 'human'));
+        if (!a.confirm) return { text: `DRY RUN — would upload ${shots.length} thumbnail(s) to universe ${target.universeId}: ${shots.map((s) => s.file).join(', ')}\n(endpoint unverified: ${UNVERIFIED_ENDPOINTS.join(', ')}). confirm:true only if the human asked.`, summary: 'dry run' };
+        const client = new OpenCloud();
+        for (const s of shots) await client.uploadThumbnail(target.universeId as number, readFileSync(join(P, s.file!)), s.file!.split('/').pop()!, s.file!.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        return { text: `uploaded ${shots.length} thumbnail(s)`, summary: 'uploaded' };
+      }
+      const dv = validateDesign(readJson<unknown>(P, 'design.json'));
+      if (!dv.ok) return { text: 'push config needs a valid .blox/design.json', isError: true, summary: 'no design' };
+      const monetized = new Set(dv.doc.monetization.map((m) => m.id));
+      const entries: Record<string, unknown> = {};
+      const skipped: string[] = [];
+      for (const [k, v] of Object.entries(dv.doc.tunables)) {
+        if (/price|robux|cost.*robux|product|pass/i.test(k) || monetized.has(k)) skipped.push(k);
+        else entries[k] = v;
+      }
+      const tail = skipped.length ? `\nskipped (monetization, human): ${skipped.join(', ')}` : '';
+      if (!a.confirm) return { text: `DRY RUN — would set live config on universe ${target.universeId}:\n${JSON.stringify(entries, null, 2)}${tail}\n(endpoint unverified; the game must read these via ConfigService to take effect). confirm:true only if the human asked.`, summary: 'dry run' };
+      await new OpenCloud().putConfigs(target.universeId as number, entries);
+      return { text: `pushed ${Object.keys(entries).length} config value(s)${tail}`, summary: 'pushed' };
     },
   },
   {

@@ -7,6 +7,7 @@ import { serveMcp, studioSessionFor } from './mcp/server.js';
 import { scaffoldProject } from './scaffold.js';
 import { AGENT_GUIDE } from './agentGuide.js';
 import { approveAsset } from './assets/manifest.js';
+import { approveRelease } from './release/publish.js';
 
 // CLI front-end for the blox toolset. Every command maps onto the same tool
 // registry the MCP server exposes, so an agent without MCP (or a human, or CI)
@@ -148,6 +149,22 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action } };
       }
     }
+    case 'release':
+      return { tool: 'release', args: { action: f.rest[0] ?? 'check', ...(o.confirm === true ? { confirm: true } : {}) } };
+    case 'liveops': {
+      const action = f.rest[0] ?? 'report';
+      return {
+        tool: 'liveops',
+        args: {
+          action,
+          ...(typeof o.from === 'string' ? { from: o.from } : {}),
+          ...(typeof o.finding === 'string' ? { finding: o.finding } : {}),
+          ...(action === 'apply' && f.rest[1] ? { proposal: f.rest[1] } : {}),
+          ...(action === 'push' && f.rest[1] ? { kind: f.rest[1] } : {}),
+          ...(o.confirm === true ? { confirm: true } : {}),
+        },
+      };
+    }
     case 'tool':
       return { tool: f.rest[0] ?? '', args: f.rest[1] ? JSON.parse(f.rest.slice(1).join(' ')) : {} };
     default:
@@ -226,13 +243,15 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
+Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
+           blox liveops report [--from export.json]|propose|apply <id>|push config|thumbnails [--confirm]
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'release', 'liveops', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {
@@ -255,6 +274,16 @@ export async function runToolCommand(argv: string[]): Promise<boolean> {
   if (cmd === 'setup') {
     try {
       for (const l of setupAgent(f.rest[0] ?? 'generic', projectPath)) console.log(l);
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exitCode = 1;
+    }
+    return true;
+  }
+  if (cmd === 'release' && f.rest[0] === 'approve') {
+    // Human sign-off on the current build (not an MCP action).
+    try {
+      console.log(`approved build ${approveRelease(projectPath).slice(0, 12)}… for publishing`);
     } catch (e) {
       console.error((e as Error).message);
       process.exitCode = 1;

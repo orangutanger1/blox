@@ -25,7 +25,7 @@ export function parseNormalize(stdout: string, out: string): NormalizeResult | n
 
 export type Spawner = (cmd: string, args: string[]) => Promise<{ code: number | null; stdout: string; stderr: string; notFound?: boolean }>;
 
-const defaultSpawn: Spawner = (cmd, args) =>
+export const defaultSpawn: Spawner = (cmd, args) =>
   new Promise((resolve) => {
     const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
