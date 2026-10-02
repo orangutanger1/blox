@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { longString, runLuau, userLineOffset } from '../studio/luau.js';
 import { StudioError, type StudioSession } from '../studio/session.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary } from '../studio/play.js';
+import { hostSource, installHost, newRunId, normalizeHostPositions, pollResults, removeHosts, type PlayContext } from './playHost.js';
 
 // Project test suite: tests/**/*.spec.luau, executed inside Studio.
 //
@@ -109,9 +110,13 @@ local function deepEq(a, b)
 	for k in b do if a[k] == nil then return false end end
 	return true
 end
+local __H = {}
+function __H.check(cond, msg) if not cond then error(msg, 3) end end
 local function expect(actual)
 	local m = {}
-	local function check(cond, msg) if not cond then error(msg, 3) end end
+	-- A table field, not a local function: host Scripts compile with inlining,
+	-- which would shift error level 3 off the spec line.
+	local check = __H.check
 	function m.toBe(e) check(actual == e, "expected " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toEqual(e) check(deepEq(actual, e), "expected deep-equal " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeTruthy() check(actual, "expected truthy, got " .. fmt(actual)) end
@@ -217,6 +222,61 @@ return out`;
   return bad;
 }
 
+type BatchValue = { results?: Omit<TestCaseResult, 'context'>[]; fileErrors?: { file: string; message: string }[] };
+
+function toBatch(v: BatchValue, ctx: TestContext, map: (m: string) => string) {
+  return {
+    tests: (Array.isArray(v.results) ? v.results : []).map((t) => ({ ...t, context: ctx, ...(t.message ? { message: map(t.message) } : {}) })),
+    fileErrors: (Array.isArray(v.fileErrors) ? v.fileErrors : []).map((f) => ({ ...f, message: map(f.message) })),
+  };
+}
+
+// Server/client specs: injected host scripts + a fresh Play (see playHost.ts).
+// Always (re)starts Play so the hosts run, and stops it afterwards.
+async function runPlayBatches(session: StudioSession, specs: Record<PlayContext, SpecFile[]>, timeoutSec: number) {
+  const tests: TestCaseResult[] = [];
+  const fileErrors: { file: string; message: string }[] = [];
+  let logs: LogSummary | undefined;
+  const st = await session.state();
+  if (st.mode !== 'Edit') await stopPlay(session);
+  await removeHosts(session);
+  const runId = newRunId();
+  const ctxs = (['server', 'client'] as const).filter((c) => specs[c].length);
+  const programs = new Map<PlayContext, ReturnType<typeof testProgram>>();
+  try {
+    for (const c of ctxs) {
+      const prog = testProgram(specs[c], timeoutSec);
+      programs.set(c, prog);
+      await installHost(session, c, hostSource(prog.code, c, runId));
+    }
+    const info = await startPlay(session);
+    if (info.players === 0) throw new StudioError('tool_error', 'playtest started but no player joined within the ready timeout');
+    for (const c of ctxs) {
+      const prog = programs.get(c)!;
+      const deadline = Date.now() + (timeoutSec * 1000 + 2000) * Math.max(1, specs[c].length * 5) + 30_000;
+      const v = await pollResults(session, runId, c, deadline);
+      if (v === null || typeof v !== 'object') {
+        for (const s of specs[c]) fileErrors.push({ file: s.file, message: `no results from the ${c} test host (it may have errored before reporting; see logs)` });
+        continue;
+      }
+      const map = (m: string) => mapSpecPositions(normalizeHostPositions(m), specs[c], prog.specLines, 0, `<test-runner:${c}>`);
+      const b = toBatch(v as BatchValue, c, map);
+      tests.push(...b.tests);
+      fileErrors.push(...b.fileErrors);
+    }
+    const since = info.startedAt - 1;
+    const [sl, cl] = await Promise.all([
+      collectLogs(session, 'server', since).catch(() => []),
+      collectLogs(session, 'client', since).catch(() => []),
+    ]);
+    logs = summarizeLogs([...sl, ...cl].filter((l) => !l.message.startsWith('BLOXTEST:')));
+  } finally {
+    await stopPlay(session).catch(() => {});
+    await removeHosts(session).catch(() => {});
+  }
+  return { tests, fileErrors, logs };
+}
+
 export interface RunTestsOptions {
   testDir?: string;
   filter?: string;
@@ -238,11 +298,7 @@ async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestCont
   if (!r.ok) {
     return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })) };
   }
-  const v = (r.values[0] ?? {}) as { results?: Omit<TestCaseResult, 'context'>[]; fileErrors?: { file: string; message: string }[] };
-  return {
-    tests: (Array.isArray(v.results) ? v.results : []).map((t) => ({ ...t, context: ctx, ...(t.message ? { message: map(t.message) } : {}) })),
-    fileErrors: (Array.isArray(v.fileErrors) ? v.fileErrors : []).map((f) => ({ ...f, message: map(f.message) })),
-  };
+  return toBatch((r.values[0] ?? {}) as BatchValue, ctx, map);
 }
 
 export async function runTests(session: StudioSession, projectPath: string, opts: RunTestsOptions = {}): Promise<TestRunResult> {
@@ -269,24 +325,10 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     fileErrors.push(...b.fileErrors);
   }
   if (server.length || client.length) {
-    const info = await startPlay(session);
-    try {
-      if (info.players === 0) {
-        throw new StudioError('tool_error', 'playtest started but no player joined within the ready timeout');
-      }
-      const s = await runBatch(session, server, 'server', timeoutSec);
-      const c = await runBatch(session, client, 'client', timeoutSec);
-      tests.push(...s.tests, ...c.tests);
-      fileErrors.push(...s.fileErrors, ...c.fileErrors);
-      const since = info.startedAt - 1;
-      const [sl, cl] = await Promise.all([
-        collectLogs(session, 'server', since).catch(() => []),
-        collectLogs(session, 'client', since).catch(() => []),
-      ]);
-      logs = summarizeLogs([...sl, ...cl]);
-    } finally {
-      if (!info.alreadyRunning) await stopPlay(session).catch(() => {});
-    }
+    const b = await runPlayBatches(session, { server, client }, timeoutSec);
+    tests.push(...b.tests);
+    fileErrors.push(...b.fileErrors);
+    logs = b.logs;
   }
   const passed = tests.filter((t) => t.status === 'pass').length;
   return {

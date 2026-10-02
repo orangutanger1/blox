@@ -188,7 +188,27 @@ const APPLY_LUAU = `local HS = game:GetService("HttpService")
 local CS = game:GetService("CollectionService")
 local SES = game:GetService("ScriptEditorService")
 local P = HS:JSONDecode(PAYLOAD)
-local res = { created = {}, updated = {}, deleted = {}, builders = {}, errors = {} }
+local res = { created = {}, updated = {}, deleted = {}, builders = {}, errors = {}, needCreate = {} }
+local SCRIPT_CLASS = { Script = true, LocalScript = true, ModuleScript = true }
+-- Builders run as loadstring chunks, which may not require() place modules
+-- (capability sandbox); load module source instead, memoized per sync.
+local fresh = {}
+local function freshRequire(m)
+	if typeof(m) ~= "Instance" or not m:IsA("ModuleScript") then return require(m) end
+	local hit = fresh[m]
+	if hit ~= nil then
+		if hit == fresh then error("cyclic require of " .. m:GetFullName(), 2) end
+		return hit
+	end
+	fresh[m] = fresh
+	local fn, err = loadstring(m.Source, "=" .. m:GetFullName())
+	if not fn then fresh[m] = nil error(err, 2) end
+	setfenv(fn, setmetatable({ script = m, require = freshRequire }, { __index = getfenv(0) }))
+	local ok, r = pcall(fn)
+	if not ok then fresh[m] = nil error(r, 0) end
+	fresh[m] = r
+	return r
+end
 -- One undo step per sync (Ctrl+Z in Studio reverts it), when recording is available.
 local CHS = game:GetService("ChangeHistoryService")
 local rec
@@ -241,7 +261,14 @@ for _, d in P.upserts do
 			local c = parent:FindFirstChild(name)
 			if c and c.ClassName == d.className then inst = c adopted = true end
 		end
-		local created = false
+		local created = d.fresh == true
+		if SCRIPT_CLASS[d.className] and (not inst or inst.ClassName ~= d.className) then
+			-- This thread may not parent a script it creates (Studio capability
+			-- sandbox); the caller creates it with multi_edit and re-applies.
+			if inst then inst:Destroy() byKey[d.key] = nil end
+			table.insert(res.needCreate, { key = d.key, path = d.path, className = d.className })
+			return
+		end
 		if inst and inst.ClassName ~= d.className then
 			local fresh = Instance.new(d.className)
 			for _, ch in inst:GetChildren() do ch.Parent = fresh end
@@ -257,7 +284,7 @@ for _, d in P.upserts do
 		if d.value ~= nil then inst.Value = d.value end
 		if inst.Parent ~= parent then inst.Parent = parent end
 		mark(inst, d.key, d.hash)
-		table.insert(created and res.created or res.updated, d.key .. (adopted and " (adopted)" or ""))
+		table.insert(created and res.created or res.updated, d.key .. ((adopted and not d.fresh) and " (adopted)" or ""))
 	end)
 	if not ok then table.insert(res.errors, d.key .. ": " .. tostring(err)) end
 end
@@ -271,6 +298,7 @@ for _, b in P.builders do
 		if stale and stale:GetAttribute("BloxKey") == b.key then stale:Destroy() end
 		local fn, cerr = loadstring(b.source, "=" .. b.file)
 		if not fn then error("compile: " .. tostring(cerr), 0) end
+		setfenv(fn, setmetatable({ require = freshRequire }, { __index = getfenv(0) }))
 		local builder = fn()
 		if typeof(builder) ~= "function" then error(b.file .. " must return function(model)", 0) end
 		local model = Instance.new("Model")
@@ -342,6 +370,19 @@ export function diffPlan(plan: SyncPlan, inventory: Record<string, { hash: strin
   return { upserts, builders, deletes, unchanged, unchangedBuilders: plan.builders.length - builders.length };
 }
 
+// Creates an empty script at path via Studio's multi_edit (scripts it creates
+// get normal capabilities). Returns an error message, or null on success.
+async function createScript(session: StudioSession, path: string[], className: string): Promise<string | null> {
+  if (path.some((p) => p.includes('.'))) return `cannot create a script whose path contains "." (${path.join('/')}) — rename it`;
+  const r = await session.call('multi_edit', {
+    file_path: `game.${path.join('.')}`,
+    className,
+    datamodel_type: 'Edit',
+    edits: [{ old_string: '', new_string: '-- blox sync\n' }],
+  });
+  return r.isError ? `multi_edit failed: ${resultText(r).slice(0, 300)}` : null;
+}
+
 export async function pushProject(session: StudioSession, projectPath: string, opts: PushOptions = {}): Promise<SyncResult> {
   const t0 = Date.now();
   const plan = await buildPlan(projectPath, opts);
@@ -354,8 +395,26 @@ export async function pushProject(session: StudioSession, projectPath: string, o
     skipped: plan.skipped, errors: [], durationMs: 0,
   };
 
-  // Batch upserts by payload size; builders + deletes ride on the last batch so
-  // builders can require freshly-synced modules.
+  type ApplyResult = { created?: string[]; updated?: string[]; deleted?: string[]; builders?: SyncResult['builders']; errors?: string[]; needCreate?: { key: string; path: string[]; className: string }[] };
+  const apply = async (upserts: (DesiredInstance & { fresh?: boolean })[], builders: WorldBuilder[], deletes: string[]) => {
+    const payload = {
+      upserts: upserts.map(({ key, path, className, source, value, hash, anchor, fresh }) => ({ key, path, className, source, value, hash, anchor, fresh })),
+      builders: builders.map(({ key, name, parent, source, file, hash }) => ({ key, name, parent, source, file, hash })),
+      deletes,
+    };
+    const r = await luauJson<ApplyResult>(session, `local PAYLOAD = ${longString(JSON.stringify(payload))}\n${APPLY_LUAU}`);
+    result.created.push(...(r.created ?? []));
+    result.updated.push(...(r.updated ?? []));
+    result.deleted.push(...(r.deleted ?? []));
+    result.builders.push(...(r.builders ?? []));
+    result.errors.push(...(r.errors ?? []));
+    return r.needCreate ?? [];
+  };
+
+  // Batch upserts by payload size. New scripts come back as needCreate: the
+  // execute_luau thread may not parent scripts it creates (Studio capability
+  // sandbox, Sep 2026), so they are created with multi_edit and re-applied.
+  // Builders + deletes run last so builders see every freshly-synced module.
   const batches: DesiredInstance[][] = [[]];
   let size = 0;
   for (const u of d.upserts) {
@@ -367,22 +426,20 @@ export async function pushProject(session: StudioSession, projectPath: string, o
     batches[batches.length - 1].push(u);
     size += s;
   }
-  for (let i = 0; i < batches.length; i++) {
-    const last = i === batches.length - 1;
-    const payload = {
-      upserts: batches[i].map(({ key, path, className, source, value, hash, anchor }) => ({ key, path, className, source, value, hash, anchor })),
-      builders: last ? d.builders.map(({ key, name, parent, source, file, hash }) => ({ key, name, parent, source, file, hash })) : [],
-      deletes: last ? d.deletes : [],
-    };
-    if (!payload.upserts.length && !payload.builders.length && !payload.deletes.length) continue;
-    const code = `local PAYLOAD = ${longString(JSON.stringify(payload))}\n${APPLY_LUAU}`;
-    const r = await luauJson<{ created: string[]; updated: string[]; deleted: string[]; builders: SyncResult['builders']; errors: string[] }>(session, code);
-    result.created.push(...(r.created ?? []));
-    result.updated.push(...(r.updated ?? []));
-    result.deleted.push(...(r.deleted ?? []));
-    result.builders.push(...(r.builders ?? []));
-    result.errors.push(...(r.errors ?? []));
+  for (const batch of batches) {
+    if (!batch.length) continue;
+    const need = await apply(batch, [], []);
+    const made: (DesiredInstance & { fresh: boolean })[] = [];
+    for (const n of need) {
+      const u = batch.find((x) => x.key === n.key);
+      if (!u) continue;
+      const err = await createScript(session, n.path, n.className);
+      if (err) result.errors.push(`${n.key}: ${err}`);
+      else made.push({ ...u, fresh: true });
+    }
+    if (made.length) await apply(made, [], []);
   }
+  if (d.builders.length || d.deletes.length) await apply([], d.builders, d.deletes);
   result.ok = result.errors.length === 0 && result.builders.every((b) => b.status !== 'error');
   result.durationMs = Date.now() - t0;
   return result;

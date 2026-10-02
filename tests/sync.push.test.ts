@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planFromSourcemap, diffPlan, jsonToLuau, planWorldBuilders, type SourcemapNode } from '../src/sync/push.js';
+import { planFromSourcemap, diffPlan, jsonToLuau, planWorldBuilders, pushProject, type SourcemapNode } from '../src/sync/push.js';
+import type { StudioSession } from '../src/studio/session.js';
 
 const files: Record<string, string> = {
   'src/S/Main.server.luau': 'print(1)',
@@ -92,5 +93,78 @@ describe('planWorldBuilders', () => {
   });
   it('returns [] without a world dir', () => {
     expect(planWorldBuilders(mkdtempSync(join(tmpdir(), 'blox-noworld-')))).toEqual([]);
+  });
+});
+
+describe('pushProject script creation (Studio capability sandbox)', () => {
+  // Since the Sep 2026 Studio build the execute_luau thread cannot parent a
+  // script it created; sync must create scripts with multi_edit, then adopt them.
+  it('creates missing scripts via multi_edit, re-applies them, then runs builders/deletes last', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-push-'));
+    for (const [p, c] of Object.entries(files)) {
+      mkdirSync(join(dir, p, '..'), { recursive: true });
+      writeFileSync(join(dir, p), c);
+    }
+    const spawn = async () => ({ code: 0, stdout: JSON.stringify(sm), stderr: '' });
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    let applies = 0;
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        calls.push({ name, args });
+        if (name === 'multi_edit') return { content: [{ type: 'text', text: 'Created' }] };
+        const code = String(args.code);
+        if (!code.includes('PAYLOAD')) return { content: [{ type: 'text', text: '{"ReplicatedStorage/Shared/Gone":{"hash":"x","cls":"ModuleScript"}}' }] };
+        applies++;
+        const payload = JSON.parse(/local PAYLOAD = \[(=*)\[([\s\S]*?)\]\1\]/.exec(code)![2]);
+        if (applies === 1) {
+          expect(payload.builders).toEqual([]);
+          expect(payload.deletes).toEqual([]);
+          return { content: [{ type: 'text', text: JSON.stringify({ created: ['ReplicatedStorage/Shared'], updated: [], deleted: [], builders: [], errors: [], needCreate: [
+            { key: 'ServerScriptService/Main', path: ['ServerScriptService', 'Main'], className: 'Script' },
+            { key: 'ReplicatedStorage/Shared/Util', path: ['ReplicatedStorage', 'Shared', 'Util'], className: 'ModuleScript' },
+          ] }) }] };
+        }
+        if (applies === 2) {
+          expect(payload.upserts.map((u: { key: string }) => u.key).sort()).toEqual(['ReplicatedStorage/Shared/Util', 'ServerScriptService/Main']);
+          expect(payload.upserts.every((u: { fresh?: boolean }) => u.fresh)).toBe(true);
+          return { content: [{ type: 'text', text: JSON.stringify({ created: ['ServerScriptService/Main', 'ReplicatedStorage/Shared/Util'], updated: [], deleted: [], builders: [], errors: [] }) }] };
+        }
+        expect(payload.upserts).toEqual([]);
+        expect(payload.deletes).toEqual(['ReplicatedStorage/Shared/Gone']);
+        return { content: [{ type: 'text', text: JSON.stringify({ created: [], updated: [], deleted: ['ReplicatedStorage/Shared/Gone'], builders: [], errors: [] }) }] };
+      },
+    } as unknown as StudioSession;
+    const r = await pushProject(session, dir, { spawn });
+    const edits = calls.filter((c) => c.name === 'multi_edit').map((c) => c.args);
+    expect(edits.map((e) => [e.file_path, e.className, e.datamodel_type])).toEqual([
+      ['game.ServerScriptService.Main', 'Script', 'Edit'],
+      ['game.ReplicatedStorage.Shared.Util', 'ModuleScript', 'Edit'],
+    ]);
+    expect((edits[0].edits as { old_string: string }[])[0].old_string).toBe('');
+    expect(applies).toBe(3);
+    expect(r.created).toEqual(['ReplicatedStorage/Shared', 'ServerScriptService/Main', 'ReplicatedStorage/Shared/Util']);
+    expect(r.deleted).toEqual(['ReplicatedStorage/Shared/Gone']);
+    expect(r.ok).toBe(true);
+  });
+
+  it('reports a multi_edit failure as a sync error', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-push-'));
+    for (const [p, c] of Object.entries(files)) {
+      mkdirSync(join(dir, p, '..'), { recursive: true });
+      writeFileSync(join(dir, p), c);
+    }
+    const spawn = async () => ({ code: 0, stdout: JSON.stringify(sm), stderr: '' });
+    let applies = 0;
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'multi_edit') return { isError: true, content: [{ type: 'text', text: 'boom' }] };
+        if (!String(args.code).includes('PAYLOAD')) return { content: [{ type: 'text', text: '{}' }] };
+        applies++;
+        return { content: [{ type: 'text', text: JSON.stringify({ created: [], updated: [], deleted: [], builders: [], errors: [], needCreate: applies === 1 ? [{ key: 'ServerScriptService/Main', path: ['ServerScriptService', 'Main'], className: 'Script' }] : [] }) }] };
+      },
+    } as unknown as StudioSession;
+    const r = await pushProject(session, dir, { spawn });
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]).toMatch(/ServerScriptService\/Main: multi_edit failed: boom/);
   });
 });
