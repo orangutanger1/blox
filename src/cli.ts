@@ -339,7 +339,8 @@ async function main(): Promise<void> {
         console.error((e as Error).message);
         process.exit(2);
       }
-      ensureCcrInstalled((m) => console.log(m)); // best-effort; config is written regardless
+      // No CCR install here: provider,slug models run on the openai runner by
+      // default; CCR is installed on demand for an explicit --runner claude.
       console.log(`added ${kind} (${models.length} model${models.length === 1 ? '' : 's'}). Run with: --model ${kind},<slug>`);
       process.exit(0);
     }
