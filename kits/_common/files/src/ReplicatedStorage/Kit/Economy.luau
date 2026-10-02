@@ -226,7 +226,12 @@ function Economy:openGates(s): { string }
 	local opened = {}
 	for _, id in sortedKeys(self.E.gates) do
 		local g = self.E.gates[id]
-		if not g.needs.consume and not s.open[id] and self:requiresMet(s, g.requires) and ge(s.bal[g.needs.res] or 0, g.needs.amount) then
+		if
+			not g.needs.consume
+			and not s.open[id]
+			and self:requiresMet(s, g.requires)
+			and ge(s.bal[g.needs.res] or 0, g.needs.amount)
+		then
 			s.open[id] = true
 			table.insert(opened, id)
 		end
@@ -319,7 +324,7 @@ function Economy:purchase(s, ref: string, rng: (() -> number)?): (boolean, strin
 		for _, oid in ids do
 			total += it.def.outcomes[oid].weight
 		end
-		local x = (rng or math.random)() * total
+		local x = (if rng then rng() else math.random()) * total
 		outcome = ids[#ids]
 		for _, oid in ids do
 			x -= it.def.outcomes[oid].weight

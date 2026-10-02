@@ -37,6 +37,7 @@ import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
 import { applyChanges, propose, type Proposal } from '../liveops/propose.js';
 import { OpenCloud, openCloudKey } from '../opencloud/client.js';
+import { formatCheck, runCheck } from '../check.js';
 import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
@@ -463,6 +464,17 @@ export const TOOLS: BloxTool[] = [
       if (typeof a.name !== 'string') return { text: 'kit apply needs name (see kit {action:"list"})', isError: true, summary: 'no name' };
       const r = applyKit(ctx.projectPath, a.name);
       return { text: formatApply(r), isError: r.tunables !== null, artifacts: r.created, summary: `${r.created.length} created` };
+    },
+  },
+  {
+    name: 'check',
+    description:
+      'Static checks on the project\'s Luau, no Studio needed: StyLua formatting (when the project has .stylua.toml), Rojo sourcemap, luau-lsp type + lint analysis of src/ (vendored Packages/Replica skipped) and a Rojo build. Run after every code change, before sync. fix:true formats with StyLua instead of only checking. Missing tools are reported as skipped. Type/syntax errors or a failed build = isError.',
+    shape: { fix: z.boolean().optional() },
+    async handler(a, ctx) {
+      const r = await runCheck(ctx.projectPath, { fix: a.fix === true });
+      const failed = r.steps.filter((s) => s.status === 'fail').map((s) => s.name);
+      return { text: formatCheck(r), isError: !r.ok, summary: r.ok ? 'pass' : `fail: ${failed.join(', ')}` };
     },
   },
   {

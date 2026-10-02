@@ -8,5 +8,6 @@
     "design {action:\"simulate\"} after every economy change, then design {action:\"codegen\"}",
     "run_tests (kit_* specs) and multiplayer (kit_steal.mp) must stay green, then playtest: buy a pet, check it earns",
     "Tune theft in design.json tunables: stealRange, carryMaxSec, carrySpeedMult, lockSec, lockCooldownSec"
-  ]
+  ],
+  "base": "boilerplate"
 }

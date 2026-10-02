@@ -153,7 +153,6 @@
     "maxWalkSpeed": 100,
     "walkSpeedPerSpeed": 0.05,
     "wallSpacing": 80,
-    "autosaveSec": 60,
     "purchaseCooldownSec": 0.2
   },
   "archetypes": [

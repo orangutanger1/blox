@@ -188,7 +188,10 @@ const APPLY_LUAU = `local HS = game:GetService("HttpService")
 local CS = game:GetService("CollectionService")
 local SES = game:GetService("ScriptEditorService")
 local P = HS:JSONDecode(PAYLOAD)
-local res = { created = {}, updated = {}, deleted = {}, builders = {}, errors = {}, needCreate = {} }
+local res = { created = {}, updated = {}, deleted = {}, builders = {}, errors = {}, needCreate = {}, deferred = {} }
+-- Keys of scripts this batch hands back for multi_edit: their descendants wait
+-- for the next pass, else parentFor would put a Folder where the script goes.
+local pending = {}
 local SCRIPT_CLASS = { Script = true, LocalScript = true, ModuleScript = true }
 -- Builders run as loadstring chunks, which may not require() place modules
 -- (capability sandbox); load module source instead, memoized per sync.
@@ -244,6 +247,12 @@ local function parentFor(path)
 end
 for _, d in P.upserts do
 	local ok, err = pcall(function()
+		for i = #d.path - 1, 2, -1 do
+			if pending[table.concat(d.path, "/", 1, i)] then
+				table.insert(res.deferred, d.key)
+				return
+			end
+		end
 		local parent = parentFor(d.path)
 		local name = d.path[#d.path]
 		if d.anchor then
@@ -266,6 +275,11 @@ for _, d in P.upserts do
 			-- This thread may not parent a script it creates (Studio capability
 			-- sandbox); the caller creates it with multi_edit and re-applies.
 			if inst then inst:Destroy() byKey[d.key] = nil end
+			local clash = parent:FindFirstChild(name)
+			if clash and not SCRIPT_CLASS[clash.ClassName] then
+				error("a " .. clash.ClassName .. " named " .. name .. " is where this script goes; delete or rename " .. clash:GetFullName(), 0)
+			end
+			pending[d.key] = true
 			table.insert(res.needCreate, { key = d.key, path = d.path, className = d.className })
 			return
 		end
@@ -395,7 +409,7 @@ export async function pushProject(session: StudioSession, projectPath: string, o
     skipped: plan.skipped, errors: [], durationMs: 0,
   };
 
-  type ApplyResult = { created?: string[]; updated?: string[]; deleted?: string[]; builders?: SyncResult['builders']; errors?: string[]; needCreate?: { key: string; path: string[]; className: string }[] };
+  type ApplyResult = { created?: string[]; updated?: string[]; deleted?: string[]; builders?: SyncResult['builders']; errors?: string[]; needCreate?: { key: string; path: string[]; className: string }[]; deferred?: string[] };
   const apply = async (upserts: (DesiredInstance & { fresh?: boolean })[], builders: WorldBuilder[], deletes: string[]) => {
     const payload = {
       upserts: upserts.map(({ key, path, className, source, value, hash, anchor, fresh }) => ({ key, path, className, source, value, hash, anchor, fresh })),
@@ -408,7 +422,7 @@ export async function pushProject(session: StudioSession, projectPath: string, o
     result.deleted.push(...(r.deleted ?? []));
     result.builders.push(...(r.builders ?? []));
     result.errors.push(...(r.errors ?? []));
-    return r.needCreate ?? [];
+    return { need: r.needCreate ?? [], deferred: r.deferred ?? [] };
   };
 
   // Batch upserts by payload size. New scripts come back as needCreate: the
@@ -426,18 +440,27 @@ export async function pushProject(session: StudioSession, projectPath: string, o
     batches[batches.length - 1].push(u);
     size += s;
   }
+  // A script with children (folder + init.luau) defers its descendants until
+  // multi_edit has made it, so each pass goes one script level deeper.
   for (const batch of batches) {
-    if (!batch.length) continue;
-    const need = await apply(batch, [], []);
-    const made: (DesiredInstance & { fresh: boolean })[] = [];
-    for (const n of need) {
-      const u = batch.find((x) => x.key === n.key);
-      if (!u) continue;
-      const err = await createScript(session, n.path, n.className);
-      if (err) result.errors.push(`${n.key}: ${err}`);
-      else made.push({ ...u, fresh: true });
+    let todo: (DesiredInstance & { fresh?: boolean })[] = batch;
+    while (todo.length) {
+      const { need, deferred } = await apply(todo, [], []);
+      const made: (DesiredInstance & { fresh: boolean })[] = [];
+      for (const n of need) {
+        const u = batch.find((x) => x.key === n.key);
+        if (!u) continue;
+        const err = await createScript(session, n.path, n.className);
+        if (err) result.errors.push(`${n.key}: ${err}`);
+        else made.push({ ...u, fresh: true });
+      }
+      const waiting = batch.filter((x) => deferred.includes(x.key));
+      if (!made.length) {
+        for (const w of waiting) result.errors.push(`${w.key}: not synced, its parent script could not be created`);
+        break;
+      }
+      todo = [...made, ...waiting];
     }
-    if (made.length) await apply(made, [], []);
   }
   if (d.builders.length || d.deletes.length) await apply([], d.builders, d.deletes);
   result.ok = result.errors.length === 0 && result.builders.every((b) => b.status !== 'error');

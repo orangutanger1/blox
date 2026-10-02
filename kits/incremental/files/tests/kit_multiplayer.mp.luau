@@ -9,10 +9,14 @@ local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("
 local econ = Economy.new(Tunables)
 
 local function api()
-	return waitFor(function() return ServerStorage:FindFirstChild("KitApi") end, 10, "KitApi missing")
+	return waitFor(function()
+		return ServerStorage:FindFirstChild("KitApi")
+	end, 10, "KitApi missing")
 end
 local function state(p)
-	return waitFor(function() return api():Invoke("getState", p) end, 10, "no kit state for " .. p.Name)
+	return waitFor(function()
+		return api():Invoke("getState", p)
+	end, 10, "no kit state for " .. p.Name)
 end
 
 test("each player has their own state", function()
@@ -44,7 +48,12 @@ end)
 
 test("junk input through the real remote is rejected", function()
 	task.wait(0.3) -- purchase cooldown
-	local ok, err = mp.client(mp.players[2], "invoke", "ReplicatedStorage.Kit.Remotes.Purchase", "generator:does-not-exist")
+	local ok, err = mp.client(
+		mp.players[2],
+		"invoke",
+		"ReplicatedStorage.Kit.Remotes.Purchase",
+		"generator:does-not-exist"
+	)
 	expect(ok).toBe(false)
 	expect(err).toBe("unknown item")
 end)

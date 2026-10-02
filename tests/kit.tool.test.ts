@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 import { StudioSession } from '../src/studio/session.js';
 import { BloxConfigSchema } from '../src/config.js';
-import { applyKit, listKits } from '../src/kits.js';
+import { applyKit, formatApply, listKits } from '../src/kits.js';
 import { cliArgs, parseFlags } from '../src/cliTools.js';
 
 function ctx(): ToolCtx {
@@ -50,6 +50,28 @@ describe('kits', () => {
     expect(readFileSync(econ, 'utf8')).toBe('-- mine\n');
     expect(readFileSync(join(c.projectPath, 'src/ReplicatedStorage/Design/Tunables.luau'), 'utf8')).toMatch(/My Speed Game/);
   });
+  it('boilerplate applies the framework alone: no design, no Tunables, no kit _common', () => {
+    const c = ctx();
+    expect(listKits().map((k) => k.name)).toContain('boilerplate');
+    const r = applyKit(c.projectPath, 'boilerplate');
+    for (const f of ['src/ReplicatedStorage/Lifecycle.luau', 'src/ServerScriptService/Services/DataService.luau', 'src/ServerScriptService/ServerPackages/ProfileStore.lua', 'src/StarterPlayerScripts/Bootstrap.client.luau', 'FRAMEWORK.md', '.luaurc']) {
+      expect(r.created).toContain(f);
+    }
+    expect(r.created).not.toContain('src/ReplicatedStorage/Kit/Economy.luau');
+    expect(r.designWritten).toBe(false);
+    expect(existsSync(join(c.projectPath, '.blox/design.json'))).toBe(false);
+    expect(existsSync(join(c.projectPath, 'src/ReplicatedStorage/Design/Tunables.luau'))).toBe(false);
+    expect(formatApply(r)).toMatch(/no design\.json/);
+  });
+  it.each(['incremental', 'steal'])('%s kit sits on the boilerplate base: its Registry wins, no KitMain', (name) => {
+    const c = ctx();
+    const r = applyKit(c.projectPath, name);
+    expect(r.created).toContain('src/ServerScriptService/Services/DataService.luau');
+    expect(r.created).toContain('src/ServerScriptService/Bootstrap.server.luau');
+    expect(r.created).not.toContain('src/ServerScriptService/KitMain.server.luau');
+    expect(readFileSync(join(c.projectPath, 'src/ServerScriptService/Registry.luau'), 'utf8')).toMatch(/KitService/);
+    expect(readFileSync(join(c.projectPath, 'src/ServerScriptService/Data/PlayerData.luau'), 'utf8')).toMatch(/Kit/);
+  });
   it('unknown kit is an error naming the available kits', async () => {
     const r = await call('kit', { action: 'apply', name: 'nope' }, ctx());
     expect(r.isError).toBe(true);
@@ -66,5 +88,26 @@ describe('kits', () => {
   it('cli mapping', () => {
     expect(cliArgs('kit', parseFlags([]))).toEqual({ tool: 'kit', args: { action: 'list' } });
     expect(cliArgs('kit', parseFlags(['apply', 'incremental']))).toEqual({ tool: 'kit', args: { action: 'apply', name: 'incremental' } });
+  });
+});
+
+describe('kit file names', () => {
+  it('no folder under a kit src/ has a "." in its name (blox sync cannot create scripts beneath one)', async () => {
+    const { readdirSync } = await import('node:fs');
+    const { KITS_ROOT } = await import('../src/kits.js');
+    const bad: string[] = [];
+    const walk = (dir: string, rel: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue;
+        const r = `${rel}/${e.name}`;
+        if (e.name.includes('.')) bad.push(r);
+        walk(join(dir, e.name), r);
+      }
+    };
+    for (const kit of readdirSync(KITS_ROOT)) {
+      const src = join(KITS_ROOT, kit, 'files', 'src');
+      if (existsSync(src)) walk(src, kit);
+    }
+    expect(bad).toEqual([]);
   });
 });

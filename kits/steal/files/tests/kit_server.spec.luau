@@ -10,7 +10,9 @@ local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("
 local econ = Economy.new(Tunables)
 
 local function api()
-	return waitFor(function() return ServerStorage:FindFirstChild("KitApi") end, 10, "KitApi missing")
+	return waitFor(function()
+		return ServerStorage:FindFirstChild("KitApi")
+	end, 10, "KitApi missing")
 end
 local function me()
 	return waitFor(function()
@@ -46,7 +48,9 @@ test("buying a pet shows it on the plot and it earns", function()
 	expect(ok).toBe(true)
 	expect(#api():Invoke("plot", p).Pets:GetChildren()).toBe(before + 1)
 	local cash = api():Invoke("getState", p).bal.cash
-	waitFor(function() return api():Invoke("getState", p).bal.cash > cash end, 5, "cash did not grow")
+	waitFor(function()
+		return api():Invoke("getState", p).bal.cash > cash
+	end, 5, "cash did not grow")
 end)
 
 test("lock: on, then refused again while active", function()
@@ -68,7 +72,9 @@ test("purchases respect the per-pet cap", function()
 	local s = api():Invoke("getState", p)
 	local kind = cheapestPet()
 	local max = Tunables.economy.generators[kind].max
-	if not max then return end
+	if not max then
+		return
+	end
 	for _ = 1, max do
 		api():Invoke("grant", p, "cash", econ:cost(s, "generator:" .. kind) + 1)
 		api():Invoke("purchase", p, "generator:" .. kind)

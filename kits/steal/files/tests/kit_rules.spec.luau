@@ -25,7 +25,9 @@ end)
 test("you cannot steal from yourself, from afar, or what the owner lacks", function()
 	local r = fresh()
 	expect(select(2, r:canSteal(1, 1, "rare", near))).toBe("that is your own base")
-	expect(select(2, r:canSteal(1, 2, "rare", { ownerCount = 1, distance = 31 }))).toBe("too far from that base")
+	expect(select(2, r:canSteal(1, 2, "rare", { ownerCount = 1, distance = 31 }))).toBe(
+		"too far from that base"
+	)
 	expect(select(2, r:canSteal(1, 2, "rare", { ownerCount = 0, distance = 1 }))).toBe("no rare to steal")
 end)
 
