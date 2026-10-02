@@ -49,6 +49,11 @@ Prefer code-built geometry. Record every other asset: asset {action:"sanitize", 
 after inserting a Creator Store model (strips scripts, flags backdoors), asset {action:"add"}
 for generated/external ones, asset {action:"lint"}. Approval and uploads are human steps.
 
+## Release and live-ops
+release {action:"check"} lists every gate. Publishing, live config and monetization are human
+decisions: prepare and dry-run, never confirm unless asked. After launch: liveops report →
+propose → apply (local), then a new release.
+
 ## UI
 Build HUDs with BloxUI (ui {action:"install"}; kits include it): scale-sized, 44px touch
 targets, safe-area aware. Then ui {action:"lint"} checks every device size; fix all errors.
