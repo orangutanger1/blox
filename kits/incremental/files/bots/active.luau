@@ -41,22 +41,38 @@ return function(player: Player, deadline: number)
 		return best
 	end
 
+	-- Turn around when a leg ends or the character stalls (a closed gate wall):
+	-- actions only accrue while moving, and speed raises WalkSpeed, so fixed-
+	-- length legs would spend most of their time pressed against the wall.
 	local outbound = true
-	local legStarted = 0
+	local legStarted = -math.huge
+	local stalledSince = nil
+	local lastBuy = 0
 	while os.clock() < deadline do
 		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-		if hum and os.clock() - legStarted > 6 then
-			hum:MoveTo(outbound and far or near)
-			outbound = not outbound
-			legStarted = os.clock()
-		end
-		for _ = 1, 50 do
-			local s = api:Invoke("getState", player)
-			local ref = s and cheapestAffordable(s)
-			if not ref or not api:Invoke("purchase", player, ref) then
-				break
+		local root = hum and hum.RootPart
+		if hum and root then
+			local v = root.AssemblyLinearVelocity
+			local moving = Vector3.new(v.X, 0, v.Z).Magnitude > 2
+			stalledSince = (moving and nil) or stalledSince or os.clock()
+			local stalled = stalledSince ~= nil and os.clock() - stalledSince > 0.4
+			if os.clock() - legStarted > 6 or (stalled and os.clock() - legStarted > 0.6) then
+				hum:MoveTo(outbound and far or near)
+				outbound = not outbound
+				legStarted = os.clock()
+				stalledSince = nil
 			end
 		end
-		task.wait(1)
+		if os.clock() - lastBuy >= 1 then
+			lastBuy = os.clock()
+			for _ = 1, 50 do
+				local s = api:Invoke("getState", player)
+				local ref = s and cheapestAffordable(s)
+				if not ref or not api:Invoke("purchase", player, ref) then
+					break
+				end
+			end
+		end
+		task.wait(0.1)
 	end
 end
