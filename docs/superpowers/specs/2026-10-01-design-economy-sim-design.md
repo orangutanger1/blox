@@ -120,16 +120,20 @@ Two halves. **Descriptive** fields are shape-validated and consumed by later ite
   for at most `capSec` per gap.
 - **drains** — continuous loss as a fraction of the balance per hour, on- and offline.
   Social pressure such as theft is modelled as a rate, not real PvP.
+- **monetization `owns`** — the sim applies `upgrade:` effects (granted at max, re-granted
+  after rebirth); other effect kinds validate but are ignored by the sim in v1.
 - **tunables** — non-economy numbers/strings/booleans; codegen only.
 - **archetypes** — `session` (`lengthSec`, `perDay`; sessions evenly spaced over the
   day), purchase `policy`, and `owns` (monetization ids applied from t=0, to compare
   payers against free players).
 - **assertions** — `metric` ∈ `timeTo` (target: `gate:<id>`, `chance:<id>`,
   `generator:<id>[:n]`, `upgrade:<id>`, `rebirth:<n>`), `countAt` (target + `at`
-  seconds), `balanceAt` (res + `at`), `maxIdleGap` (longest in-session span with
-  no progression event: no purchase, gate opening, roll or rebirth), `ratio` (same metric on two
+  seconds), `balanceAt` (res + `at`, wall clock only), `maxIdleGap` (longest in-session span with
+  no progression event: no purchase, gate opening, roll or rebirth), `ratio` (metric `of` on two
   archetypes: `archetype` / `vs`). `op` ∈ `<=`, `>=`, `between`. `pct` ∈ 10/50/90,
   default 50. `clock` ∈ `play` (default: in-session seconds) / `wall`.
+  `horizon` (wall seconds) on `maxIdleGap` limits the window and extends the sim
+  horizon if needed.
 
 ### Semantic validation
 
@@ -152,8 +156,10 @@ can increase (some action, generator or chance produces it). Errors are a list o
     take a gate or rebirth as soon as it is available. Gates with
     `consume: false` open automatically when the threshold is reached.
   - `cheapest`: buy the cheapest affordable item.
-  - `saver`: take gates and rebirths first; buy income only when nothing else is
-    pending.
+  - `saver`: like `roi`, but goals (consumable gates, rebirth) score at half their
+    time-to-afford, so it saves for them more readily.
+  - Every policy falls back to the cheapest affordable item when no candidate has a
+    finite score (no income yet).
   Chance rolls use the expected income gain for ROI ranking.
 - **Randomness.** mulberry32 seeded per run (`seed + runIndex`). Same seed → identical
   trace.
