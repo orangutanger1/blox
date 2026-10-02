@@ -43,6 +43,10 @@ proxy = function(p, name)
 			if type(k) ~= "string" then
 				return nil
 			end
+			if k == "Parent" then
+				local dir = string.match(p, "^(.*)/[^/]+$")
+				return dir and proxy(dir, string.match(dir, "([^/]+)$")) or nil
+			end
 			-- No fs calls here: Lune fs yields, and metamethods cannot yield.
 			-- A missing path surfaces at require() instead.
 			return proxy(p .. "/" .. k, k)
@@ -72,7 +76,10 @@ local function bloxRequire(target)
 		error("no module at " .. rawget(target, PATH), 2)
 	end
 	if cache[file] == nil then
-		local fn = luau.load(fs.readFile(file), { debugName = file, environment = env })
+		-- Per-module env with `script` (init.luau's script is its folder, as in Rojo).
+		local modEnv = table.clone(env)
+		modEnv.script = target
+		local fn = luau.load(fs.readFile(file), { debugName = file, environment = modEnv })
 		cache[file] = fn()
 	end
 	return cache[file]
@@ -161,6 +168,11 @@ local function waitFor(pred, timeout, msg)
 end
 
 env = { game = game, require = bloxRequire, task = task, expect = expect, waitFor = waitFor }
+-- Roblox datatypes and Instances (no layout engine, no signals) for GUI-building code.
+local roblox = require("@lune/roblox")
+for _, k in { "Instance", "UDim", "UDim2", "Vector2", "Vector3", "Color3", "Enum", "CFrame", "BrickColor", "ColorSequence", "ColorSequenceKeypoint", "NumberSequence", "NumberSequenceKeypoint", "NumberRange", "Rect", "Font" } do
+	env[k] = (roblox :: any)[k]
+end
 
 local results, fileErrors = {}, {}
 for _, file in specFiles do

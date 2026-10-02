@@ -19,6 +19,8 @@ import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
 import { applyKit, formatApply, KITS_ROOT, listKits } from '../kits.js';
 import { runMetrics } from '../metrics/run.js';
 import { formatMetrics } from '../metrics/gamefeel.js';
+import { runUiLint } from '../ui/run.js';
+import { formatUiReport } from '../ui/lint.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -485,6 +487,45 @@ export const TOOLS: BloxTool[] = [
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: formatMetrics(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} ${a.action}` };
+    },
+  },
+  {
+    name: 'ui',
+    description:
+      'Deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit: screen, Button, CurrencyBar, Rail, Modal, Toast, Reveal — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
+    shape: {
+      action: z.enum(['lint', 'install']),
+      seconds: z.number().min(0).max(120).optional(),
+      prepare: z.string().optional(),
+      devices: z.array(z.string()).optional(),
+    },
+    async handler(a, ctx) {
+      if (a.action === 'install') {
+        const src = join(KITS_ROOT, '_common/files/src/ReplicatedStorage/BloxUI');
+        const created: string[] = [];
+        for (const f of readdirSync(src)) {
+          const rel = `src/ReplicatedStorage/BloxUI/${f}`;
+          const dest = join(ctx.projectPath, rel);
+          if (existsSync(dest)) continue;
+          mkdirSync(dirname(dest), { recursive: true });
+          writeFileSync(dest, readFileSync(join(src, f), 'utf8'));
+          created.push(rel);
+        }
+        return {
+          text: `${created.length ? `wrote ${created.join(', ')}` : 'BloxUI already installed'}. Client: local UI = require(game.ReplicatedStorage.BloxUI); local gui = UI.screen("HUD"); UI.CurrencyBar(gui, {"coins"}); UI.Rail(gui, {{id="Shop", text="Shop"}}) … then ui {action:"lint"}.`,
+          artifacts: created,
+          summary: `${created.length} files`,
+        };
+      }
+      const report = await runUiLint(ctx.session, {
+        seconds: (a.seconds as number | undefined) ?? 3,
+        prepare: a.prepare as string | undefined,
+        devices: a.devices as string[] | undefined,
+      });
+      writeJson(ctx.projectPath, 'ui-report.json', report);
+      refreshCriteria(ctx.projectPath);
+      const failed = report.results.filter((x) => !x.ok).length;
+      return { text: formatUiReport(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} rules` };
     },
   },
   {
