@@ -5,6 +5,17 @@ import { assetCacheKey, lookupAsset, recordAsset } from './assetCache.js';
 export const EXECUTE_LUAU_TOOL = 'mcp__Roblox_Studio__execute_luau';
 export const GEN_MESH_TOOL = 'mcp__Roblox_Studio__generate_mesh';
 export const WAIT_JOB_TOOL = 'mcp__Roblox_Studio__wait_job_finished';
+export const BLOX_STUDIO_TOOL = 'mcp__blox__studio_tool';
+
+// On the blox bridge, raw Studio tools arrive as studio_tool{name, args}.
+// Rewrite such a call into the raw-tool shape the asset hooks understand.
+export function unwrapStudioTool<T extends HookInput>(input: T): T {
+  const i = input as T & { tool_name?: string; tool_input?: unknown };
+  if (i.tool_name !== BLOX_STUDIO_TOOL) return input;
+  const ti = (i.tool_input ?? {}) as { name?: unknown; args?: unknown };
+  if (typeof ti.name !== 'string') return input;
+  return { ...i, tool_name: `mcp__Roblox_Studio__${ti.name}`, tool_input: ti.args ?? {} } as T;
+}
 
 // How the result hook reaches the panel's gate broker (mirrors GateChannel in
 // permission.ts: connectivity check + an awaitable decision).
@@ -84,7 +95,8 @@ export function rejectMessage(toolName: string, stashed: boolean, feedback?: str
 // the agent can adjust. Never calls MCP (SP1c-d single-client rule) and never
 // stalls the run on a broken channel.
 export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
-  return async (input: HookInput): Promise<HookJSONOutput> => {
+  return async (rawInput: HookInput): Promise<HookJSONOutput> => {
+    const input = unwrapStudioTool(rawInput);
     if (input.hook_event_name !== 'PostToolUse') return { continue: true };
     if (input.tool_name !== GEN_MESH_TOOL && input.tool_name !== WAIT_JOB_TOOL) return { continue: true };
     if (!gate?.isConnected()) return { continue: true };
@@ -114,7 +126,8 @@ export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
 // ponytail: generate_mesh only. procedural_model's prompt and tag arrive in
 // different tool calls (the wait_job chain); deduping that needs job-id linking.
 export function buildAssetDedupeHook(projectPath: string): HookCallback {
-  return async (input: HookInput): Promise<HookJSONOutput> => {
+  return async (rawInput: HookInput): Promise<HookJSONOutput> => {
+    const input = unwrapStudioTool(rawInput);
     if (input.hook_event_name !== 'PreToolUse') return { continue: true };
     if (input.tool_name !== GEN_MESH_TOOL) return { continue: true };
     let key: string | null = null;
@@ -143,7 +156,8 @@ export function buildAssetDedupeHook(projectPath: string): HookCallback {
 // prompt→tag so a later identical prompt hits buildAssetDedupeHook. Records
 // nothing when no tag was extractable. Never throws (observability, not control).
 export function buildAssetRecordHook(projectPath: string): HookCallback {
-  return async (input: HookInput): Promise<HookJSONOutput> => {
+  return async (rawInput: HookInput): Promise<HookJSONOutput> => {
+    const input = unwrapStudioTool(rawInput);
     if (input.hook_event_name !== 'PostToolUse') return { continue: true };
     if (input.tool_name !== GEN_MESH_TOOL) return { continue: true };
     try {

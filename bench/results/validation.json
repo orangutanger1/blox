@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-01T02:56:30.042Z",
+  "tasks": [
+    {
+      "task": "t3-hud",
+      "seed": {
+        "passed": 3,
+        "total": 6,
+        "failures": [
+          "hud: CoinsLabel is a visible TextLabel in the top-left quadrant: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "hud: text reads \"Coins: N\" for the current value: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "hud: label updates live when Coins changes: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui"
+        ]
+      },
+      "solution": {
+        "passed": 6,
+        "total": 6,
+        "failures": []
+      },
+      "valid": true
+    },
+    {
+      "task": "t7-shop",
+      "seed": {
+        "passed": 5,
+        "total": 9,
+        "failures": [
+          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:31: expected a value/instance, got nil"
+        ]
+      },
+      "solution": {
+        "passed": 9,
+        "total": 9,
+        "failures": []
+      },
+      "valid": true
+    }
+  ]
+}

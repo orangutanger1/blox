@@ -1,180 +1,134 @@
 # blox
 
-Agentic coding tool for Roblox Studio (SP1a — core code loop).
+**A Roblox development runtime for AI agents.** blox connects any coding agent
+(Claude Code, Codex, Cursor, the built-in runner, …) to a running Roblox Studio
+and gives it the loop a game developer needs: *edit files → sync → run the game →
+observe → test → fix → verify* — with structured results at every step and
+tests, not the agent's own claims, as the measure of "done".
 
-## Install
-
-```bash
-npm install
-npm run build
+```
+agent ──MCP / CLI──▶ blox ──Studio MCP (studio_id, attach, retries)──▶ Roblox Studio
+                      │  sync  · run_tests · playtest · run_luau · screenshot · task
+                      └─▶ <project>/.blox/  events.jsonl, last-tests.json, task.json, artifacts/
+                                    ▲
+                          blox dashboard (read-only)
 ```
 
-Requirements: Node ≥20, `rojo` on PATH, `ANTHROPIC_API_KEY` in the environment.
+## Why (what changed, Sept 2026)
 
-## Run
+The previous blox was a Claude-only agent wrapper around raw Studio MCP tools. Measured
+against a live Studio it had three fatal problems for autonomy (see
+[`bench/results`](bench/results) and [`docs/agent-native.md`](docs/agent-native.md)):
 
-```bash
-# Against the fixture game with the mock Studio bridge (no live Studio):
-node dist/cli.js --mock --project test-fixtures/game "Add a greeting helper to Greeter.luau"
+1. **Code never reached Studio without a human.** Files only synced via `rojo serve` +
+   a manual *Connect* click in the Rojo plugin. Baseline run: 46 turns / $2.65 spent
+   fighting Rojo, then the agent pasted its code into `execute_luau` and reported
+   success — 0/4 checks passed in the actual place.
+2. **Broken by Studio updates.** Studio MCP now requires `studio_id` on every call and
+   renamed asset tools; Studio auto-updates can leave `mcp.bat` pointing at a deleted
+   version → every connection fails.
+3. **No ground truth.** No test runner, no typed logs (play-mode errors arrive as an
+   untyped console blob), stale `require` caches in edit probes, no record of what
+   was verified.
 
-# Against your own Rojo game with the live Studio MCP bridge:
-export BLOX_STUDIO_MCP_CMD=rbx-studio-mcp   # path/name of the official Roblox Studio MCP server
-node dist/cli.js --project /path/to/game "..."
-```
+## Quick start
 
-blox edits `.luau` files, validates the Rojo project (`rojo sourcemap`), commits the
-change, and prints a report.
-
-## Autonomy (per-run controls)
-
-Each run's autonomy is overridable on the command line (flag > `blox.config.json` >
-default):
-
-| Flag | Effect | Default |
-|------|--------|---------|
-| `--max-turns <N>` | Cap agent turns | 40 |
-| `--budget <USD>` | Cap spend; the run stops once exceeded | 5 |
-| `--effort <high\|xhigh>` | Model reasoning effort | SDK default |
-| `--auto` | Full autonomy — all tools run without prompting | (default) |
-| `--ask` | Gate risky actions (see below) | off |
-
-In `--ask` mode the inner code loop (editing `.luau`, running headless
-`execute_luau` checks) stays fully autonomous, but **asset generation**
-(`generate_mesh`, `generate_material`, `generate_procedural_model`,
-`insert_from_creator_store`) and **play-mode / input-sim**
-(`start_stop_play`, `character_navigation`, `user_keyboard_input`,
-`user_mouse_input`) are gated. When the agent reaches a gated action the run stops,
-the report lists the blocked action(s) and the session id, and you re-run with
-`--auto` to allow them.
+Requirements: Node ≥ 20, [Rojo](https://rojo.space) on PATH, Roblox Studio with
+*Assistant → Settings → Studio as MCP server* enabled and a place open. On WSL,
+Studio runs on Windows; blox finds `StudioMCP.exe` itself.
 
 ```bash
-# Bounded, gated run:
-node dist/cli.js --ask --budget 2 --effort xhigh --project /path/to/game "Build a shop UI"
+npm install && npm run build && npm link   # provides the `blox` command
+
+blox new my-game && cd my-game             # Rojo project + world/ + tests/ + AGENTS.md
+blox status                                # Studio attached? in sync? tests? task?
+blox setup claude                          # or: cursor | codex  (wires `blox mcp`)
+claude                                     # the agent now has the blox tools
 ```
 
-## Usage report
+Without MCP every tool is also a CLI command (`blox test`, `blox playtest --seconds 5
+--screenshot`, `blox luau 'return #game.Players:GetPlayers()' --context server`, …);
+`blox help` lists them.
 
-Summarize costs and usage from the committed `.blox/audit.jsonl` ledger:
+## The toolset (MCP server `blox`, also `blox <cmd>`)
+
+| tool | what it does |
+|---|---|
+| `status` | one-call report: Studio attach + mode, files not yet in Studio, last tests (stale?), last playtest errors, task checklist |
+| `sync` | push files into Studio: scripts per `default.project.json` (Rojo is the mapping oracle; no plugin needed) + `world/` builders. Incremental, hash-verified, one undo step, only touches blox-tagged instances |
+| `run_tests` | sync, then run `tests/**/*.spec.luau` inside Studio — `edit` specs directly, `server`/`client` specs inside one playtest. Per-test pass/fail with `file:line`, runtime errors from the playtest, timeouts |
+| `playtest` | start play → wait for player+character → wait N s → optional input → server/client Luau probes → optional screenshot → typed server+client logs → stop |
+| `run_luau` | Luau in `edit`/`server`/`client`; all return values serialized (Instances, Vector3, tables), its log lines, errors mapped to your lines; edit-context `require` loads current source |
+| `play` / `logs` / `screenshot` / `explore` | direct control and observation |
+| `studio_tool` | any raw Studio MCP tool (`studio_id` injected): assets (`search_asset`, `insert_asset`, `generate_mesh`, …), `inspect_instance`, … |
+| `task` | goal + acceptance criteria bound to tests (auto pass/fail from `run_tests`), notes, blockers needing a human — persisted in `.blox/task.json` |
+| `scaffold` | create the standard layout non-destructively |
+
+Project conventions (also in every scaffolded `AGENTS.md`):
+
+- `src/<Service>/…` — `.server.luau` Script, `.client.luau` LocalScript, `.luau` ModuleScript
+- `world/<Name>.luau` — `return function(model) … end`: geometry as code, rebuilt when the file changes
+- `tests/*.spec.luau` — `-- @context edit|server|client`; `test`, `describe`, `expect(v).toBe/…`, `waitFor`
+
+## Observability
+
+Every tool call from every agent is appended to `.blox/events.jsonl`; results land in
+`.blox/last-{sync,tests,playtest}.json`, screenshots in `.blox/artifacts/`. `blox
+dashboard` (http://127.0.0.1:35780) renders the same files: what needs attention
+(blockers, failing tests, runtime errors, Studio detached), goal/criteria, test
+pass-rate history, last playtest logs, screenshots, and the activity timeline. Agents
+never depend on it.
+
+## Benchmark
+
+`bench/` holds 7 tasks (basic creation → existing-project feature with regressions).
+Each has a seed project, a prompt, **hidden** Luau checks run by the harness through
+the same test runner, and a reference solution. Agent runs cost real money, so they
+default to a 3-task **core** suite (t2-coins, t6-door, t7-shop); `--tasks all` runs
+all 7.
 
 ```bash
-blox report [--since Nd] [--json]
+blox bench --validate                       # checks must FAIL on seed, PASS on reference
+blox bench --agent blox --label after       # built-in runner
+blox bench --agent claude-code              # Claude Code + blox MCP
+blox bench --agent legacy --legacy-cli ../old-blox/dist/cli.js
+blox bench --agent custom --agent-cmd '["codex","exec","{prompt}"]'
 ```
 
-The report breaks down spend vs the team rolling cap (from
-`policy.rollingBudget.maxUsd` in `blox.config.json`), plus cost per user and per model. `--since Nd` overrides the
-policy's rolling window (e.g. `--since 7d` forces a 7-day window); `--json` prints
-the raw summary struct instead of the table. The same summary is available in the
-desktop app (Refresh usage button) and over the panel daemon at `GET /api/v1/usage`.
+The bench measures the environment, not one vendor: any agent command works. Per run
+it records pass/fail, cost, time, turns, model and tokens (fresh input / cache read /
+cache write / output). Agents report stats by writing JSON to `$BLOX_BENCH_STATS`
+(`{turns, costUsd, model, tokens}`); stdout of the blox runner and `claude -p` is
+parsed too. If only tokens are reported, cost is derived from the pricing table when
+the model is known.
 
-**Note:** for CCR-routed (non-Claude) models, the model identifier is a
-`provider,slug` string (e.g. `openrouter,deepseek-chat`), so both `policy.models`
-allowlist and the report's "by model" rows use that comma-joined form.
+Scores are reported twice: **live** (Studio exactly as the agent left it — what a
+player gets) and **synced** (after the harness pushes the agent's files). The harness
+resets the open place between tasks — **point it at a throwaway place.**
 
-## Team relay (hard gate)
+Latest core-suite results (2026-10-01, one run each): legacy blox 0/3 tasks, 2/16 live
+checks, $4.27, 26 min; blox runner 3/3, 16/16, $0.75, 2.6 min; Claude Code + blox MCP
+3/3, 16/16, $0.92, 2.9 min. Details: [`bench/results/comparison.md`](bench/results/comparison.md).
 
-`blox relay serve` runs a self-hosted Anthropic-compatible proxy that holds the
-team API key and enforces `policy` server-side. Members never get the real key,
-so the model allowlist and rolling spend cap become a real gate (not advisory).
+## Built-in runner (optional)
 
-Lead (on the relay host, with the team key in $ANTHROPIC_API_KEY):
+`blox "<prompt>" [--auto|--ask] [--budget USD] [--max-turns N] [--model …]` runs a
+Claude Agent SDK loop over the same toolset (in-process), then commits the project and
+leaves Studio synced. `--ask` gates credit-spending asset generation (dock panel can
+approve). Routed non-Claude models via claude-code-router: `blox model add …`.
 
-    blox relay add-member alice@team.com    # prints a blx_ token ONCE
-    blox relay serve                          # binds relay.host:relay.port
+## Other commands (unchanged, peripheral to the agent loop)
 
-Member:
+`blox doctor` (connectivity), `blox init` (pull an existing place's scripts into a
+Rojo project), `blox panel install|serve` (Studio dock UI for the built-in runner),
+`blox auth …`, `blox model …`, `blox report` / `blox relay …` (team spend policy and
+hosted key relay), `blox eval` (superseded by `blox bench`). See
+[`docs/superpowers`](docs/superpowers) for their design notes.
 
-    export ANTHROPIC_BASE_URL=http://<relay-host>:8787
-    export ANTHROPIC_API_KEY=blx_<their-token>
-    blox "build a shop UI"
-
-The relay logs per-member token usage + cost to relay.ledgerPath and serves a
-summary at GET /api/v1/usage. Config lives in the `relay` block of
-blox.config.json. **TLS is not built in** — run the relay on a trusted network
-or front it with nginx/caddy for TLS; member tokens ride in the x-api-key header.
-
-## Live Studio sync (manual)
-
-The CLI only *validates* the Rojo project. To push edits into a running Studio,
-run `rojo serve` in the project dir and connect the Rojo plugin in Studio. Enable
-the Roblox Studio MCP server in Studio's Assistant settings so the live bridge can
-read the DataModel.
-
-## Studio dock panel
-
-Watch and steer a run from inside Studio. One-time setup:
+## Tests
 
 ```bash
-blox panel install        # builds the plugin and copies it into Studio's plugins folder
+npm test               # unit tests (fake Studio, no network)
+npx tsc --noEmit       # vitest does not typecheck
+BLOX_E2E=1 npx vitest run tests/e2e   # live tests against an attached Studio (legacy surface)
 ```
-
-Then in Studio: Plugins toolbar → **blox** → **blox panel**. Allow HTTP requests
-when prompted (the panel talks to the local CLI on `127.0.0.1:35768`; override
-with `panel.port` in `blox.config.json`).
-
-With the panel open, `--ask` becomes interactive: gated actions (asset
-generation, play mode, input sim) pause the run and show an Allow/Deny card in
-the dock. Allow resumes the run; Deny tells the agent to continue without that
-action. Without the panel, `--ask` behaves as before (blocked actions stop the
-run). Gates time out after `panel.gateTimeoutSeconds` (default 120) back to the
-stop behavior.
-
-Asset generations (`generate_mesh`, procedural models) additionally pause
-after the result lands: the dock shows a 3D preview of the generated asset
-(click it to frame the asset in the main viewport) with **Approve** and
-**Reject** buttons and an optional feedback box. Approve resumes the run.
-Reject moves the asset to `ReplicatedStorage._bloxRejected` (undo-able,
-nothing is destroyed) and tells the agent why, using your feedback. If the
-gate times out (default 120s) the asset is kept and the run continues — the
-report marks it unreviewed.
-
-If the panel can't reach the CLI on WSL, check Windows↔WSL localhost forwarding
-and set `BLOX_STUDIO_PLUGINS_DIR` if `panel install` can't find your plugins
-folder.
-
-## Non-Rojo onboarding
-
-If your game has no Rojo project yet, `blox init` pulls the live Studio DataModel's
-scripts into one, then commits a git baseline so `blox` can track subsequent edits.
-
-```bash
-node dist/cli.js init [--project <dir>] [--on-conflict abort|suffix] [--force]
-```
-
-**Requires:** an attached Studio with the MCP server enabled (same prerequisite as
-`blox doctor`).
-
-**What it does:**
-
-- Walks the live DataModel and serializes every Script, LocalScript, and ModuleScript
-  to Rojo-convention `.luau` files under `<dir>/src/`.
-- Writes `<dir>/default.project.json` mapping the file tree back to the DataModel
-  hierarchy.
-- Commits the result as a git baseline (`git init` + initial commit if needed).
-
-**Non-script instances** (Parts, Models, GUIs, Values, …) stay DataModel-first and
-are not serialized; only script instances are pulled.
-
-**`--on-conflict` behavior:** when two scripts share the same parent and name they
-would map to the same file path. The default (`abort`) writes nothing and lists the
-conflicts so you can resolve them first. Re-run with `--on-conflict suffix` to let
-blox disambiguate automatically (`_2`, `_3`, …) and write everything.
-
-**`--force`** overwrites an existing `default.project.json` and re-writes the
-pulled scripts. It does **not** prune files from a previous onboard, so a script
-renamed or deleted in Studio leaves its old `.luau` behind — remove stale files by
-hand (or start from a clean dir) after big DataModel renames.
-
-After `blox init`, run `rojo serve` in the project dir and click **Connect** in
-Studio's Rojo plugin, then use `blox "<prompt>"` normally.
-
-## Test
-
-```bash
-npm test                              # unit tests (no API key, no Studio)
-BLOX_E2E=1 npx vitest run tests/e2e   # live end-to-end smoke (needs API key + rojo)
-```
-
-## Scope
-
-SP1a is the core loop: prompt → edit `.luau` → Rojo project check → commit → report.
-The verify/playtest loop, bounded fix loop, and asset generation are SP1b.

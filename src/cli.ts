@@ -2,16 +2,21 @@
 import { parseArgs, type ParsedArgs } from './args.js';
 import { loadConfig, overridesFromArgs } from './config.js';
 import { buildDigest } from './context/digest.js';
-import { createStudioMcpBridge, studioLauncher } from './bridge/mcpBridge.js';
+import { studioLauncher } from './bridge/mcpBridge.js';
+import { createBloxToolsBridge } from './bridge/bloxBridge.js';
+import { studioSessionFor } from './mcp/server.js';
+import { pushProject, formatSyncResult } from './sync/push.js';
+import { stopPlay } from './studio/play.js';
 import { createMockStudioBridge } from './bridge/mockBridge.js';
 import { loadImageFromFile, type ImageInput } from './agent/imageInput.js';
 import { runDoctor, formatDoctorReport } from './doctor.js';
+import { checkStudioPort, fixOrphanProxy } from './studio/port.js';
 import { ccrStatus, formatCcrStatus, ensureCcr, ensureCcrInstalled, ccrRunEnv } from './ccrServe.js';
 import { allCcrModels } from './ccr.js';
 import { writeProvider, type ProviderKind } from './model.js';
 import { checkPanel, formatPanelStatus } from './panel/status.js';
 import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveCheck.js';
-import { ensureServe, stopServe, registerServeTeardown, type ServeSession } from './sync/serve.js';
+import { ensureServe, stopServe } from './sync/serve.js';
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
 import { runReport } from './reportCommand.js';
@@ -32,9 +37,23 @@ import {
 import { PolicyError } from './policy.js';
 import { randomUUID } from 'node:crypto';
 import { RelayServer } from './relay/server.js';
+import { runToolCommand } from './cliTools.js';
+import { runBenchCommand } from './bench/cli.js';
+import { runDashboardCommand } from './dashboard/server.js';
 import { relayMemberCommand, resolveRelayServe, resolveRelayPaths } from './relay/cli.js';
 
 async function main(): Promise<void> {
+  // The agent toolset (status/sync/test/playtest/luau/mcp/new/setup/…) has its
+  // own front-end over the shared tool registry.
+  if (await runToolCommand(process.argv.slice(2))) return;
+  if (process.argv[2] === 'bench') {
+    await runBenchCommand(process.argv.slice(3));
+    return;
+  }
+  if (process.argv[2] === 'dashboard') {
+    await runDashboardCommand(process.argv.slice(3));
+    return;
+  }
   let args: ParsedArgs;
   try {
     args = parseArgs(process.argv.slice(2));
@@ -47,6 +66,14 @@ async function main(): Promise<void> {
   if (command === 'doctor') {
     const report = await runDoctor(studioLauncher());
     console.log(formatDoctorReport(report));
+    const studioPort = await checkStudioPort();
+    if (studioPort.checked) {
+      console.log(`  port:    ${studioPort.issue === 'none' ? 'ok' : studioPort.issue.toUpperCase()} — ${studioPort.detail}`);
+      if (args.fix) {
+        const fixed = await fixOrphanProxy(studioPort);
+        if (fixed) console.log(`  fix:     ${fixed}; reopen Studio (or toggle "Studio as MCP server") so it re-registers`);
+      }
+    }
     const serve = await checkRojoServe(rojoServeUrl());
     console.log(formatServeCheck(serve));
     // BYO-model + dock readiness: CCR router and the panel daemon. Both optional
@@ -71,13 +98,10 @@ async function main(): Promise<void> {
     const cwd = projectPath ?? process.cwd();
     const config = { ...loadConfig(cwd, overridesFromArgs(args)), mode: 'auto' as const };
     const digest = buildDigest(config.projectPath);
-    const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
-    let session: ServeSession | undefined;
-    try {
-      session = await ensureServe(config.projectPath);
-    } catch {
-      console.error('warning: rojo serve unavailable — Studio may see stale files during eval');
-    }
+    const studio = mock ? null : studioSessionFor(config);
+    const bridge = studio
+      ? createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-eval' })
+      : createMockStudioBridge();
     const env = buildAuthEnv({ override: args.authMode });
     const runTask: EvalRunner = async (task) => {
       const report = await runOnce(config, task.prompt, { bridge, digest, env });
@@ -88,7 +112,7 @@ async function main(): Promise<void> {
       console.log(formatEvalSummary(summary));
       process.exitCode = summary.failed === 0 ? 0 : 1;
     } finally {
-      if (session) await stopServe(session);
+      if (studio) await studio.close();
     }
     return;
   }
@@ -272,7 +296,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error(
-      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
+      'usage: blox "<prompt>" [--mock] [--project <dir>] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key]  |  blox doctor [--fix]  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|use subscription|key  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',
     );
     process.exit(2);
   }
@@ -280,7 +304,12 @@ async function main(): Promise<void> {
   const cwd = projectPath ?? process.cwd();
   const config = loadConfig(cwd, overridesFromArgs(args));
   const digest = buildDigest(config.projectPath);
-  const bridge = mock ? createMockStudioBridge() : createStudioMcpBridge();
+  // Real runs drive Studio through the blox toolset (the same tools external
+  // agents get via `blox mcp`); --mock keeps the in-process fake raw-Studio bridge.
+  const studio = mock ? null : studioSessionFor(config);
+  const bridge = studio
+    ? createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-runner' })
+    : createMockStudioBridge();
 
   // --image: read from disk now so a bad path fails before any model call.
   let image: ImageInput | undefined;
@@ -338,22 +367,6 @@ async function main(): Promise<void> {
       }
     : undefined;
 
-  // Mock runs never touch real Studio/serve. Real runs ensure the rojo serve
-  // sync channel is up (reuse-first); a serve failure is non-fatal — the run
-  // proceeds but the agent's verify loop may see stale files.
-  let session: ServeSession | null = null;
-  if (!mock) {
-    try {
-      session = await ensureServe(config.projectPath);
-      if (session.mode === 'spawned') {
-        registerServeTeardown(session);
-        console.log(`rojo serve up on :${session.port} — click Connect in Studio's Rojo plugin`);
-      }
-    } catch (e) {
-      console.error(`warning: could not start rojo serve: ${(e as Error)?.message ?? String(e)}`);
-    }
-  }
-
   try {
     panel?.emit({
       type: 'run_started',
@@ -406,9 +419,19 @@ async function main(): Promise<void> {
       costUsd: report.costUsd,
     });
     console.log(formatReport(report));
+    // Leave Studio matching the committed files, whatever the agent last did.
+    if (studio) {
+      try {
+        const st = await studio.state();
+        if (st.mode !== 'Edit') await stopPlay(studio);
+        console.log(formatSyncResult(await pushProject(studio, config.projectPath, { worldDir: config.worldDir })).split('\n')[0]);
+      } catch (e) {
+        console.error(`warning: final sync to Studio failed: ${(e as Error).message}`);
+      }
+    }
     process.exitCode = report.status === 'success' ? 0 : 1;
   } finally {
-    if (session) await stopServe(session);
+    if (studio) await studio.close();
     if (panel) await panel.stop();
   }
 }

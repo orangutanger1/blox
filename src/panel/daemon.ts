@@ -12,8 +12,9 @@ import { buildAuthEnv, authInfo } from '../auth.js';
 import { runOnce } from '../run.js';
 import { PolicyError } from '../policy.js';
 import { buildDigest } from '../context/digest.js';
-import { createStudioMcpBridge } from '../bridge/mcpBridge.js';
-import { ensureServe } from '../sync/serve.js';
+import { createBloxToolsBridge } from '../bridge/bloxBridge.js';
+import { studioSessionFor } from '../mcp/server.js';
+import { pushProject, formatSyncResult } from '../sync/push.js';
 import type { BloxConfig } from '../config.js';
 
 // The daemon's run launcher: emits run_started/run_finished around runOnce.
@@ -91,6 +92,8 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
   });
   server.attachAuth(() => authInfo());
   await server.start();
+  // One long-lived Studio connection for every dock-launched run.
+  const studio = studioSessionFor(config);
 
   const run: RunFn = async (prompt, slug, runId, abortController) => {
     const ccr = readCcrModels();
@@ -120,14 +123,14 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     // Direct-Anthropic runs pick the linked credential (subscription vs API key);
     // CCR/BYO-model runs keep their own endpoint + key override.
     const env = useCcr ? ccrRunEnv(true) : buildAuthEnv();
-    const bridge = createStudioMcpBridge();
-    log('Syncing project to Studio (rojo serve)…');
+    const bridge = createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-dock' });
+    log('Syncing project to Studio…');
     try {
-      const session = await ensureServe(config.projectPath);
-      log(session.mode === 'reused' ? 'rojo serve already running.' : 'rojo serve started.');
-    } catch {
-      /* serve is non-fatal; the verify loop may see stale files */
-      log('rojo serve unavailable — continuing (Studio may see stale files).');
+      const r = await pushProject(studio, config.projectPath, { worldDir: config.worldDir });
+      log(formatSyncResult(r).split('\n')[0]);
+    } catch (e) {
+      /* non-fatal: the agent's run_tests/playtest sync again and report errors */
+      log(`initial sync failed — continuing: ${(e as Error).message}`);
     }
     const gate = {
       isConnected: () => server.isConnected(),

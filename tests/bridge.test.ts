@@ -145,9 +145,11 @@ describe('studioLauncher', () => {
     delete process.env.BLOX_STUDIO_MCP_CMD;
     try {
       const l = studioLauncher();
-      // linux/WSL + win32 reach mcp.bat via cmd.exe and get a Windows cwd.
+      // linux/WSL + win32 reach a Windows exe (StudioMCP.exe or mcp.bat via
+      // cmd.exe) and get a Windows-side cwd. Resolution is unit-tested in
+      // studio.launcher.test.ts.
       if (process.platform !== 'darwin') {
-        expect(l.command).toBe('cmd.exe');
+        expect(l.command === 'cmd.exe' || l.command.endsWith('StudioMCP.exe')).toBe(true);
         expect(l.cwd).toBeDefined();
       }
     } finally {

@@ -1,0 +1,70 @@
+{
+  "label": "baseline-legacy-t6t7",
+  "agent": "legacy (/home/myen/blox-legacy/dist/cli.js)",
+  "startedAt": "2026-10-02T01:30:25.160Z",
+  "finishedAt": "2026-10-02T01:52:18.105Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 311,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy-t6t7/t6-door",
+      "notes": [],
+      "turns": 36,
+      "costUsd": 1.5214,
+      "live": {
+        "passed": 1,
+        "total": 3,
+        "failures": [
+          "door: opens when a player steps on the plate: fail — .bench-checks/door.spec.luau:10: expected a value/instance, got nil",
+          "door: closes again after ~3 seconds: fail — Door is not a valid member of Workspace \"Workspace\""
+        ]
+      },
+      "synced": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 917,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/baseline-legacy-t6t7/t7-shop",
+      "notes": [],
+      "turns": 41,
+      "costUsd": 1.4378,
+      "live": {
+        "passed": 1,
+        "total": 9,
+        "failures": [
+          "coins: leaderstats.Coins IntValue exists: fail — .bench-checks/02-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "coins: at least 5 anchored Coin parts under Workspace.Coins: fail — .bench-checks/02-coins-regression.spec.luau:22: expected >= 5, got 0",
+          "coins: touching a coin gives exactly +1 and disables that coin: fail — .bench-checks/02-coins-regression.spec.luau:6: waitFor timed out: no leaderstats.Coins",
+          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:6: waitFor timed out: no ScreenGui named HUD in PlayerGui",
+          "regression: CoinsLabel still shows current coins: fail — .bench-checks/03-shop.spec.luau:6: waitFor timed out: no ScreenGui named HUD in PlayerGui"
+        ]
+      },
+      "synced": {
+        "passed": 9,
+        "total": 9,
+        "failures": []
+      }
+    }
+  ]
+}

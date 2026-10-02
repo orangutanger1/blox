@@ -1,0 +1,40 @@
+-- @context client
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local function helper(...) return RS:WaitForChild("__BenchHelper", 5):InvokeServer(...) end
+local function hud()
+	return waitFor(function()
+		for _, c in Players.LocalPlayer.PlayerGui:GetChildren() do if c.Name == "HUD" and c:IsA("ScreenGui") then return c end end
+		return nil
+	end, 5, "no ScreenGui named HUD in PlayerGui")
+end
+local function buy() return waitFor(function() return RS:FindFirstChild("BuySpeed") end, 5, "no ReplicatedStorage.BuySpeed") end
+test("shop: BuySpeed is a RemoteFunction", function()
+	expect(buy()).toBeA("RemoteFunction")
+end)
+test("shop: refuses with fewer than 10 coins and changes nothing", function()
+	helper("setCoins", 3)
+	expect(buy():InvokeServer()).toBe(false)
+	local s = helper("get")
+	expect(s.coins).toBe(3)
+	expect(s.walkSpeed).toBe(16)
+end)
+test("shop: with 15 coins deducts 10 and sets WalkSpeed 24", function()
+	helper("setCoins", 15)
+	expect(buy():InvokeServer()).toBe(true)
+	local s = helper("get")
+	expect(s.coins).toBe(5)
+	expect(s.walkSpeed).toBe(24)
+end)
+test("shop: HUD has a BuySpeedButton TextButton", function()
+	local b = hud():FindFirstChild("BuySpeedButton", true)
+	expect(b).toExist()
+	expect(b).toBeA("TextButton")
+	expect(b.Visible).toBe(true)
+end)
+test("regression: CoinsLabel still shows current coins", function()
+	local l = hud():FindFirstChild("CoinsLabel", true)
+	expect(l).toExist()
+	local coins = Players.LocalPlayer.leaderstats.Coins
+	waitFor(function() return l.Text == "Coins: " .. coins.Value end, 5, 'label "' .. (l and l.Text or "?") .. '" vs coins ' .. coins.Value)
+end)

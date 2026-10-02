@@ -16,6 +16,15 @@ export function isLuauPath(target: string): boolean {
   return t.endsWith('.luau') || t.endsWith('.lua');
 }
 
+// Writable project files: Luau source/tests/world builders plus the data and
+// notes a game project legitimately carries (Rojo project/JSON modules, .txt
+// StringValues, markdown). Never blox's own state or git internals.
+export function isWritableProjectPath(projectPath: string, target: string): boolean {
+  const rel = resolve(projectPath, target).slice(resolve(projectPath).length + 1).replace(/\\/g, '/');
+  if (rel.startsWith('.blox/') || rel.startsWith('.git/') || rel === '.git') return false;
+  return isLuauPath(target) || /\.(json|txt|md|csv)$/i.test(target);
+}
+
 // True when Luau source reaches an external endpoint. HttpService covers the
 // HttpService:GetAsync/PostAsync/RequestAsync surface; HttpGet covers the
 // game:HttpGet / game:HttpGetAsync DataModel shortcuts.
@@ -78,9 +87,9 @@ export function buildGuardrailHook(projectPath: string): HookCallback {
       if (!fp || !isPathContained(projectPath, fp)) {
         return deny(`Writes are limited to files inside the project (${projectPath}); "${fp}" is outside it.`);
       }
-      if (!isLuauPath(fp)) {
+      if (!isWritableProjectPath(projectPath, fp)) {
         return deny(
-          `Writes are limited to .luau/.lua files; "${fp}" is not one. Edit Roblox source on disk so Rojo stays the source of truth.`,
+          `Writes are limited to project source files (.luau/.lua/.json/.txt/.md/.csv, not .blox/ or .git/); "${fp}" is not one.`,
         );
       }
       return CONTINUE;

@@ -1,3 +1,4 @@
+import { resolveStudioLaunch } from '../studio/launcher.js';
 import type { StudioBridge, McpServerConfig, StudioLaunch } from './types.js';
 
 // Built-in Roblox Studio MCP server (https://create.roblox.com/docs/studio/mcp).
@@ -5,22 +6,10 @@ import type { StudioBridge, McpServerConfig, StudioLaunch } from './types.js';
 // On WSL/Windows the launched process is a *proxy* (StudioMCP.exe) that brokers to
 // a running Studio; a Windows-side cwd avoids cmd.exe's "UNC paths not supported"
 // warning when spawned from a \\wsl.localhost path.
+// Delegates to the version-dir resolver (see studio/launcher.ts for why
+// mcp.bat alone is not trusted).
 export function studioLauncher(): StudioLaunch {
-  const override = process.env.BLOX_STUDIO_MCP_CMD;
-  if (override) {
-    const args = (process.env.BLOX_STUDIO_MCP_ARGS ?? '').split(' ').filter(Boolean);
-    return { command: override, args };
-  }
-  if (process.platform === 'darwin') {
-    return { command: '/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP', args: [] };
-  }
-  // Windows and WSL (linux) both reach the Windows batch launcher via cmd.exe.
-  // The cwd must be a path the OS can actually chdir into, else spawn throws
-  // `spawn cmd.exe ENOENT`. WSL uses /mnt/c; native Windows has no /mnt/c, so
-  // default to a real Windows dir there.
-  const defaultCwd = process.platform === 'win32' ? (process.env.SystemRoot ?? 'C:\\') : '/mnt/c';
-  const cwd = process.env.BLOX_STUDIO_MCP_CWD ?? defaultCwd;
-  return { command: 'cmd.exe', args: ['/c', '%LOCALAPPDATA%\\Roblox\\mcp.bat'], cwd };
+  return resolveStudioLaunch();
 }
 
 // SP1b tool surface: read/search the game + run Luau + generate prototype assets.

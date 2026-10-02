@@ -2,8 +2,8 @@ import type { BloxConfig } from '../config.js';
 import type { StudioBridge, McpServerConfig } from '../bridge/types.js';
 import type { ProjectDigest } from '../context/digest.js';
 import type { HookCallbackMatcher, HookEvent, CanUseTool, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
-import { buildSystemPrompt } from './systemPrompt.js';
-import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL } from './hooks.js';
+import { buildSystemPrompt, buildBloxSystemPrompt } from './systemPrompt.js';
+import { buildSyncHook, buildAssetResultHook, buildAssetDedupeHook, buildAssetRecordHook, EXECUTE_LUAU_TOOL, GEN_MESH_TOOL, WAIT_JOB_TOOL, BLOX_STUDIO_TOOL } from './hooks.js';
 import type { ResultGateChannel } from './hooks.js';
 import { buildCanUseTool, nonGatedAllowedTools, type GateChannel } from './permission.js';
 import { buildGuardrailHook } from './guardrail.js';
@@ -48,6 +48,10 @@ export interface QueryOptionsLike {
   resume?: string;
   continue?: boolean;
   allowedTools: string[];
+  // Removed from the model's context entirely. allowedTools only auto-approves;
+  // under bypassPermissions every built-in (incl. Bash) is otherwise callable —
+  // the legacy baseline agent used Bash to kill and restart rojo serve.
+  disallowedTools: string[];
   mcpServers: Record<string, McpServerConfig>;
   hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
   // Set per-run by runAgent (not here) to forward CLI stderr — used to surface
@@ -56,6 +60,13 @@ export interface QueryOptionsLike {
 }
 
 const FILE_TOOLS = ['Read', 'Write', 'Edit', 'Grep', 'Glob'];
+const DISALLOWED_TOOLS = ['Bash', 'BashOutput', 'KillShell', 'WebFetch', 'WebSearch', 'NotebookEdit'];
+
+// Raw-Studio asset tools are called directly on the legacy bridge, but through
+// blox's studio_tool passthrough on the blox bridge (hooks unwrap the name).
+function assetMatcher(rawTool: string, bridge: StudioBridge): string {
+  return bridge.kind === 'blox' ? BLOX_STUDIO_TOOL : rawTool;
+}
 
 // Turn cap for CCR-routed (non-Claude) runs. They tend to loop past completion
 // instead of emitting a clean stop, so cap them tighter than native Claude.
@@ -80,7 +91,9 @@ export function buildQueryOptions(
   return {
     model: config.model,
     cwd: config.projectPath,
-    systemPrompt: buildSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify }),
+    systemPrompt: bridge.kind === 'blox'
+      ? buildBloxSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify })
+      : buildSystemPrompt(digest, { image: promptCtx.image, verify: promptCtx.verify }),
     maxTurns: routed ? Math.min(config.maxTurns, routedMaxTurns()) : config.maxTurns,
     maxBudgetUsd: config.maxBudgetUsd,
     permissionMode: ask ? 'default' : 'bypassPermissions',
@@ -96,23 +109,28 @@ export function buildQueryOptions(
         : {}),
     ...(routed ? {} : { thinking: { type: 'adaptive' as const } }),
     allowedTools: ask ? nonGatedAllowedTools(allTools) : allTools,
+    disallowedTools: DISALLOWED_TOOLS,
     mcpServers: bridge.mcpServers(),
     hooks: {
       PreToolUse: [
         { hooks: [buildGuardrailHook(config.projectPath)] },
-        { matcher: EXECUTE_LUAU_TOOL, hooks: [buildSyncHook(config.projectPath)] },
+        // Legacy raw-Studio bridge only: refresh Rojo metadata before execute_luau.
+        // The blox toolset syncs inside run_tests/playtest/sync itself.
+        ...(bridge.kind === 'blox' ? [] : [{ matcher: EXECUTE_LUAU_TOOL, hooks: [buildSyncHook(config.projectPath)] }]),
         // Advisory prompt-hash dedupe before a (slow) mesh generation.
-        { matcher: GEN_MESH_TOOL, hooks: [buildAssetDedupeHook(config.projectPath)] },
+        { matcher: assetMatcher(GEN_MESH_TOOL, bridge), hooks: [buildAssetDedupeHook(config.projectPath)] },
       ],
       PostToolUse: [
         // Record prompt→tag so the dedupe hook can hit on a repeat. Runs in all
         // modes; independent of the ask-mode result gate below.
-        { matcher: GEN_MESH_TOOL, hooks: [buildAssetRecordHook(config.projectPath)] },
+        { matcher: assetMatcher(GEN_MESH_TOOL, bridge), hooks: [buildAssetRecordHook(config.projectPath)] },
         ...(ask && gate
-          ? [
-              { matcher: GEN_MESH_TOOL, hooks: [buildAssetResultHook(gate)] },
-              { matcher: WAIT_JOB_TOOL, hooks: [buildAssetResultHook(gate)] },
-            ]
+          ? bridge.kind === 'blox'
+            ? [{ matcher: BLOX_STUDIO_TOOL, hooks: [buildAssetResultHook(gate)] }]
+            : [
+                { matcher: GEN_MESH_TOOL, hooks: [buildAssetResultHook(gate)] },
+                { matcher: WAIT_JOB_TOOL, hooks: [buildAssetResultHook(gate)] },
+              ]
           : []),
       ],
     },

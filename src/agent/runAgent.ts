@@ -74,6 +74,7 @@ export interface GatedAction {
 export interface AgentRunResult {
   numTurns: number;
   costUsd: number;
+  tokens?: TokenUsage;
   status: 'success' | 'error';
   stopReason: StopReason;
   detail: string;
@@ -88,6 +89,12 @@ interface ResultMessageLike {
   num_turns: number;
   total_cost_usd: number;
   session_id: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
   permission_denials?: { tool_name: string; tool_input: Record<string, unknown> }[];
 }
 
@@ -124,6 +131,7 @@ export function summarizeResult(
   return {
     numTurns: message.num_turns,
     costUsd: message.total_cost_usd,
+    ...(message.usage ? { tokens: tokensFromUsage(message.usage) } : {}),
     status: gated ? 'error' : baseStatus,
     stopReason: gated ? 'gated' : classifyStop(message.subtype),
     detail: gated ? 'gated' : message.subtype,
@@ -131,6 +139,23 @@ export function summarizeResult(
     gatedActions,
     deniedByUser,
     nonGatedDenials,
+  };
+}
+
+// Provider-neutral token counts (fresh input, cache read/write, output).
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export function tokensFromUsage(u: NonNullable<ResultMessageLike['usage']>): TokenUsage {
+  return {
+    input: u.input_tokens ?? 0,
+    output: u.output_tokens ?? 0,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
   };
 }
 

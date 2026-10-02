@@ -27,7 +27,20 @@ export function isGated(toolName: string): boolean {
 // canUseTool), so gated tools must be excluded to route through the callback;
 // they stay advertised by the MCP server and remain callable by the model.
 export function nonGatedAllowedTools(tools: string[]): string[] {
-  return tools.filter((t) => !isGated(t));
+  // studio_tool is a passthrough that can reach gated asset tools, so it must
+  // route through canUseTool, which inspects the inner name.
+  return tools.filter((t) => !isGated(t) && !t.endsWith('__studio_tool'));
+}
+
+// Gate decision for a concrete call: blox's studio_tool is gated by the raw
+// tool it forwards to. (blox's own play/playtest tools are the verify loop and
+// stay autonomous; only credit-spending asset generation/insertion is gated.)
+export function isGatedCall(toolName: string, input: Record<string, unknown> | undefined): string | null {
+  if (toolName.endsWith('__studio_tool')) {
+    const inner = typeof input?.name === 'string' ? input.name : '';
+    return inner && isGated(inner) ? inner : null;
+  }
+  return isGated(toolName) ? toolName : null;
 }
 
 export function denyMessage(toolName: string): string {
@@ -60,7 +73,7 @@ export interface GateChannel {
 export function buildCanUseTool(gate?: GateChannel): CanUseTool {
   return async (toolName, input) => {
     const allow = { behavior: 'allow' as const, updatedInput: (input ?? {}) as Record<string, unknown> };
-    if (!isGated(toolName)) return allow;
+    if (!isGatedCall(toolName, input as Record<string, unknown>)) return allow;
     if (gate?.isConnected()) {
       try {
         const d = await gate.request(toolName, allow.updatedInput);

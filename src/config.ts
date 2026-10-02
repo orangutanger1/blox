@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { DEFAULT_PRICING } from './relay/pricing.js';
 
 export const PolicySchema = z.object({
   models: z.array(z.string()).optional(),
@@ -18,12 +19,7 @@ export const PolicySchema = z.object({
 
 export type Policy = z.infer<typeof PolicySchema>;
 
-export const DEFAULT_PRICING_CONFIG: Record<string, { in: number; out: number }> = {
-  'claude-opus-4-8': { in: 5, out: 25 },
-  'claude-sonnet-4-6': { in: 3, out: 15 },
-  'claude-haiku-4-5': { in: 1, out: 5 },
-  'claude-fable-5': { in: 10, out: 50 },
-};
+export const DEFAULT_PRICING_CONFIG: Record<string, { in: number; out: number }> = DEFAULT_PRICING;
 
 export const RelaySchema = z.object({
   port: z.number().int().positive().default(8787),
@@ -38,7 +34,9 @@ export type Relay = z.infer<typeof RelaySchema>;
 
 export const BloxConfigSchema = z.object({
   projectPath: z.string(),
-  model: z.string().default('claude-opus-4-8'),
+  // Any model id the configured endpoint accepts (direct, CCR-routed, or other
+  // providers); this is only the default.
+  model: z.string().default('claude-opus-5-5'),
   maxTurns: z.number().int().positive().default(40),
   maxBudgetUsd: z.number().positive().default(5),
   mode: z.enum(['auto', 'ask']).default('auto'),
@@ -53,6 +51,11 @@ export const BloxConfigSchema = z.object({
     .prefault({}),
   policy: PolicySchema.optional(),
   relay: RelaySchema.optional(),
+  // Which attached Studio to drive when several are open: a name substring
+  // (e.g. the place name) or a studio id. BLOX_STUDIO env overrides.
+  studio: z.object({ match: z.string().optional() }).prefault({}),
+  testDir: z.string().default('tests'),
+  worldDir: z.string().default('world'),
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
