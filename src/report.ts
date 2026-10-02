@@ -19,6 +19,9 @@ export interface RunReport {
   costUnknown?: boolean;
   billing?: Billing;
   model?: string;
+  // The run started on this model and continued on `model` after it stopped
+  // (a subscription usage limit). Its turns aren't in numTurns or costUsd.
+  fallbackFrom?: { model: string; turns: number; detail: string };
   tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   status: 'success' | 'error';
   stopReason?: string;
@@ -40,6 +43,9 @@ export function formatReport(r: RunReport): string {
     `turns: ${r.numTurns}  cost: ${r.costUnknown ? 'unknown' : `$${r.costUsd.toFixed(4)}`}`,
     ...(r.billing ? [`billing: ${BILLING_NOTE[r.billing]}`] : []),
     ...(r.model ? [`model: ${r.model}`] : []),
+    ...(r.fallbackFrom
+      ? [`fallback: ${r.fallbackFrom.model} stopped after ${r.fallbackFrom.turns} turns (${r.fallbackFrom.detail}); finished on ${r.model}`]
+      : []),
     ...(r.tokens
       ? [`tokens: input=${r.tokens.input} cache_read=${r.tokens.cacheRead} cache_write=${r.tokens.cacheWrite} output=${r.tokens.output}`]
       : []),

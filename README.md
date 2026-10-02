@@ -146,6 +146,12 @@ approve).
   provider-reported cost; endpoints that report none are bounded by `--max-turns`
   only). Not supported: `--resume`/`--continue` and the post-generation asset review.
   Set `"runner": "openai"` in `blox.config.json` to make it the default (the dock uses it too).
+- **Usage-limit fallback**: with `"fallbackModel": "openrouter,openai/gpt-6-luna"` in
+  `blox.config.json` (or `--fallback-model`), a subscription run that hits its plan's
+  usage limit continues on that model through `--runner openai`. The fallback agent is
+  told to check the partial work first. Fallback runs are billed by the provider and
+  checked against the policy model allowlist; never used in relay mode. The report
+  shows a `fallback:` line.
 
 ## Other commands (unchanged, peripheral to the agent loop)
 
