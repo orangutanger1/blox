@@ -20,7 +20,7 @@ import { checkRojoServe, rojoServeUrl, formatServeCheck } from './sync/serveChec
 import { ensureServe, stopServe } from './sync/serve.js';
 import { formatReport } from './report.js';
 import { runOnce } from './run.js';
-import { runReport } from './reportCommand.js';
+import { runReportCommand } from './reportCommand.js';
 import { runEvalSuite, formatEvalSummary, type EvalRunner } from './eval/harness.js';
 import { defaultSuite } from './eval/suite.js';
 import { basename } from 'node:path';
@@ -87,7 +87,12 @@ async function main(): Promise<void> {
   }
 
   if (command === 'report') {
-    console.log(runReport({ projectPath: projectPath ?? process.cwd(), since: args.since, json: args.json }));
+    try {
+      console.log(await runReportCommand({ projectPath: projectPath ?? process.cwd(), since: args.since, json: args.json, source: args.usageSource }));
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exit(1);
+    }
     process.exit(0);
   }
 

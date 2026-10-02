@@ -1,3 +1,4 @@
+import type { UsageSummary } from './usageReport.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -272,6 +273,20 @@ export async function checkRelay(link: RelayLink, model: string | null, fetchImp
   if (res.status === 404) return { ok: false, reason: 'unreachable', message: `${link.url} is not a blox relay (or is older than this client)` };
   if (!res.ok) return { ok: false, reason: 'unreachable', message: `team relay error at ${link.url}: ${msg}` };
   return { ok: true, member: body.member };
+}
+
+// The team relay's usage summary (member-auth'd). Throws a user-facing error.
+export async function fetchRelayUsage(link: RelayLink, sinceDays: number | null, fetchImpl: typeof fetch = fetch): Promise<UsageSummary> {
+  const url = `${link.url}/api/v1/usage${sinceDays ? `?since=${sinceDays}d` : ''}`;
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { headers: { 'x-api-key': link.token }, signal: AbortSignal.timeout(10_000) });
+  } catch (e) {
+    throw new Error(`team relay unreachable at ${link.url} (${(e as Error).message})`);
+  }
+  const body = (await res.json().catch(() => ({}))) as UsageSummary & { error?: { message?: string } };
+  if (!res.ok) throw new Error(`team relay usage: ${body.error?.message ?? `HTTP ${res.status}`}`);
+  return { ...body, source: 'relay' };
 }
 
 // Run-start credential gate: null when the run may proceed, else the

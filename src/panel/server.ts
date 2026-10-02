@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, type PanelEvent } from './events.js';
 import { imageFromBytes, type ImageInput } from '../agent/imageInput.js';
 import type { AuthInfo } from '../auth.js';
 import { readAuditEntries } from '../audit.js';
-import { aggregateUsage } from '../usageReport.js';
+import { aggregateUsage, type UsageSummary } from '../usageReport.js';
 
 export interface PanelServerOptions {
   runId: string;
@@ -17,6 +17,8 @@ export interface PanelServerOptions {
   now?: () => number; // injectable clock for tests
   projectPath?: string; // ledger location for GET /api/v1/usage; absent → empty summary
   rollingBudget?: { windowDays: number; maxUsd: number }; // default window + cap for usage
+  // Team usage (relay mode): replaces the local ledger summary when it answers.
+  remoteUsage?: (sinceDays: number | null) => Promise<UsageSummary>;
 }
 
 export interface PanelController {
@@ -35,13 +37,14 @@ export class PanelServer {
   private server: Server | null = null;
   private lastPollAt = 0;
   private pendingImage: { resolve: (i: ImageInput) => void; timer: ReturnType<typeof setTimeout> } | null = null;
-  private opts: Required<Omit<PanelServerOptions, 'port' | 'projectPath' | 'rollingBudget'>> & { port: number };
+  private opts: Required<Omit<PanelServerOptions, 'port' | 'projectPath' | 'rollingBudget' | 'remoteUsage'>> & { port: number };
   private controller: PanelController | null = null;
   private authProvider: (() => AuthInfo) | null = null;
   private authCache: AuthInfo | null = null;
   private currentRunId: string;
   private usageProjectPath: string | undefined;
   private usageRollingBudget: { windowDays: number; maxUsd: number } | undefined;
+  private remoteUsage: PanelServerOptions['remoteUsage'];
 
   constructor(options: PanelServerOptions) {
     const holdMs = options.holdMs ?? 25_000;
@@ -63,6 +66,7 @@ export class PanelServer {
     this.gates = new GateBroker({ emit: (e) => this.emit(e) }, this.opts.gateTimeoutMs);
     this.usageProjectPath = options.projectPath;
     this.usageRollingBudget = options.rollingBudget;
+    this.remoteUsage = options.remoteUsage;
   }
 
   emit(event: PanelEvent): void {
@@ -211,6 +215,13 @@ export class PanelServer {
         const sinceRaw = url.searchParams.get('since');
         const sinceN = sinceRaw != null ? Number(sinceRaw.replace(/d$/, '')) : NaN;
         const sinceDays = Number.isInteger(sinceN) && sinceN > 0 ? sinceN : null;
+        if (this.remoteUsage) {
+          try {
+            return json(res, 200, await this.remoteUsage(sinceDays));
+          } catch {
+            /* relay down: fall back to this project's ledger */
+          }
+        }
         const entries = this.usageProjectPath ? readAuditEntries(this.usageProjectPath) : [];
         const windowDays = sinceDays ?? this.usageRollingBudget?.windowDays ?? null;
         const summary = aggregateUsage(entries, {
@@ -218,7 +229,7 @@ export class PanelServer {
           windowDays,
           capUsd: this.usageRollingBudget?.maxUsd ?? null,
         });
-        return json(res, 200, summary);
+        return json(res, 200, { ...summary, source: 'local' });
       }
       return json(res, 404, { error: 'not found' });
     } catch {

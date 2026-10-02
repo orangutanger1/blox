@@ -236,6 +236,16 @@ describe('GET /api/v1/usage', () => {
     expect(body.byUser[0].key).toBe('a@x.com');
   });
 
+  it('serves team usage from remoteUsage, falling back to the local ledger', async () => {
+    const remote = { window: { days: 7, since: null }, totalUsd: 3, capUsd: null, capPct: null, runCount: 9, errorCount: 0, byUser: [], byModel: [], unit: 'requests' as const, source: 'relay' as const };
+    let up = true;
+    server = new PanelServer({ runId: 'run-1', project: 'game', port: 0, holdMs: 50, remoteUsage: async () => { if (!up) throw new Error('down'); return remote; } });
+    const port = await server.start();
+    expect(await (await fetch(`http://127.0.0.1:${port}/api/v1/usage`)).json()).toMatchObject({ source: 'relay', runCount: 9 });
+    up = false;
+    expect(await (await fetch(`http://127.0.0.1:${port}/api/v1/usage`)).json()).toMatchObject({ source: 'local', runCount: 0 });
+  });
+
   it('returns an empty summary when no projectPath is configured', async () => {
     server = new PanelServer({ runId: 'run-1', project: 'game', port: 0, holdMs: 50 });
     const port = await server.start();

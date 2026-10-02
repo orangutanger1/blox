@@ -181,7 +181,13 @@ allowlisted, rolling budget spent) before any work. Runs that would bypass the r
 (`--runner openai`, CCR-routed `provider,slug` models) are refused in relay mode. If
 upstream rejects the team key, the relay answers 403 (the Agent SDK would retry a 401
 for minutes), so the run stops in seconds, and `/check` refuses new runs until a
-request succeeds again. The relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
+request succeeds again.
+
+Team usage: in relay mode `blox report [--since 7d] [--json]` shows the relay's
+ledger (spend per member and model against the rolling cap; `--local` shows this
+project's ledger instead), and so do the desktop app's usage view and the dock
+daemon. The relay also serves a dashboard at `http://<relay>/dashboard`, which asks
+for a member token. Relay counts are model requests, not blox runs. The relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
 
 ## Tests
 
