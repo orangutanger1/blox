@@ -224,9 +224,20 @@ local function onLeave(player: Player)
 end
 
 -- Actions (e.g. "+1 speed per step") only accrue while the character moves.
+-- MoveDirection reflects player input; horizontal velocity also counts so
+-- server-driven movement (Humanoid:MoveTo, playtest bots) accrues too.
 local function isActive(player: Player): boolean
-	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	return hum ~= nil and hum.MoveDirection.Magnitude > 0.1
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hum then
+		return false
+	end
+	if hum.MoveDirection.Magnitude > 0.1 then
+		return true
+	end
+	local root = hum.RootPart
+	local v = root and root.AssemblyLinearVelocity
+	return v ~= nil and Vector3.new(v.X, 0, v.Z).Magnitude > 2
 end
 
 local function rateLimited(player: Player): boolean

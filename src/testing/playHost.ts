@@ -93,8 +93,12 @@ async function luauText(session: StudioSession, code: string, dm: 'Edit' | 'Serv
   return text;
 }
 
+// Server Script that runs a metrics bot (see metrics/run.ts botProgram).
+export const BOT_HOST = { path: ['ServerScriptService', 'BloxBotHost'], className: 'Script' };
+
+// Removes every blox-injected host script (stale ones from a crashed run too).
 export async function removeHosts(session: StudioSession): Promise<void> {
-  const paths = Object.values(HOSTS).map((h) => h.path);
+  const paths = [...Object.values(HOSTS), BOT_HOST].map((h) => h.path);
   await luauText(session, `for _, p in game:GetService("HttpService"):JSONDecode(${longString(JSON.stringify(paths))}) do
 	local cur = game:GetService(p[1])
 	for i = 2, #p do cur = cur and cur:FindFirstChild(p[i]) end
@@ -104,14 +108,18 @@ return "ok"`, 'Edit');
 }
 
 export async function installHost(session: StudioSession, ctx: PlayContext, source: string): Promise<void> {
-  const h = HOSTS[ctx];
+  await installScript(session, HOSTS[ctx], source, `${ctx} test host`);
+}
+
+// Creates a script with normal capabilities via Studio's multi_edit.
+export async function installScript(session: StudioSession, h: { path: string[]; className: string }, source: string, what: string): Promise<void> {
   const r = await session.call('multi_edit', {
     file_path: `game.${h.path.join('.')}`,
     className: h.className,
     datamodel_type: 'Edit',
     edits: [{ old_string: '', new_string: source }],
   });
-  if (r.isError) throw new StudioError('tool_error', `could not install the ${ctx} test host via multi_edit: ${resultText(r).slice(0, 300)}`);
+  if (r.isError) throw new StudioError('tool_error', `could not install the ${what} via multi_edit: ${resultText(r).slice(0, 300)}`);
 }
 
 export async function pollResults(
