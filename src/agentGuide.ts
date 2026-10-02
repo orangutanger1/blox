@@ -35,6 +35,10 @@ outside folders mapped in default.project.json never reach Studio.
 6. Fix and repeat until every criterion passes. Only passing tests / playtest
    observations count as proof, not a successful tool call.
 
+## Start from a format kit
+kit {action:"list"} then kit {action:"apply", name} gives a tested loop (modules, world,
+specs, design.json) to reskin and tune instead of writing systems from scratch.
+
 ## Design first (economy games)
 design {action:"set"} a .blox/design.json (economy, archetypes, assertions such as
 "first egg <= 60s"), then design {action:"simulate"}; tune numbers until assertions

@@ -70,7 +70,7 @@ interface Item {
   requires?: string;
   goal: boolean;
 }
-interface State {
+export interface SimState {
   t: number;
   play: number;
   bal: Record<string, number>;
@@ -92,7 +92,7 @@ function buildItems(doc: DesignDoc): Item[] {
   return items;
 }
 
-function requiresMet(s: State, ref: string | undefined): boolean {
+function requiresMet(s: SimState, ref: string | undefined): boolean {
   if (!ref) return true;
   const { kind, id, n } = parseRef(ref);
   if (kind === 'gate') return s.open.has(id);
@@ -101,11 +101,12 @@ function requiresMet(s: State, ref: string | undefined): boolean {
   return (s.owned[`${kind}:${id}`] ?? 0) >= (n ?? 1);
 }
 
-const count = (s: State, i: Item) => s.owned[i.ref] ?? 0;
-const costOf = (s: State, i: Item) => i.cost.base * Math.pow(i.cost.growth, count(s, i));
-const available = (s: State, i: Item) => requiresMet(s, i.requires) && count(s, i) < i.max && !(i.kind === 'gate' && s.open.has(i.id));
+const count = (s: SimState, i: Item) => s.owned[i.ref] ?? 0;
+const costOf = (s: SimState, i: Item) => i.cost.base * Math.pow(i.cost.growth, count(s, i));
+const available = (s: SimState, i: Item) => requiresMet(s, i.requires) && count(s, i) < i.max && !(i.kind === 'gate' && s.open.has(i.id));
 
-function rates(doc: DesignDoc, s: State, online: boolean): Record<string, number> {
+// Per-second income for a state; the kit's Economy.luau must match this exactly.
+export function rates(doc: DesignDoc, s: SimState, online: boolean): Record<string, number> {
   const e = doc.economy;
   const base: Record<string, number> = {};
   for (const r of e.resources) base[r.id] = 0;
@@ -146,7 +147,7 @@ function decays(doc: DesignDoc): Record<string, number> {
   return k;
 }
 
-function advance(s: State, dt: number, r: Record<string, number>, k: Record<string, number>): void {
+function advance(s: SimState, dt: number, r: Record<string, number>, k: Record<string, number>): void {
   for (const id of Object.keys(s.bal)) {
     const b0 = s.bal[id];
     if (k[id] === 0) s.bal[id] = b0 + r[id] * dt;
@@ -157,7 +158,7 @@ function advance(s: State, dt: number, r: Record<string, number>, k: Record<stri
   }
 }
 
-function grantOwned(doc: DesignDoc, s: State, arch: Archetype): void {
+function grantOwned(doc: DesignDoc, s: SimState, arch: Archetype): void {
   for (const m of doc.monetization) {
     if (!arch.owns.includes(m.id)) continue;
     const { kind, id } = parseRef(m.effect);
@@ -167,7 +168,7 @@ function grantOwned(doc: DesignDoc, s: State, arch: Archetype): void {
   }
 }
 
-function applyGrants(s: State, grants: Record<string, number>): void {
+function applyGrants(s: SimState, grants: Record<string, number>): void {
   for (const [g, v] of Object.entries(grants)) {
     const { kind, id } = parseRef(g);
     if (kind === 'income') s.chanceIncome[id] = (s.chanceIncome[id] ?? 0) + v;
@@ -175,7 +176,7 @@ function applyGrants(s: State, grants: Record<string, number>): void {
   }
 }
 
-function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: () => number): void {
+function applyEffect(doc: DesignDoc, s: SimState, arch: Archetype, i: Item, roll: () => number): void {
   s.owned[i.ref] = count(s, i) + 1;
   if (i.kind === 'gate') s.open.add(i.id);
   if (i.kind === 'chance') {
@@ -189,9 +190,9 @@ function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: (
     for (const r of doc.economy.rebirth!.resets) {
       const res = doc.economy.resources.find((x) => x.id === r);
       if (res) s.bal[r] = res.start;
-      else if (r === 'gates') s.open.clear();
       else {
-        const prefix = r === 'generators' ? 'generator:' : r === 'upgrades' ? 'upgrade:' : 'chance:';
+        if (r === 'gates') s.open.clear();
+        const prefix = r === 'generators' ? 'generator:' : r === 'upgrades' ? 'upgrade:' : r === 'gates' ? 'gate:' : 'chance:';
         for (const key of Object.keys(s.owned)) if (key.startsWith(prefix)) delete s.owned[key];
         if (r === 'chance') s.chanceIncome = {};
       }
@@ -200,7 +201,7 @@ function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: (
   }
 }
 
-function payback(doc: DesignDoc, s: State, i: Item, now: Record<string, number>): number {
+function payback(doc: DesignDoc, s: SimState, i: Item, now: Record<string, number>): number {
   // Rates after one more of a non-goal item: bump it in place (chance at its
   // expected income), read the rates, restore. Cheaper than cloning the state.
   const c = costOf(s, i);
@@ -231,7 +232,7 @@ function payback(doc: DesignDoc, s: State, i: Item, now: Record<string, number>)
   return rel > 0 && now[res] > 0 ? c / (now[res] * rel) : Infinity;
 }
 
-function choose(doc: DesignDoc, s: State, arch: Archetype, items: Item[], r: Record<string, number>, k: Record<string, number>): Item | null {
+function choose(doc: DesignDoc, s: SimState, arch: Archetype, items: Item[], r: Record<string, number>, k: Record<string, number>): Item | null {
   const avail = items.filter((i) => available(s, i));
   const affordable = avail.filter((i) => ge(s.bal[i.cost.res], costOf(s, i)));
   const cheapest = () => affordable.sort((a, b) => costOf(s, a) - costOf(s, b) || (a.ref < b.ref ? -1 : 1))[0] ?? null;
@@ -260,7 +261,7 @@ export function simulate(doc: DesignDoc, opts: SimOptions): Trace {
   const items = buildItems(doc);
   const k = decays(doc);
   const zero: Record<string, number> = Object.fromEntries(doc.economy.resources.map((r) => [r.id, 0]));
-  const s: State = { t: 0, play: 0, bal: Object.fromEntries(doc.economy.resources.map((r) => [r.id, r.start])), owned: {}, open: new Set(), chanceIncome: {} };
+  const s: SimState = { t: 0, play: 0, bal: Object.fromEntries(doc.economy.resources.map((r) => [r.id, r.start])), owned: {}, open: new Set(), chanceIncome: {} };
   grantOwned(doc, s, arch);
   const autoGates = doc.economy.gates.filter((g) => !g.needs.consume);
   const period = Math.floor(86400 / arch.session.perDay);

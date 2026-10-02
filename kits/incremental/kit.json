@@ -1,0 +1,12 @@
+{
+  "name": "incremental",
+  "title": "+1 incremental (walk → stat → walls → pets → rebirth)",
+  "format": "incremental",
+  "description": "Move to gain a stat, break gate walls at thresholds, buy pets/upgrades, rebirth for a multiplier. Server-authoritative economy that matches `design simulate`.",
+  "next": [
+    "Rename/reskin: meta.title, resource ids and world/Track.luau props",
+    "design {action:\"simulate\"} after every economy change, then design {action:\"codegen\"}",
+    "run_tests (kit_* specs must stay green), then playtest: walk into wall1",
+    "Add your theme: pets models, wall art, sounds; keep every number in .blox/design.json"
+  ]
+}

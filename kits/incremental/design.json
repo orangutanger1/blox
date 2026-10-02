@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "+1 Speed Escape",
+    "format": "incremental",
+    "verb": "Run",
+    "object": "speed",
+    "serverSize": 12
+  },
+  "loop": [
+    "walk",
+    "+1 speed per step",
+    "reach next wall",
+    "buy pets",
+    "rebirth"
+  ],
+  "ftue": [
+    {
+      "id": "first-step",
+      "text": "Walking already gains speed",
+      "targetSec": 2
+    },
+    {
+      "id": "first-wall",
+      "text": "Break the first wall",
+      "targetSec": 60
+    }
+  ],
+  "monetization": [
+    {
+      "id": "speed2x",
+      "kind": "pass",
+      "effect": "upgrade:speed2x"
+    }
+  ],
+  "economy": {
+    "resources": [
+      {
+        "id": "wins",
+        "start": 0
+      },
+      {
+        "id": "speed",
+        "start": 16,
+        "spendable": false
+      }
+    ],
+    "actions": [
+      {
+        "id": "step",
+        "yields": {
+          "speed": 1,
+          "wins": 0.2
+        },
+        "perSec": 2
+      }
+    ],
+    "gates": [
+      {
+        "id": "wall1",
+        "needs": {
+          "res": "speed",
+          "amount": 100
+        }
+      },
+      {
+        "id": "wall2",
+        "needs": {
+          "res": "speed",
+          "amount": 1500
+        }
+      },
+      {
+        "id": "wall3",
+        "needs": {
+          "res": "speed",
+          "amount": 10000
+        }
+      }
+    ],
+    "generators": [
+      {
+        "id": "pet",
+        "produces": {
+          "speed": 0.5,
+          "wins": 0.1
+        },
+        "cost": {
+          "res": "wins",
+          "base": 15,
+          "growth": 1.18
+        },
+        "max": 200,
+        "requires": "gate:wall1"
+      }
+    ],
+    "upgrades": [
+      {
+        "id": "shoes",
+        "cost": {
+          "res": "wins",
+          "base": 40,
+          "growth": 1.6
+        },
+        "effect": {
+          "target": "speed",
+          "mult": 1.5
+        },
+        "max": 10
+      },
+      {
+        "id": "speed2x",
+        "cost": {
+          "res": "wins",
+          "base": 1000000000
+        },
+        "effect": {
+          "target": "speed",
+          "mult": 2
+        },
+        "max": 1
+      }
+    ],
+    "rebirth": {
+      "needs": {
+        "res": "wins",
+        "base": 2500,
+        "growth": 2.2
+      },
+      "mult": {
+        "target": "*",
+        "per": 1.5
+      },
+      "resets": [
+        "wins",
+        "speed",
+        "generators",
+        "upgrades",
+        "gates"
+      ]
+    },
+    "offline": {
+      "fraction": 0.25,
+      "capSec": 14400
+    }
+  },
+  "tunables": {
+    "maxWalkSpeed": 100,
+    "walkSpeedPerSpeed": 0.05,
+    "wallSpacing": 80,
+    "autosaveSec": 60,
+    "purchaseCooldownSec": 0.2
+  },
+  "archetypes": [
+    {
+      "id": "active",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi"
+    },
+    {
+      "id": "casual",
+      "session": {
+        "lengthSec": 600,
+        "perDay": 1
+      },
+      "policy": "cheapest"
+    },
+    {
+      "id": "payer",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi",
+      "owns": [
+        "speed2x"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "first-wall",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "gate:wall1",
+      "op": "<=",
+      "value": 60
+    },
+    {
+      "id": "wall2-pace",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "gate:wall2",
+      "op": "between",
+      "value": [
+        300,
+        1800
+      ]
+    },
+    {
+      "id": "first-rebirth",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "rebirth:1",
+      "op": "between",
+      "value": [
+        1800,
+        5400
+      ]
+    },
+    {
+      "id": "no-stall",
+      "archetype": "active",
+      "metric": "maxIdleGap",
+      "op": "<=",
+      "value": 600
+    },
+    {
+      "id": "payer-fair",
+      "archetype": "active",
+      "vs": "payer",
+      "metric": "ratio",
+      "of": "timeTo",
+      "target": "rebirth:1",
+      "op": "<=",
+      "value": 3
+    }
+  ]
+}
