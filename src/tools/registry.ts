@@ -31,6 +31,8 @@ import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
 import { gradeSanitize, sanitizeProgram, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
 import { briefText, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
+import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, type AnimJson, type BuildResult } from '../model/anim.js';
+import { realSpawn, rojoBin } from '../sync/rojo.js';
 import { uploadAsset } from '../assets/upload.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
@@ -761,9 +763,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'model',
     description:
-      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | list.',
+      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | animate {id, target, name?} (after the uploaded model is inserted at target, e.g. "Workspace.Dog": turns each exported Blender action into a Roblox KeyframeSequence on its Bones, checks the motion, plays it on the rig in edit mode and compares bone positions, writes anim_<name>.rbxm and records it as an animation candidate for upload) | list.',
     shape: {
-      action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'list']),
+      action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'animate', 'list']),
       id: z.string().optional(),
       prompt: z.string().optional(),
       style: z.string().optional(),
@@ -773,6 +775,8 @@ export const TOOLS: BloxTool[] = [
       refs: z.array(z.string()).optional(),
       code: z.string().optional().describe('run: the whole build script (Blender Python, blox helpers in scope)'),
       at: z.array(z.number()).length(3).optional().describe('preview: where to stand it, default 0,0,20'),
+      target: z.string().optional().describe('animate: path of the inserted rig in Studio, e.g. Workspace.Dog'),
+      name: z.string().optional().describe('animate: one action (default: every exported action)'),
     },
     async handler(a, ctx) {
       const P = ctx.projectPath;
@@ -836,6 +840,72 @@ export const TOOLS: BloxTool[] = [
         if (!r.ok) return { text: `preview failed: ${r.error?.message}`, isError: true, summary: 'failed' };
         const v = r.values[0] as { name: string; size: number[] };
         return { text: `preview ${v.name} (${v.size.map((x) => x.toFixed(1)).join(' × ')} studs) — a local EditableMesh, not uploaded; it disappears when Studio closes. screenshot to judge it in the place.`, summary: 'preview' };
+      }
+      if (a.action === 'animate') {
+        if (typeof a.target !== 'string') return { text: 'animate needs target: the inserted model in Studio (e.g. "Workspace.Dog"); upload + insert the model first', isError: true, summary: 'no target' };
+        const exp = join(dir, 'export');
+        const names = readdirSync(exp)
+          .map((f) => /^anim_([^.]+)\.json$/.exec(f)?.[1]) // not anim_X.project.json (the rbxm build project)
+          .filter((n): n is string => !!n && (typeof a.name !== 'string' || n === a.name));
+        if (!names.length) return { text: `no exported animation data${typeof a.name === 'string' ? ` named ${a.name}` : ''}: model {action:"export", id:"${id}"} writes anim_<name>.json`, isError: true, summary: 'no animations' };
+        const lines: string[] = [];
+        let failed = false;
+        for (const n of names) {
+          const prepared = prepare(JSON.parse(readFileSync(join(exp, `anim_${n}.json`), 'utf8')) as AnimJson);
+          const checks = checkMotion(prepared);
+          lines.push(`${n} (${prepared.keyframes.length} frames, ${prepared.length.toFixed(2)}s${prepared.loop ? ', loop' : ''}):`);
+          for (const c of checks) lines.push(`  ${c.ok ? '✓' : '✗'} ${c.id}  ${c.detail}`);
+          if (checks.some((c) => !c.ok)) {
+            failed = true;
+            lines.push('  not built: fix the motion in Blender (model run), export, animate again');
+            continue;
+          }
+          const r = await runLuau(ctx.session, buildLuau(a.target, prepared, `${id}_${n}`), 'edit', { chunkName: 'modelAnimate', timeoutMs: 120_000 });
+          if (!r.ok) {
+            failed = true;
+            lines.push(`  ✗ build failed: ${r.error?.message}`);
+            continue;
+          }
+          const b = JSON.parse(String(r.values[0])) as BuildResult;
+          if (!b.ok || !b.frames || !b.part) {
+            failed = true;
+            lines.push(`  ✗ ${b.error ?? 'build failed'}`);
+            continue;
+          }
+          const playOk = (b.playErr ?? 0) <= PLAY_TOLERANCE;
+          lines.push(`  ${playOk ? '✓' : '✗'} anim:play  played on ${a.target}: bones within ${(b.playErr ?? 0).toFixed(3)} studs of the Blender motion${playOk ? '' : ` (worst ${b.playWorst})`}`);
+          if (!playOk) {
+            failed = true;
+            continue;
+          }
+          const xml = keyframeSequenceXml({ name: `${id}_${n}`, loop: prepared.loop, part: b.part, order: prepared.order, parents: prepared.parents, frames: b.frames });
+          const base = join(exp, `anim_${n}`);
+          writeFileSync(`${base}.rbxmx`, xml);
+          writeFileSync(`${base}.project.json`, JSON.stringify({ name: `${id}_${n}`, tree: { $path: `anim_${n}.rbxmx` } }));
+          const built = await realSpawn(rojoBin(), ['build', `anim_${n}.project.json`, '--output', `anim_${n}.rbxm`], { cwd: exp });
+          if (built.code !== 0) {
+            failed = true;
+            lines.push(`  ✗ rojo build of the .rbxm failed: ${(built.stderr || built.stdout).trim().slice(0, 300)}`);
+            continue;
+          }
+          const animId = `${id}-${n.toLowerCase()}`;
+          const file = `${base}.rbxm`.slice(P.length + 1);
+          const m = loadManifest(P);
+          const existing = m.assets.find((x) => x.id === animId);
+          if (existing) {
+            existing.ref = { ...existing.ref, file };
+            if (existing.status === 'approved') existing.status = 'candidate';
+            saveManifest(P, m);
+          } else {
+            const added = addAsset(P, { id: animId, kind: 'animation', source: 'generated', licence: 'owned', ref: { file }, provenance: { tool: 'blender (blox model animate)', createdAt: new Date().toISOString() } });
+            if (!added.ok) lines.push(`  not recorded: ${added.errors.join('; ')}`);
+          }
+          lines.push(`  → ${file}, recorded as ${animId} (candidate); KeyframeSequence also in ServerStorage.BloxAnimations.${id}_${n}`);
+        }
+        if (!failed) {
+          lines.push('Next: a human approves (blox asset approve <id>), asset {action:"upload", id, confirm:true}, then play it: Animator:LoadAnimation(Animation with AnimationId "rbxassetid://<id>"). Animations play only in places owned by the uploading user or group.');
+        }
+        return { text: lines.join('\n'), isError: failed, summary: failed ? 'failed' : `${names.length} animation(s)` };
       }
       if (a.action === 'import') {
         const m = loadManifest(P);

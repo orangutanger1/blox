@@ -9,7 +9,9 @@ blender -b --factory-startup --python model.py -- <cmd> <args.json>
   export  <out>/model.glb (the upload: one vertex-coloured material, 1 unit =
           1 stud, front = Roblox -Z), <out>/model.fbx (mesh + rig, no
           animation, for Studio's 3D importer), one <out>/anim_<action>.fbx
-          per action (for Studio's Animation Editor import) and
+          per action (for Studio's Animation Editor import), one
+          <out>/anim_<action>.json per action (bone matrices per frame, for
+          `model animate`, which builds a Roblox KeyframeSequence) and
           <out>/preview.json (coloured triangles in Roblox axes, for an
           EditableMesh preview in Studio without uploading).
 
@@ -224,6 +226,47 @@ def preview_tris():
     return tris
 
 
+def _m(mat):
+    return [round(x, 6) for row in mat for x in row]
+
+
+def anim_json(arm, act, mesh_objs):
+    """Model-space (Blender world) rest and per-frame posed bone matrices."""
+    scene = bpy.context.scene
+    fps = scene.render.fps / scene.render.fps_base
+    f0, f1 = int(act.frame_range[0]), int(act.frame_range[1])
+    arm.animation_data.use_nla = False  # only this action poses the rig
+    arm.animation_data.action = act
+    bones = {}
+    for b in arm.data.bones:
+        bones[b.name] = {
+            "parent": b.parent.name if b.parent else None,
+            "rest": _m(arm.matrix_world @ b.matrix_local),
+            "head": [round(x, 6) for x in (arm.matrix_world @ b.head_local)],
+        }
+    frames = []
+    for f in range(f0, f1 + 1):
+        scene.frame_set(f)
+        frames.append({"t": round((f - f0) / fps, 4), "bones": {pb.name: _m(arm.matrix_world @ pb.matrix) for pb in arm.pose.bones}})
+    arm.animation_data.action = None
+    scene.frame_set(f0)
+    rest_all()
+    pts = []
+    for o in mesh_objs:
+        pts += [o.matrix_world @ v.co for v in o.data.vertices]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    return {
+        "name": act.name,
+        "fps": fps,
+        "loop": bool(act.get("blox_loop", True)),
+        "meshes": [o.name for o in mesh_objs],
+        "meshCenter": [round(x, 6) for x in (lo + hi) / 2],
+        "bones": bones,
+        "frames": frames,
+    }
+
+
 def cmd_export(a):
     open_blend(a["blend"])
     os.makedirs(a["out"], exist_ok=True)
@@ -245,6 +288,15 @@ def cmd_export(a):
             anims[act.name] = p
         arm.animation_data.action = None
     files["animations"] = anims
+    anim_data = {}
+    for arm in arms:
+        skinned = [o for o in meshes() if o.find_armature() == arm]
+        for act in bpy.data.actions:
+            p = os.path.join(a["out"], "anim_%s.json" % act.name)
+            with open(p, "w") as f:
+                json.dump(anim_json(arm, act, skinned), f)
+            anim_data[act.name] = p
+    files["animationData"] = anim_data
     prev = os.path.join(a["out"], "preview.json")
     rest_all()  # the animation exports leave the last pose applied
     tris = preview_tris()

@@ -56,7 +56,7 @@ for generated/external ones, asset {action:"lint"}. Approval and uploads are hum
 Custom models (creatures, props, rigged pets): model {action:"brief"} → run (Blender Python with
 voxels/box/rig/bind_rigid/animate) → check (open the views, compare with references) → export →
 preview (EditableMesh in Studio) → import. After inserting an uploaded model, set its MeshParts'
-Color to white (vertex colours are multiplied by it).
+Color to white (vertex colours are multiplied by it); rigged ones: model animate → upload → BloxAnimate.
 
 ## Release and live-ops
 release {action:"check"} lists every gate. Publishing, live config and monetization are human
