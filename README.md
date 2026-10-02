@@ -193,7 +193,8 @@ Relay hardening: set `"relay": {"tls": {"certPath": "…", "keyPath": "…"}}` t
 HTTPS (otherwise it is plain HTTP, and `relay serve` warns when bound to a network
 address). Only API headers (`content-type`, `accept`, `user-agent`, `anthropic-*`,
 `x-stainless-*`) reach the team account. An upstream that stays silent for
-`relay.upstreamTimeoutSeconds` (default 600) gets a 504.
+`relay.upstreamTimeoutSeconds` (default 600) gets a 504. `policy.rollingBudget.perMemberUsd`
+caps each member's spend in the same window (relay only; the team cap still applies).
 
 ## Tests
 

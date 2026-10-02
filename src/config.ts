@@ -12,6 +12,8 @@ export const PolicySchema = z.object({
     .object({
       windowDays: z.number().int().positive(),
       maxUsd: z.number().positive(),
+      // Team relay only: also cap each member's spend in the same window.
+      perMemberUsd: z.number().positive().optional(),
     })
     .optional(),
   commitConvention: z.string().optional(),

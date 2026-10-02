@@ -80,7 +80,7 @@ export class RelayServer {
     if (!member) return apiError(res, 401, 'authentication_error', 'unknown member token');
     const model = url.searchParams.get('model');
     if (model !== null) {
-      const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
+      const reject = enforceRelay({ model, member, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
       if (reject) return apiError(res, reject.status, 'permission_error', reject.error);
     }
     if (this.upstreamKeyRejected) return apiError(res, 503, 'api_error', TEAM_KEY_REJECTED);
@@ -101,7 +101,7 @@ export class RelayServer {
       capUsd: rb?.maxUsd ?? null,
     });
     // The relay ledgers one entry per model request, not per blox run.
-    json(res, 200, { ...summary, unit: 'requests', source: 'relay' });
+    json(res, 200, { ...summary, unit: 'requests', source: 'relay', ...(rb?.perMemberUsd ? { memberCapUsd: rb.perMemberUsd } : {}) });
   }
 
   private async messages(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -118,7 +118,7 @@ export class RelayServer {
     try { model = String((JSON.parse(body.toString('utf8')) as { model?: unknown }).model ?? ''); } catch { /* leave '' */ }
 
     // 3. enforce
-    const reject = enforceRelay({ model, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
+    const reject = enforceRelay({ model, member, policy: this.opts.policy, ledgerPath: this.opts.relay.ledgerPath, now: this.nowDate() });
     if (reject) return apiError(res, reject.status, 'permission_error', reject.error);
 
     // 4. proxy with the REAL key, tee the response for usage

@@ -37,4 +37,12 @@ describe('enforceRelay', () => {
     appendRelayEntry(f, entry({ ts: '2026-01-01T12:00:00Z', costUsd: 999 }));
     expect(enforceRelay({ model: 'claude-opus-4-8', policy: { rollingBudget: { windowDays: 30, maxUsd: 200 } }, ledgerPath: f, now })).toBeNull();
   });
+  it('caps each member separately with perMemberUsd', () => {
+    const f = ledger();
+    appendRelayEntry(f, entry({ ts: '2026-06-23T12:00:00Z', user: 'a@x.com', costUsd: 30 }));
+    appendRelayEntry(f, entry({ ts: '2026-06-23T12:00:00Z', user: 'b@x.com', costUsd: 5 }));
+    const policy = { rollingBudget: { windowDays: 30, maxUsd: 200, perMemberUsd: 25 } };
+    expect(enforceRelay({ model: 'claude-opus-4-8', member: 'a@x.com', policy, ledgerPath: f, now })?.error).toMatch(/your rolling budget reached: \$30\.00[^]*\$25 per-member cap/);
+    expect(enforceRelay({ model: 'claude-opus-4-8', member: 'b@x.com', policy, ledgerPath: f, now })).toBeNull();
+  });
 });
