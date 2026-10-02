@@ -1,3 +1,4 @@
+import { createServer as createHttpsServer } from 'node:https';
 import { createServer, request as httpRequest, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { PassThrough } from 'node:stream';
@@ -16,7 +17,15 @@ export interface RelayServerOptions {
   realKey: string;
   port?: number;
   now?: () => number;
+  tls?: { cert: string | Buffer; key: string | Buffer };
 }
+
+// Request headers passed to the team's account. Everything else (cookies,
+// proxy headers, the member's own auth, accept-encoding so the tee can read
+// usage) stays at the relay.
+const FORWARD_HEADER = /^(content-type|accept|user-agent|anthropic-[a-z0-9-]+|x-stainless-[a-z0-9-]+|x-app)$/;
+// Hop-by-hop response headers (RFC 7230 §6.1); node writes its own framing.
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'trailer', 'te', 'proxy-authenticate', 'proxy-authorization']);
 
 export class RelayServer {
   private server: Server | null = null;
@@ -29,7 +38,8 @@ export class RelayServer {
   private nowDate(): Date { return new Date(this.opts.now?.() ?? Date.now()); }
 
   start(): Promise<number> {
-    const server = createServer((req, res) => void this.route(req, res).catch(() => { if (!res.writableEnded) { try { res.writeHead(502); } catch { /**/ } res.end(); } }));
+    const handler = (req: IncomingMessage, res: ServerResponse) => void this.route(req, res).catch(() => { if (!res.writableEnded) { try { res.writeHead(502); } catch { /**/ } res.end(); } });
+    const server: Server = this.opts.tls ? (createHttpsServer(this.opts.tls, handler) as unknown as Server) : createServer(handler);
     this.server = server;
     const port = this.opts.port ?? this.opts.relay.port;
     return new Promise((resolve, reject) => {
@@ -115,17 +125,10 @@ export class RelayServer {
     const u = new URL('/v1/messages', this.opts.relay.upstream);
     const reqFn = u.protocol === 'https:' ? httpsRequest : httpRequest;
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v;
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && FORWARD_HEADER.test(k)) headers[k] = v;
     headers['x-api-key'] = this.opts.realKey;
     headers['host'] = u.host;
     headers['content-length'] = String(body.length);
-    // Strip hop-by-hop headers (RFC 7230 §3.3.2) so they don't clash with the recomputed content-length
-    delete headers['transfer-encoding'];
-    delete headers['connection'];
-    delete headers['keep-alive'];
-    delete headers['te'];
-    delete headers['trailer'];
-    delete headers['upgrade'];
 
     const up = reqFn(u, { method: 'POST', headers }, (upRes: IncomingMessage) => {
       if (upRes.statusCode === 401) {
@@ -134,7 +137,9 @@ export class RelayServer {
         return apiError(res, 403, 'authentication_error', TEAM_KEY_REJECTED);
       }
       if ((upRes.statusCode ?? 0) < 400) this.upstreamKeyRejected = false;
-      res.writeHead(upRes.statusCode ?? 502, upRes.headers);
+      const outHeaders: Record<string, string | string[]> = {};
+      for (const [k, v] of Object.entries(upRes.headers)) if (v !== undefined && !HOP_BY_HOP.has(k)) outHeaders[k] = v;
+      res.writeHead(upRes.statusCode ?? 502, outHeaders);
       const tee = new PassThrough();
       const chunks: Buffer[] = [];
       tee.on('data', (c: Buffer) => chunks.push(c));
@@ -157,7 +162,11 @@ export class RelayServer {
         try { appendRelayEntry(this.opts.relay.ledgerPath, entry); } catch { /* never fail a served response */ }
       });
     });
-    up.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    up.setTimeout((this.opts.relay.upstreamTimeoutSeconds ?? 600) * 1000, () => up.destroy(new Error('upstream timeout')));
+    up.on('error', (e) => {
+      if (!res.headersSent) return apiError(res, /timeout/.test(e.message) ? 504 : 502, 'api_error', `upstream ${e.message}`);
+      res.end();
+    });
     up.end(body);
   }
 }

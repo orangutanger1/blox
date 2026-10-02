@@ -29,6 +29,11 @@ export const RelaySchema = z.object({
   membersPath: z.string().default('.blox/relay-members.json'),
   ledgerPath: z.string().default('.blox/relay-audit.jsonl'),
   pricing: z.record(z.string(), z.object({ in: z.number(), out: z.number() })).default(DEFAULT_PRICING_CONFIG),
+  // Serve HTTPS with this PEM cert/key (paths relative to the project). Without
+  // it the relay is plain HTTP: member tokens cross the network in the clear.
+  tls: z.object({ certPath: z.string(), keyPath: z.string() }).optional(),
+  // Abort an upstream request that sends nothing for this long.
+  upstreamTimeoutSeconds: z.number().positive().default(600),
 });
 export type Relay = z.infer<typeof RelaySchema>;
 

@@ -187,7 +187,13 @@ Team usage: in relay mode `blox report [--since 7d] [--json]` shows the relay's
 ledger (spend per member and model against the rolling cap; `--local` shows this
 project's ledger instead), and so do the desktop app's usage view and the dock
 daemon. The relay also serves a dashboard at `http://<relay>/dashboard`, which asks
-for a member token. Relay counts are model requests, not blox runs. The relay is plain HTTP: keep it on a trusted network or behind a TLS proxy.
+for a member token. Relay counts are model requests, not blox runs.
+
+Relay hardening: set `"relay": {"tls": {"certPath": "…", "keyPath": "…"}}` to serve
+HTTPS (otherwise it is plain HTTP, and `relay serve` warns when bound to a network
+address). Only API headers (`content-type`, `accept`, `user-agent`, `anthropic-*`,
+`x-stainless-*`) reach the team account. An upstream that stays silent for
+`relay.upstreamTimeoutSeconds` (default 600) gets a 504.
 
 ## Tests
 

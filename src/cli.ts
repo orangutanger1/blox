@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseArgs, type ParsedArgs } from './args.js';
 import { loadConfig, overridesFromArgs } from './config.js';
 import { buildDigest } from './context/digest.js';
@@ -297,9 +298,21 @@ async function main(): Promise<void> {
       const result = resolveRelayServe(config, process.env);
       if ('error' in result) { console.error(result.error); process.exit(1); }
       const relay = resolveRelayPaths(config);
-      const server = new RelayServer({ relay, policy: config.policy, realKey: result.realKey });
+      let tls: { cert: Buffer; key: Buffer } | undefined;
+      if (relay.tls) {
+        try {
+          tls = { cert: readFileSync(resolve(config.projectPath, relay.tls.certPath)), key: readFileSync(resolve(config.projectPath, relay.tls.keyPath)) };
+        } catch (e) {
+          console.error(`relay.tls: ${(e as Error).message}`);
+          process.exit(1);
+        }
+      }
+      const server = new RelayServer({ relay, policy: config.policy, realKey: result.realKey, tls });
       const port = await server.start();
-      console.log(`blox relay on ${relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
+      console.log(`blox relay on ${tls ? 'https' : 'http'}://${relay.host}:${port} — point members' ANTHROPIC_BASE_URL here`);
+      if (!tls && relay.host !== '127.0.0.1' && relay.host !== 'localhost') {
+        console.log('   warning: plain HTTP on a network address; member tokens travel unencrypted (set relay.tls)');
+      }
       console.log('   (Ctrl-C to stop)');
       await new Promise<void>((resolve) => { const done = () => resolve(); process.on('SIGINT', done); process.on('SIGTERM', done); });
       await server.stop();
