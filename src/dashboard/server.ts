@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { parseFlags } from '../cliTools.js';
 import { loadConfig } from '../config.js';
-import { evaluateCriteria, loadTask, readEvents, readJson, type TestSummaryLike } from '../state/store.js';
+import { evaluateCriteria, loadTask, withDesignResults, readEvents, readJson, type TestSummaryLike } from '../state/store.js';
 import { studioSessionFor } from '../mcp/server.js';
 import type { StudioSession } from '../studio/session.js';
 import { DASHBOARD_HTML } from './page.js';
@@ -35,7 +35,7 @@ export function dashboardState(projectPath: string) {
   return {
     project: { name: basename(projectPath), path: projectPath },
     now: new Date().toISOString(),
-    task: task ? { ...task, criteria: evaluateCriteria(task, lastTests) } : null,
+    task: task ? { ...task, criteria: evaluateCriteria(task, withDesignResults(projectPath, lastTests)) } : null,
     lastTests,
     lastPlaytest: readJson(projectPath, 'last-playtest.json'),
     lastSync: readJson(projectPath, 'last-sync.json'),

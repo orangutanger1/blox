@@ -120,17 +120,22 @@ function rates(doc: DesignDoc, s: State, online: boolean): Record<string, number
     if (n && u.effect.add !== undefined) base[u.effect.target] += u.effect.add * n;
   }
   for (const [r, v] of Object.entries(s.chanceIncome)) base[r] += v;
-  const out: Record<string, number> = {};
-  for (const r of Object.keys(base)) {
-    let m = 1;
-    for (const u of e.upgrades) {
-      const n = s.owned[`upgrade:${u.id}`] ?? 0;
-      if (n && u.effect.mult !== undefined && (u.effect.target === r || u.effect.target === '*')) m *= Math.pow(u.effect.mult, n);
-    }
-    const rb = e.rebirth;
-    if (rb && (rb.mult.target === r || rb.mult.target === '*')) m *= Math.pow(rb.mult.per, s.owned.rebirth ?? 0);
-    out[r] = base[r] * m;
+  // Multipliers compose per resource; "*" applies to every resource.
+  let all = 1;
+  const mult: Record<string, number> = {};
+  for (const u of e.upgrades) {
+    const n = s.owned[`upgrade:${u.id}`] ?? 0;
+    if (!n || u.effect.mult === undefined) continue;
+    const f = Math.pow(u.effect.mult, n);
+    if (u.effect.target === '*') all *= f;
+    else mult[u.effect.target] = (mult[u.effect.target] ?? 1) * f;
   }
+  const rb = e.rebirth;
+  const rbf = rb ? Math.pow(rb.mult.per, s.owned.rebirth ?? 0) : 1;
+  if (rb && rb.mult.target === '*') all *= rbf;
+  else if (rb) mult[rb.mult.target] = (mult[rb.mult.target] ?? 1) * rbf;
+  const out: Record<string, number> = {};
+  for (const r of Object.keys(base)) out[r] = base[r] * all * (mult[r] ?? 1);
   return out;
 }
 
@@ -162,26 +167,23 @@ function grantOwned(doc: DesignDoc, s: State, arch: Archetype): void {
   }
 }
 
-function applyGrants(s: State, grants: Record<string, number>, scale: number): void {
+function applyGrants(s: State, grants: Record<string, number>): void {
   for (const [g, v] of Object.entries(grants)) {
     const { kind, id } = parseRef(g);
-    if (kind === 'income') s.chanceIncome[id] = (s.chanceIncome[id] ?? 0) + v * scale;
-    else if (scale === 1) s.bal[id] += v; // one-off grants only on real rolls
+    if (kind === 'income') s.chanceIncome[id] = (s.chanceIncome[id] ?? 0) + v;
+    else s.bal[id] += v;
   }
 }
 
-function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: (() => number) | null): void {
+function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: () => number): void {
   s.owned[i.ref] = count(s, i) + 1;
   if (i.kind === 'gate') s.open.add(i.id);
   if (i.kind === 'chance') {
     const c = doc.economy.chance.find((x) => x.id === i.id)!;
     const total = c.outcomes.reduce((a, o) => a + o.weight, 0);
-    if (!roll) for (const o of c.outcomes) applyGrants(s, o.grants, o.weight / total); // expected value
-    else {
-      let x = roll() * total;
-      const o = c.outcomes.find((o) => (x -= o.weight) < 0) ?? c.outcomes[c.outcomes.length - 1];
-      applyGrants(s, o.grants, 1);
-    }
+    let x = roll() * total;
+    const o = c.outcomes.find((o) => (x -= o.weight) < 0) ?? c.outcomes[c.outcomes.length - 1];
+    applyGrants(s, o.grants);
   }
   if (i.kind === 'rebirth') {
     for (const r of doc.economy.rebirth!.resets) {
@@ -198,13 +200,26 @@ function applyEffect(doc: DesignDoc, s: State, arch: Archetype, i: Item, roll: (
   }
 }
 
-const clone = (s: State): State => ({ ...s, bal: { ...s.bal }, owned: { ...s.owned }, open: new Set(s.open), chanceIncome: { ...s.chanceIncome } });
-
-function payback(doc: DesignDoc, s: State, arch: Archetype, i: Item, now: Record<string, number>): number {
-  const after = clone(s);
-  applyEffect(doc, after, arch, i, null);
-  const next = rates(doc, after, true);
+function payback(doc: DesignDoc, s: State, i: Item, now: Record<string, number>): number {
+  // Rates after one more of a non-goal item: bump it in place (chance at its
+  // expected income), read the rates, restore. Cheaper than cloning the state.
   const c = costOf(s, i);
+  const income = s.chanceIncome;
+  s.owned[i.ref] = count(s, i) + 1;
+  if (i.kind === 'chance') {
+    s.chanceIncome = { ...income };
+    const ch = doc.economy.chance.find((x) => x.id === i.id)!;
+    const total = ch.outcomes.reduce((a, o) => a + o.weight, 0);
+    for (const o of ch.outcomes)
+      for (const [g, v] of Object.entries(o.grants)) {
+        const { kind, id } = parseRef(g);
+        if (kind === 'income') s.chanceIncome[id] = (s.chanceIncome[id] ?? 0) + (v * o.weight) / total;
+      }
+  }
+  const next = rates(doc, s, true);
+  s.owned[i.ref] -= 1;
+  if (!s.owned[i.ref]) delete s.owned[i.ref];
+  s.chanceIncome = income;
   const res = i.cost.res;
   const d = next[res] - now[res];
   if (d > EPS) return c / d;
@@ -226,7 +241,8 @@ function choose(doc: DesignDoc, s: State, arch: Archetype, items: Item[], r: Rec
   let bestScore = Infinity;
   for (const i of avail) {
     const t = ttr(s.bal[i.cost.res], costOf(s, i), r[i.cost.res], k[i.cost.res]);
-    const score = i.goal ? t * goalWeight : t + payback(doc, s, arch, i, r);
+    if (!i.goal && t >= bestScore) continue; // payback >= 0, so it cannot win
+    const score = i.goal ? t * goalWeight : t + payback(doc, s, i, r);
     if (score < bestScore) {
       best = i;
       bestScore = score;

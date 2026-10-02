@@ -35,6 +35,13 @@ outside folders mapped in default.project.json never reach Studio.
 6. Fix and repeat until every criterion passes. Only passing tests / playtest
    observations count as proof, not a successful tool call.
 
+## Design first (economy games)
+design {action:"set"} a .blox/design.json (economy, archetypes, assertions such as
+"first egg <= 60s"), then design {action:"simulate"}; tune numbers until assertions
+pass, then design {action:"codegen"} and read every tuned number from
+ReplicatedStorage.Design.Tunables — never hard-code them. Bind pacing criteria with
+tests:["design:<assertionId>"].
+
 Other tools: explore (filtered instance-tree search; use it instead of dumping the tree),
 logs (recent errors/output per context), play (start/stop/state, for a playtest kept
 running across calls), sync (push without testing), studio_tool (last resort: raw Studio

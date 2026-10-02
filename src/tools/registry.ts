@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { BloxConfig } from '../config.js';
 import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from '../studio/session.js';
 import { runLuau, type LuauResult } from '../studio/luau.js';
@@ -9,10 +9,13 @@ import { formatSyncResult, pushProject, syncDrift } from '../sync/push.js';
 import { formatTestRun, runTests, type TestContext, type TestRunResult } from '../testing/runner.js';
 import { captureScreenshot, formatPlaytest, playtest, type InputStep, type PlaytestResult } from '../testing/playtest.js';
 import {
-  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, writeJson,
-  type Criterion, type TaskState,
+  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, withDesignResults, writeJson,
+  type Criterion, type TaskState, type TestSummaryLike,
 } from '../state/store.js';
 import { scaffoldProject } from '../scaffold.js';
+import { validateDesign, formatErrors } from '../design/schema.js';
+import { runSimulation, formatReport } from '../design/report.js';
+import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -123,7 +126,7 @@ export const TOOLS: BloxTool[] = [
       }
       const lp = readJson<ReturnType<typeof compactPlaytest>>(ctx.projectPath, 'last-playtest.json');
       if (lp) lines.push(`last playtest (${lp.at}): ${lp.ok ? 'ok' : 'problems'}, ${lp.logs.errors.length} runtime error(s)`);
-      lines.push('', formatTask(loadTask(ctx.projectPath), lt));
+      lines.push('', formatTask(loadTask(ctx.projectPath), withDesignResults(ctx.projectPath, lt)));
       return { text: lines.join('\n'), summary: 'status' };
     },
   },
@@ -163,7 +166,7 @@ export const TOOLS: BloxTool[] = [
       });
       if (!a.filter && !a.contexts) writeJson(ctx.projectPath, 'last-tests.json', compactTests(r));
       const task = loadTask(ctx.projectPath);
-      const crit = task ? `\n${formatTask(task, r, { compact: true })}` : '';
+      const crit = task ? `\n${formatTask(task, withDesignResults(ctx.projectPath, r), { compact: true })}` : '';
       const none = r.total === 0 && r.fileErrors.length === 0 ? '\n(no specs found — add tests/*.spec.luau)' : '';
       return { text: pre + formatTestRun(r) + none + crit, isError: !r.ok, summary: `${r.passed}/${r.total} passed` };
     },
@@ -346,7 +349,7 @@ export const TOOLS: BloxTool[] = [
       text: z.string().optional(),
     },
     async handler(a, ctx) {
-      const lt = readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json');
+      const lt = withDesignResults(ctx.projectPath, readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json'));
       const now = new Date().toISOString();
       let task = loadTask(ctx.projectPath);
       if (a.action === 'set') {
@@ -380,6 +383,55 @@ export const TOOLS: BloxTool[] = [
         saveTask(ctx.projectPath, task as TaskState);
       }
       return { text: formatTask(task, lt), summary: String(a.action) };
+    },
+  },
+  {
+    name: 'design',
+    description:
+      'Game design doc (.blox/design.json) + offline economy simulator. get | set {doc} (validated; invalid docs are not written) | validate | simulate {archetypes?, horizon? s, runs?, seed?} (player archetypes over time → pass/fail assertions + milestones; failing assertions = isError) | codegen (writes src/ReplicatedStorage/Design/Tunables.luau; game code reads numbers from it). Criteria bind to assertions via tests:["design:<id>"]. No Studio needed.',
+    shape: {
+      action: z.enum(['get', 'set', 'validate', 'simulate', 'codegen']),
+      doc: z.unknown().optional(),
+      archetypes: z.array(z.string()).optional(),
+      horizon: z.number().int().positive().optional(),
+      runs: z.number().int().positive().max(1000).optional(),
+      seed: z.number().int().optional(),
+    },
+    async handler(a, ctx) {
+      if (a.action === 'set') {
+        const v = validateDesign(a.doc);
+        if (!v.ok) return { text: `design not saved — ${v.errors.length} error(s):\n${formatErrors(v.errors)}`, isError: true, summary: 'invalid' };
+        writeJson(ctx.projectPath, 'design.json', v.doc);
+        return { text: `saved .blox/design.json (${v.doc.meta.title}, ${v.doc.assertions.length} assertion(s)). Next: design {action:"simulate"}.`, summary: 'saved' };
+      }
+      const raw = readJson<unknown>(ctx.projectPath, 'design.json');
+      if (raw === null) return { text: 'no .blox/design.json — create one with design {action:"set", doc:{...}}', isError: true, summary: 'no design' };
+      if (a.action === 'get') return { text: JSON.stringify(raw, null, 2), summary: 'get' };
+      const v = validateDesign(raw);
+      if (!v.ok) return { text: `design.json is invalid — ${v.errors.length} error(s):\n${formatErrors(v.errors)}`, isError: true, summary: 'invalid' };
+      if (a.action === 'validate') return { text: `design.json is valid (${v.doc.assertions.length} assertion(s))`, summary: 'valid' };
+      if (a.action === 'codegen') {
+        const file = join(ctx.projectPath, TUNABLES_PATH);
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, renderTunables(v.doc));
+        return { text: `wrote ${TUNABLES_PATH} — require it for every tuned number; sync/run_tests push it to Studio.`, artifacts: [TUNABLES_PATH], summary: 'codegen' };
+      }
+      const report = runSimulation(v.doc, {
+        archetypes: a.archetypes as string[] | undefined,
+        horizonSec: a.horizon as number | undefined,
+        runs: a.runs as number | undefined,
+        seed: a.seed as number | undefined,
+      });
+      writeJson(ctx.projectPath, 'sim-report.json', report);
+      const task = loadTask(ctx.projectPath);
+      if (task) {
+        // Same persistence the task tool does, so the dashboard sees fresh statuses.
+        const lt = withDesignResults(ctx.projectPath, readJson<TestSummaryLike>(ctx.projectPath, 'last-tests.json'));
+        task.criteria = evaluateCriteria(task, lt).map((c, i) => (task.criteria[i].tests?.length ? c : task.criteria[i]));
+        saveTask(ctx.projectPath, task);
+      }
+      const failed = report.assertions.filter((x) => !x.ok).length;
+      return { text: formatReport(report), isError: failed > 0, summary: `${report.assertions.length - failed}/${report.assertions.length} assertions` };
     },
   },
   {
