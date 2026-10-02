@@ -44,7 +44,9 @@ design {action:"set"} a .blox/design.json (economy, archetypes, assertions such 
 "first egg <= 60s"), then design {action:"simulate"}; tune numbers until assertions
 pass, then design {action:"codegen"} and read every tuned number from
 ReplicatedStorage.Design.Tunables — never hard-code them. Bind pacing criteria with
-tests:["design:<assertionId>"].
+tests:["design:<assertionId>"]. Then measure the real game: metrics {action:"ftue"} (each
+ftue step within targetSec) and metrics {action:"soak", bot, archetype} (errors, memory,
+simulated pace); bind with tests:["ftue:<id>"|"soak:<check>"].
 
 Other tools: explore (filtered instance-tree search; use it instead of dumping the tree),
 logs (recent errors/output per context), play (start/stop/state, for a playtest kept
