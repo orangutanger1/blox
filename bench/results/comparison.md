@@ -49,3 +49,62 @@ tasks):
 - **One model family so far.** The bench is agent-agnostic (`--agent custom`,
   `$BLOX_BENCH_STATS`), but only Claude-based agents have run it. A GPT- or
   Gemini-based agent run is the next comparison worth having.
+
+# Multi-model + trim round (2026-10-01)
+
+Same core suite and place reset. New: `--agent openai`, a small vendor-neutral agent
+(`src/bench/openaiAgent.ts`: OpenAI-compatible chat completions + blox MCP over stdio +
+four file tools), run through OpenRouter. It learns Roblox/blox only from the MCP
+server's instructions and tool schemas. Raw data: `trim-blox-opus55.json`,
+`trim1-blox-opus55.json`, `mm-glm-5.3-flash.json`, `mm-gpt-6-luna.json`,
+`mm-mimo-v2.6-pro.json`.
+
+| agent | model | tasks passed (live) | live checks | cost | time | turns | blox calls (err) |
+|---|---|---|---|---|---|---|---|
+| blox runner, before trim | claude-opus-5-5 | 3/3 | 16/16 | $0.75 | 154s | 30 | 10 (0) |
+| blox runner, after trim | claude-opus-5-5 | 3/3 | 16/16 | $0.94 | 214s | 44 | 21 (2) |
+| openai-compat agent | openai/gpt-6-luna | 3/3 | 16/16 | **$0.014** | 295s | 46 | 30 (6) |
+| openai-compat agent | z-ai/glm-5.3-flash | 3/3 | 16/16 | $0.074 | 871s | 44 | 39 (3) |
+| openai-compat agent | xiaomi/mimo-v2.6-pro | 2/2 (t7 stopped) | 7/7 | $0.078 | 2494s | 16 | 13 (1) |
+
+Per task (live · cost · time):
+
+| task | Opus 5.5 (blox runner, trimmed) | GPT-6 Luna | GLM 5.3 Flash | MiMo 2.6 Pro |
+|---|---|---|---|---|
+| t2-coins | 4/4 · $0.34 · 64s | 4/4 · $0.005 · 87s | 4/4 · $0.014 · 235s | 4/4 · $0.029 · 766s |
+| t6-door | 3/3 · $0.17 · 51s | 3/3 · $0.002 · 59s | 3/3 · $0.010 · 134s | 3/3 · $0.049 · 1728s* |
+| t7-shop | 9/9 · $0.43 · 99s | 9/9 · $0.008 · 149s | 9/9 · $0.050 · 502s | stopped |
+
+\* finished the work, then its last model call hung until the bench timeout. The agent
+now has a 5-minute per-request timeout. MiMo 2.6 Pro's t7 and MiMo 2.6 Flash were
+dropped to save time.
+
+## What the data shows
+
+- **The environment carries across model families.** Three non-Claude models, through an
+  agent that is not Claude Code and not the blox runner, pass every live check they
+  finished. Nothing in the tools or guide had to change for them.
+- **Cost is set by the model's price, time by the provider's speed.** GPT-6 Luna did the
+  suite for $0.014 (about 1/50 of Opus 5.5) in about 1.4× Opus's wall time. GLM 5.3
+  Flash is 5× Luna's cost and 3× its time. MiMo 2.6 Pro spends minutes reasoning per
+  turn (47k output tokens over 16 turns).
+- **The static trim is real but small.** Tool descriptions went 7.7k → 6.5k chars and the
+  guide 4.4k → 3.3k (about 640 tokens less per turn, about $0.01 per suite on Opus 5.5).
+  Run-to-run variance in turns swamps it: the trimmed Opus run cost more because on t7
+  it chose to verify the shop by clicking the real button (26 turns vs 15).
+- **Real-UI verification exposed an interface gap, now fixed.** The first trimmed t7 run
+  guessed `user_mouse_input`'s argument format 8 times and gave up: `studio_tool list`
+  showed only required arg names. Now `studio_tool {name:"list", args:{tool}}` returns
+  a tool's full schema, a rejected raw call comes back with the schema, and `playtest`
+  `inputs` documents the mouse/keyboard action names. The rerun needed 2 tries.
+- **One more bug found by a non-Claude model:** `explore` failed with "datamodel_type is
+  required" (a Studio schema change). It now sends the datamodel (edit at rest, server
+  in play; `context` overrides).
+
+## Caveats
+
+- n = 1 per cell, again. Turn counts vary ±50% between runs of the same agent.
+- The non-Claude runs use a different agent loop than the Opus runs, so model and agent
+  are confounded across those rows. The models themselves are compared on the same agent.
+- Cost for OpenRouter runs is OpenRouter's reported `usage.cost`; provider caching
+  differs (GLM reported no cache writes).

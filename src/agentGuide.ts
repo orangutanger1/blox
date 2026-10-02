@@ -5,71 +5,56 @@
 
 export const AGENT_GUIDE = `# Building Roblox games with blox
 
-blox connects you to a running Roblox Studio. Files on disk are the source of
-truth for code; blox pushes them into Studio and gives you structured feedback.
+blox connects you to a running Roblox Studio. Files on disk are the source of truth;
+blox pushes them into Studio and returns structured feedback.
 
 ## Project layout (Rojo)
-- src/ServerScriptService/*.server.luau  → Script (runs on server)
-- src/StarterPlayerScripts/*.client.luau → LocalScript (runs on each client)
-- src/StarterGui/*.client.luau           → LocalScript UI controllers (build GUIs in code)
-- src/ReplicatedStorage/*.luau           → ModuleScript shared by server+client
+- src/ServerScriptService/*.server.luau  → Script (server)
+- src/StarterPlayerScripts/*.client.luau → LocalScript (each client)
+- src/StarterGui/*.client.luau           → LocalScript UI (build GUIs in code)
+- src/ReplicatedStorage/*.luau           → ModuleScript (shared)
 - src/ServerStorage/*.luau               → server-only modules
-- world/<Name>.luau → \`return function(model) ... end\` builds a Model named <Name> in
-  Workspace (first line \`-- @parent ServerStorage\` to change parent). Use it for maps,
-  platforms, props: geometry as code, rebuilt only when the file changes.
-- tests/*.spec.luau → tests run inside Studio. First line \`-- @context edit|server|client\`.
+- world/<Name>.luau → \`return function(model) ... end\` builds Model <Name> in Workspace
+  (first line \`-- @parent ServerStorage\` to change parent): maps, platforms, props as code.
+- tests/*.spec.luau, first line \`-- @context edit|server|client\`. edit = no playtest
+  (fast, pure logic); server/client = inside a playtest (players, characters, remotes, PlayerGui).
   API: test(name, fn), describe, expect(v).toBe/toEqual/toBeTruthy/toBeNil/toExist/
   toBeGreaterThan/toBeLessThan/toBeCloseTo/toContain/toBeA/toThrow, waitFor(fn, secs).
-  edit = no playtest (fast, pure logic); server/client = inside a running playtest
-  (players, characters, RemoteEvents, PlayerGui).
-A suffix decides the class: .server.luau Script, .client.luau LocalScript, .luau ModuleScript.
-Files outside mapped folders never reach Studio — check default.project.json.
+Suffix sets the class (.server Script, .client LocalScript, plain ModuleScript). Files
+outside folders mapped in default.project.json never reach Studio.
 
 ## Loop
-1. status — what is attached, in sync, passing, and what the task needs. Empty
-   project? scaffold creates the layout (non-destructive).
-2. task {action:"set"} — write the goal and concrete acceptance criteria; bind each
-   criterion to the tests that prove it.
-3. Write code + world builders + tests on disk.
-4. run_tests — syncs, runs every spec (regressions included), returns failures with
-   file:line and runtime errors from the playtest.
-5. playtest — run the game for a few seconds, probe server/client state with Luau,
-   optionally drive input and take a screenshot; returns typed errors/warnings.
-6. Fix and repeat until every criterion passes. A successful tool call is not proof:
-   only passing tests / playtest observations are.
+1. status (empty project? scaffold).
+2. task {action:"set"}: goal + acceptance criteria, each bound to the tests that prove it.
+3. Write code, world builders and tests.
+4. run_tests: syncs, runs every spec, returns failures with file:line + runtime errors.
+5. playtest: run the game a few seconds, probe server/client with Luau, optional input
+   and screenshot; returns typed errors/warnings.
+6. Fix and repeat until every criterion passes. Only passing tests / playtest
+   observations count as proof, not a successful tool call.
 
-## Other tools
-- explore — search the live instance tree (filter by instance_type/keywords/path, small
-  max_depth). Use it to find what exists instead of dumping the tree with run_luau.
-- logs — recent typed errors/warnings/output for edit, server or client.
-- play — start/stop/state when you need a playtest left running across several calls
-  (e.g. run_luau probes, then logs); playtest covers the common one-shot case.
-- sync — push files without running tests (run_tests/playtest already sync).
-- studio_tool — raw Studio MCP passthrough for what the tools above don't cover (assets,
-  meshes, inspect_instance). Last resort: its output is unstructured and larger.
+Other tools: explore (filtered instance-tree search; use it instead of dumping the tree),
+logs (recent errors/output per context), play (start/stop/state, for a playtest kept
+running across calls), sync (push without testing), studio_tool (last resort: raw Studio
+tools for assets/meshes/inspect_instance; output is larger and unstructured).
 
 ## Working efficiently
-Every call costs time and context, so:
-- Write all the files a step needs, then verify once: one run_tests after a batch of
-  edits, not one per file.
+Every call costs time and context:
+- Write all files a step needs, then run_tests once, not once per file.
 - Don't re-read files you just wrote or re-run checks whose inputs didn't change.
-- Probe narrowly: explore with filters, run_luau returning just the values you need,
-  logs with a short since_seconds.
-- Read failures fully and fix every one you can before the next run.
-- Stop when every criterion passes; skip extra confirmation runs.
+- Probe narrowly: filtered explore, run_luau returning only the values you need.
+- Fix every failure you can see before the next run.
+- Stop when every criterion passes; no extra confirmation runs.
 
 ## Rules
-- Prefer tests over one-off probes: a test keeps checking the feature forever.
-- run_luau context "edit" is for inspecting/building in the edit DataModel; changes made
-  there that are not in files or world/ builders are lost when the place reloads.
-- Server state during play: context "server". Client/UI state: context "client".
-- Do not edit scripts in Studio directly; edit files and sync.
-- Screenshots are for visual work only (UI layout, look of a map), where existence
-  checks can't judge the result. They are large; take few.
-- run_luau must not yield (it has a short time budget): WaitForChild(x, 5) always with a
-  timeout; waits, events, DataStore and HttpService belong in real scripts.
-- Never Destroy/ClearAllChildren broadly: delete exactly what the task names, and inspect
-  a container before clearing it.
-- "No Studio"/disconnect errors are often momentary: retry once before calling Studio offline.
-- Record anything you cannot do or verify with task {action:"block"} — do not claim it works.
+- Prefer tests over one-off probes: a test keeps checking forever.
+- run_luau context edit changes not captured in files or world/ builders are lost on reload.
+- Server state during play: context server. Client/UI state: context client.
+- Never edit scripts in Studio; edit files.
+- Screenshots only for visual judgments (UI layout, map look); they are large.
+- run_luau must not yield: WaitForChild(x, 5) always with a timeout; waits, events,
+  DataStore and HttpService belong in real scripts.
+- Never Destroy/ClearAllChildren broadly; delete exactly what the task names.
+- "No Studio"/disconnect errors are often momentary: retry once first.
+- Record anything you cannot do or verify with task {action:"block"}; never claim it works.
 `;

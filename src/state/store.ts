@@ -120,18 +120,22 @@ export function evaluateCriteria(task: TaskState, lastTests: TestSummaryLike | n
       ...c,
       status: failed.length ? ('fail' as const) : ('pass' as const),
       evidence: failed.length
-        ? `${failed.length}/${matched.length} matching tests failing (${lastTests.ranAt})`
-        : `${matched.length} matching tests pass (${lastTests.ranAt})`,
+        ? `${failed.length}/${matched.length} matching tests failing`
+        : `${matched.length} matching tests pass`,
     };
   });
 }
 
-export function formatTask(task: TaskState | null, lastTests: TestSummaryLike | null): string {
+// compact: for outputs repeated every turn (run_tests). Passing criteria shrink
+// to their ids and the goal is left out; the full form is one task {get} away.
+export function formatTask(task: TaskState | null, lastTests: TestSummaryLike | null, opts: { compact?: boolean } = {}): string {
   if (!task) return 'no task set — record the goal and acceptance criteria with task {action:"set"}';
   const crit = evaluateCriteria(task, lastTests);
-  const done = crit.filter((c) => c.status === 'pass').length;
-  const lines = [`goal: ${task.goal}`, `criteria: ${done}/${crit.length} passing`];
+  const passed = crit.filter((c) => c.status === 'pass');
+  const lines = opts.compact ? [] : [`goal: ${task.goal}`];
+  lines.push(`criteria: ${passed.length}/${crit.length} passing${opts.compact && passed.length ? ` (${passed.map((c) => c.id).join(', ')})` : ''}`);
   for (const c of crit) {
+    if (opts.compact && c.status === 'pass') continue;
     const mark = c.status === 'pass' ? '[x]' : c.status === 'fail' ? '[!]' : '[ ]';
     lines.push(`  ${mark} ${c.id}: ${c.text}${c.tests?.length ? ` (tests: ${c.tests.join(', ')})` : ''}${c.evidence ? ` — ${c.evidence}` : ''}`);
   }
