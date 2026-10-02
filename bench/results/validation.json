@@ -37,6 +37,36 @@
         "failures": []
       },
       "valid": true
+    },
+    {
+      "task": "t8-pet-hatch",
+      "seed": {
+        "passed": 1,
+        "total": 15,
+        "failures": [
+          "config: values and rarity order: fail — Attempted to call require with invalid argument(s).",
+          "logic: rollRarity boundaries: fail — Attempted to call require with invalid argument(s).",
+          "logic: incomePerSecond with rebirth multiplier: fail — Attempted to call require with invalid argument(s).",
+          "data: leaderstats Cash and Rebirths IntValues, Pets folder: fail — .bench-checks/03-server.spec.luau:6: waitFor timed out: no leaderstats",
+          "world: anchored EggStation with a Hatch ProximityPrompt: fail — .bench-checks/03-server.spec.luau:14: expected a value/instance, got nil",
+          "hatch: HatchEgg and Rebirth are RemoteFunctions: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
+          "hatch: refuses below EggCost and changes nothing: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
+          "hatch: charges 50, adds one pet matching the returned rarity: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
+          "hatch: full inventory (MaxPets) refuses without charging: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
+          "hatch: client cannot choose the rarity: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
+          "income: floor(sum * 1.5^rebirths) per second from the Pets folder: fail — .bench-checks/04-client.spec.luau:56: expected >= 44, got nil",
+          "rebirth: refuses below RebirthCost: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.Rebirth",
+          "rebirth: resets cash to 100, clears pets, increments Rebirths: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.Rebirth",
+          "ui: HUD with live CashLabel, HatchButton, RebirthButton (phone-sized): fail — .bench-checks/04-client.spec.luau:76: waitFor timed out: no ScreenGui HUD"
+        ]
+      },
+      "solution": {
+        "passed": 15,
+        "total": 15,
+        "failures": []
+      },
+      "valid": true
     }
-  ]
+  ],
+  "at_t8": "2026-10-02T06:21:32.773Z"
 }

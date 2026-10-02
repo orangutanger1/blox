@@ -1,0 +1,22 @@
+-- @context server
+local Players = game:GetService("Players")
+local function player() return waitFor(function() return Players:GetPlayers()[1] end, 10, "no player") end
+test("data: leaderstats Cash and Rebirths IntValues, Pets folder", function()
+	local p = player()
+	local ls = waitFor(function() return p:FindFirstChild("leaderstats") end, 5, "no leaderstats")
+	expect(ls:FindFirstChild("Cash")).toBeA("IntValue")
+	expect(ls:FindFirstChild("Rebirths")).toBeA("IntValue")
+	expect(ls.Rebirths.Value).toBe(0)
+	expect(p:FindFirstChild("Pets")).toBeA("Folder")
+end)
+test("world: anchored EggStation with a Hatch ProximityPrompt", function()
+	local st = workspace:FindFirstChild("EggStation", true)
+	expect(st).toExist()
+	-- a Part, or a Model (e.g. from a world/ builder) containing anchored parts
+	local part = st:IsA("BasePart") and st or st:FindFirstChildWhichIsA("BasePart", true)
+	expect(part).toExist()
+	expect(part.Anchored).toBe(true)
+	local pp = st:FindFirstChildWhichIsA("ProximityPrompt", true)
+	expect(pp).toExist()
+	expect(string.find(string.lower(pp.ActionText), "hatch") ~= nil).toBe(true)
+end)

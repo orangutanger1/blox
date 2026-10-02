@@ -1,0 +1,45 @@
+{
+  "label": "t8-blox-opus55",
+  "agent": "blox (/home/myen/blox)",
+  "startedAt": "2026-10-02T06:05:43.569Z",
+  "finishedAt": "2026-10-02T06:07:51.362Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t8-pet-hatch",
+      "level": "8 game-system component",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 103,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/t8-blox-opus55/t8-pet-hatch",
+      "notes": [],
+      "turns": 5,
+      "costUsd": 0.5254632,
+      "tokens": {
+        "input": 10,
+        "cacheRead": 106441,
+        "cacheWrite": 35686,
+        "output": 10848
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "bloxToolCalls": 4,
+      "bloxToolErrors": 0,
+      "live": {
+        "passed": 15,
+        "total": 15,
+        "failures": []
+      },
+      "synced": {
+        "passed": 15,
+        "total": 15,
+        "failures": []
+      }
+    }
+  ]
+}
