@@ -97,6 +97,34 @@ Name corrections vs the tables: console output is **`get_console_output`** (not
 results come back as a standard `CallToolResult`
 (`{ content: [{ type: 'text', text }], isError }`).
 
+### Studio build of 2026-09-30: capability sandbox + renames (observed 2026-10-02)
+
+`execute_luau` now runs as an "AssistantCommand" thread with reduced script
+Capabilities (no AssetRequire, ScriptGlobals, DataStore, Network,
+LoadUnownedAsset, …) that it cannot extend. Consequences, verified live:
+
+- A script the thread creates cannot be parented into the DataModel
+  ("cannot reparent … has additional values for the Capabilities property").
+  Folders, Parts, GUIs are fine; updating `.Source` of an existing script is fine.
+- `require()` of a place ModuleScript fails from the thread (edit and play), and
+  `loadstring` chunks inherit the restriction. Invoking a BindableFunction
+  handled by game code fails too.
+- `screen_capture` renders SurfaceGuis but not BillboardGuis or AlwaysOnTop GUIs.
+- Current R15 rigs join parts with AnimationConstraints, not Motor6Ds.
+
+Sanctioned paths blox uses instead: `multi_edit` creates scripts with normal
+capabilities (`file_path` dot path, `className`, first edit `old_string: ""`);
+code that must run with game capabilities is injected as a script and Play is
+started (results via LogService / console), the flow Roblox's own
+`rbx-unit-test` skill documents. Do not look for side channels around the sandbox.
+
+Tool renames/additions in the same build: `search_creator_store` → `search_asset`,
+`insert_from_creator_store` → `insert_asset(assetId, assetName?, assetType?)`,
+`wait_job_finished(jobId)` (was `generationId`); generators block by default and
+take `async: true`. New: `generate_texture`, `segment_mesh`, `skill`, `subagent`,
+`inspect_instance`, `script_read`/`script_grep`/`script_search`, `upload_image`,
+`store_image`, `list_roblox_studios`. Every tool takes `studio_id`.
+
 ### Script management
 | Tool | Description |
 |------|-------------|
