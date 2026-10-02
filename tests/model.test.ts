@@ -1,65 +1,78 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { rmSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { describe, it, expect } from 'vitest';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { writeProvider } from '../src/model.js';
-import { allCcrModels } from '../src/ccr.js';
+import { join } from 'node:path';
+import { briefText, formatStats, modelDir, previewLuau, runModelPy, writeBrief } from '../src/model/run.js';
+import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
+import { BloxConfigSchema } from '../src/config.js';
+import { StudioSession } from '../src/studio/session.js';
+import { cliArgs, parseFlags } from '../src/cliTools.js';
+import { luneBin, luneCheck } from './helpers/lune.js';
+import { writeFileSync } from 'node:fs';
 
-const tmp = join(tmpdir(), `model-test-${process.pid}.json`);
-afterEach(() => { try { rmSync(tmp); } catch { /* ignore */ } });
+const project = () => mkdtempSync(join(tmpdir(), 'blox-model-'));
 
-describe('writeProvider', () => {
-  it('writes an OpenRouter block with transformer + Router.default', () => {
-    writeProvider('openrouter', { apiKey: 'sk-or-x', models: ['deepseek/deepseek-chat'] }, tmp);
-    const cfg = JSON.parse(readFileSync(tmp, 'utf8'));
-    expect(cfg.Providers[0]).toMatchObject({
-      name: 'openrouter',
-      api_base_url: 'https://openrouter.ai/api/v1/chat/completions',
-      api_key: 'sk-or-x',
-      models: ['deepseek/deepseek-chat'],
-      transformer: { use: ['openrouter'] },
+describe('model helpers', () => {
+  it('rejects unsafe ids', () => {
+    expect(() => modelDir('/p', '../x')).toThrow(/bad model id/);
+    expect(modelDir('/p', 'dog_1')).toBe(join('/p', '.blox', 'models', 'dog_1'));
+  });
+  it('brief records the spec and returns the build loop', () => {
+    const p = project();
+    const b = writeBrief(p, { id: 'dog', prompt: 'blocky dog', tris: 2000, rig: true, animations: ['Walk'], refs: [] });
+    expect(JSON.parse(readFileSync(join(p, '.blox/models/dog/brief.json'), 'utf8')).prompt).toBe('blocky dog');
+    const t = briefText(b);
+    expect(t).toContain('budget 2000 triangles');
+    expect(t).toContain('bind_rigid');
+    expect(t).toContain('model {action:"check", id:"dog"}');
+  });
+  it('stats list issues and views', () => {
+    const t = formatStats({ triangles: 30000, meshes: { a: 30000 }, materials: 1, bones: 0, maxInfluences: 0, actions: [], textures: [], size: [1, 2, 3], issues: ['triangles 30000 > budget 5000'], views: ['/p/.blox/models/a/views/front.png'] }, '/p');
+    expect(t).toContain('✗ triangles 30000 > budget 5000');
+    expect(t).toContain('.blox/models/a/views/front.png');
+  });
+  it('runModelPy passes software-GL env on linux and parses the result line', async () => {
+    const p = project();
+    let env: Record<string, string> | undefined;
+    const r = await runModelPy('check', { blend: 'x' }, join(p, 'd'), async (_c, args, e) => {
+      env = e;
+      expect(args).toContain('check');
+      return { code: 0, stdout: 'noise\nBLOX_MODEL {"triangles": 3}\n', stderr: '' };
     });
-    expect(cfg.Router.default).toBe('openrouter,deepseek/deepseek-chat');
+    expect(r).toEqual({ triangles: 3 });
+    if (process.platform === 'linux') expect(env).toEqual({ LIBGL_ALWAYS_SOFTWARE: '1', WAYLAND_DISPLAY: 'nonexistent' });
+    await expect(runModelPy('run', {}, join(p, 'd'), async () => ({ code: 1, stdout: 'BLOX_ERROR your code raised: boom', stderr: '' }))).rejects.toThrow(/boom/);
   });
-
-  it('local block has no transformer and defaults to the Ollama base URL', () => {
-    writeProvider('local', { models: ['qwen2.5-coder'] }, tmp);
-    const cfg = JSON.parse(readFileSync(tmp, 'utf8'));
-    expect(cfg.Providers[0].transformer).toBeUndefined();
-    expect(cfg.Providers[0].api_base_url).toBe('http://localhost:11434/v1/chat/completions');
+  it.skipIf(!luneBin())('preview Luau compiles', () => {
+    const f = join(project(), 'preview.luau');
+    writeFileSync(f, previewLuau('dog', { triangles: [{ v: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], c: 'ff0000' }] }, [0, 0, 20]));
+    expect(luneCheck([f])).toEqual([]);
   });
+});
 
-  it('accumulates models for a same-named provider and preserves others', () => {
-    writeProvider('local', { models: ['qwen2.5-coder'] }, tmp);
-    writeProvider('openrouter', { apiKey: 'k', models: ['openai/gpt-4o'] }, tmp);
-    writeProvider('local', { models: ['llama3.1'] }, tmp); // adds to local, not replace
-    expect(allCcrModels(tmp).sort()).toEqual(['local,llama3.1', 'local,qwen2.5-coder', 'openrouter,openai/gpt-4o']);
+describe('model tool', () => {
+  const ctx = (p: string): ToolCtx => ({ session: new StudioSession({}), projectPath: p, config: BloxConfigSchema.parse({ projectPath: p }), agent: 'test' });
+  const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('model')!, args, c);
+  it('brief, list, and refuses work before a model exists', async () => {
+    const p = project();
+    expect((await call({ action: 'brief', id: 'dog', prompt: 'blocky dog', rig: true, animations: ['Walk'] }, ctx(p))).isError).toBeFalsy();
+    expect(existsSync(join(p, '.blox/models/dog/brief.json'))).toBe(true);
+    expect((await call({ action: 'list' }, ctx(p))).text).toContain('dog  blocky dog');
+    const r = await call({ action: 'check', id: 'dog' }, ctx(p));
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/no model "dog" yet/);
+    expect((await call({ action: 'brief', id: 'cat', prompt: 'x', refs: ['nope.png'] }, ctx(p))).text).toMatch(/not found: nope.png/);
   });
+});
 
-  it('appends new models to a provider and dedupes', () => {
-    writeProvider('openrouter', { apiKey: 'k', models: ['a/b'] }, tmp);
-    writeProvider('openrouter', { apiKey: 'k', models: ['c/d'] }, tmp);
-    writeProvider('openrouter', { apiKey: 'k', models: ['a/b'] }, tmp); // dup ignored
-    expect(allCcrModels(tmp).sort()).toEqual(['openrouter,a/b', 'openrouter,c/d']);
-  });
-
-  it('reuses the stored openrouter key when a later add omits it', () => {
-    writeProvider('openrouter', { apiKey: 'sk-or-x', models: ['a/b'] }, tmp);
-    writeProvider('openrouter', { models: ['c/d'] }, tmp); // no key this time
-    const cfg = JSON.parse(readFileSync(tmp, 'utf8'));
-    expect(cfg.Providers[0].api_key).toBe('sk-or-x');
-    expect(allCcrModels(tmp).sort()).toEqual(['openrouter,a/b', 'openrouter,c/d']);
-  });
-
-  it('rejects openrouter without a key and any provider without a model', () => {
-    expect(() => writeProvider('openrouter', { models: ['x'] }, tmp)).toThrow(/key/);
-    expect(() => writeProvider('local', { models: [] }, tmp)).toThrow(/model/);
-  });
-
-  it('writes the config user-only (0600) since it holds the api key', () => {
-    writeProvider('openrouter', { apiKey: 'sk-or-x', models: ['a/b'] }, tmp);
-    if (process.platform !== 'win32') {
-      expect(statSync(tmp).mode & 0o777).toBe(0o600);
-    }
+describe('model cli', () => {
+  it('maps brief flags and run files', () => {
+    expect(cliArgs('model', parseFlags(['brief', 'dog', '--prompt', 'blocky dog', '--tris', '2000', '--rig', '--anims', 'Walk,Sleep']))).toEqual({
+      tool: 'model', args: { action: 'brief', id: 'dog', prompt: 'blocky dog', tris: 2000, rig: true, animations: ['Walk', 'Sleep'] },
+    });
+    const f = join(project(), 'b.py');
+    writeFileSync(f, 'reset()');
+    expect(cliArgs('model', parseFlags(['run', 'dog', f]))).toEqual({ tool: 'model', args: { action: 'run', id: 'dog', code: 'reset()' } });
+    expect(cliArgs('model', parseFlags(['preview', 'dog', '--at', '0,1,20']))).toEqual({ tool: 'model', args: { action: 'preview', id: 'dog', at: [0, 1, 20] } });
   });
 });

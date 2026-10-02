@@ -23,11 +23,11 @@ export function parseNormalize(stdout: string, out: string): NormalizeResult | n
   return m ? { out, trisBefore: Number(m[1]), trisAfter: Number(m[2]), size: [Number(m[3]), Number(m[4]), Number(m[5])] } : null;
 }
 
-export type Spawner = (cmd: string, args: string[]) => Promise<{ code: number | null; stdout: string; stderr: string; notFound?: boolean }>;
+export type Spawner = (cmd: string, args: string[], env?: Record<string, string>) => Promise<{ code: number | null; stdout: string; stderr: string; notFound?: boolean }>;
 
-export const defaultSpawn: Spawner = (cmd, args) =>
+export const defaultSpawn: Spawner = (cmd, args, env) =>
   new Promise((resolve) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env: { ...process.env, ...env } } : {}) });
     let stdout = '';
     let stderr = '';
     p.stdout.on('data', (d) => (stdout += d));

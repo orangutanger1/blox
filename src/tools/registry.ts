@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BloxConfig } from '../config.js';
 import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from '../studio/session.js';
@@ -30,6 +30,7 @@ import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
 import { gradeSanitize, sanitizeProgram, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
+import { briefText, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
 import { uploadAsset } from '../assets/upload.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
@@ -716,6 +717,7 @@ export const TOOLS: BloxTool[] = [
         if (typeof a.file !== 'string') return { text: 'normalize needs file', isError: true, summary: 'no file' };
         const out = typeof a.out === 'string' ? a.out : a.file.replace(/\.[^.\/]+$/, '') + '.normalized.fbx';
         const r = await runNormalize({ input: join(P, a.file), out: join(P, out), tris: (a.tris as number | undefined) ?? 10_000, height: (a.height as number | undefined) ?? 0 });
+        let note = '';
         if (typeof a.id === 'string') {
           const m = loadManifest(P);
           const e = m.assets.find((x) => x.id === a.id);
@@ -723,14 +725,126 @@ export const TOOLS: BloxTool[] = [
             e.budget = { ...(e.budget ?? {}), tris: r.trisAfter };
             e.ref.file = out;
             saveManifest(P, m);
+            note = `\nrecorded on asset "${a.id}"`;
+          } else {
+            note = `\nnot recorded: no asset "${a.id}" in .blox/assets.json — add it first (asset {action:"add", entry}) and rerun`;
           }
         }
-        return { text: `normalized → ${out}: ${r.trisBefore} → ${r.trisAfter} triangles, size ${r.size.join(' × ')} studs`, artifacts: [out], summary: `${r.trisAfter} tris` };
+        return { text: `normalized → ${out}: ${r.trisBefore} → ${r.trisAfter} triangles, size ${r.size.join(' × ')} studs${note}`, artifacts: [out], summary: `${r.trisAfter} tris` };
       }
       if (typeof a.id !== 'string') return { text: 'upload needs id', isError: true, summary: 'no id' };
       const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
       if (r.dryRun) return { text: `DRY RUN — would upload:\n${JSON.stringify(r.plan, null, 2)}\nRe-run with confirm:true only if the human asked for this upload.`, summary: 'dry run' };
       return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})`, summary: 'uploaded' };
+    },
+  },
+  {
+    name: 'model',
+    description:
+      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.fbx, anim_<name>.fbx per animation, preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the FBX in .blox/assets.json as a candidate; a human approves before upload) | list.',
+    shape: {
+      action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'list']),
+      id: z.string().optional(),
+      prompt: z.string().optional(),
+      style: z.string().optional(),
+      tris: z.number().int().positive().optional(),
+      rig: z.boolean().optional(),
+      animations: z.array(z.string()).optional(),
+      refs: z.array(z.string()).optional(),
+      code: z.string().optional().describe('run: the whole build script (Blender Python, blox helpers in scope)'),
+      at: z.array(z.number()).length(3).optional().describe('preview: where to stand it, default 0,0,20'),
+    },
+    async handler(a, ctx) {
+      const P = ctx.projectPath;
+      if (a.action === 'list') {
+        const root = join(P, '.blox', 'models');
+        const ids = existsSync(root) ? readdirSync(root).filter((d) => existsSync(join(root, d, 'brief.json'))) : [];
+        return { text: ids.map((id) => `${id}  ${readBrief(P, id)?.prompt ?? ''}`).join('\n') || '(no models)', summary: `${ids.length} models` };
+      }
+      if (typeof a.id !== 'string') return { text: `${a.action} needs id`, isError: true, summary: 'no id' };
+      const id = a.id;
+      const dir = modelDir(P, id);
+      const brief = readBrief(P, id);
+      if (a.action === 'brief') {
+        if (typeof a.prompt !== 'string') return { text: 'brief needs prompt', isError: true, summary: 'no prompt' };
+        const refs = (a.refs as string[] | undefined) ?? [];
+        const missing = refs.filter((r) => !existsSync(join(P, r)) && !existsSync(r));
+        if (missing.length) return { text: `reference image(s) not found: ${missing.join(', ')}`, isError: true, summary: 'missing refs' };
+        const b = writeBrief(P, { id, prompt: a.prompt, ...(typeof a.style === 'string' ? { style: a.style } : {}), tris: (a.tris as number | undefined) ?? 5000, rig: a.rig === true, animations: (a.animations as string[] | undefined) ?? [], refs });
+        return { text: briefText(b), summary: 'brief' };
+      }
+      const budget = brief?.tris ?? 0;
+      const blend = join(dir, 'model.blend');
+      if (a.action === 'run') {
+        if (typeof a.code !== 'string' || !a.code.trim()) return { text: 'run needs code (the whole build script)', isError: true, summary: 'no code' };
+        mkdirSync(join(dir, 'code'), { recursive: true });
+        const code = join(dir, 'code', 'build.py');
+        writeFileSync(code, a.code);
+        // A fresh .blend each run: the script is the source of truth.
+        rmSync(blend, { force: true });
+        const s = (await runModelPy('run', { blend, code, budget, name: `${id}/build.py` }, dir)) as unknown as ModelStats;
+        return { text: `built ${id}\n${formatStats(s, P)}\nnext: model {action:"check", id:"${id}"} and look at the views`, isError: s.issues.length > 0, summary: `${s.triangles} tris` };
+      }
+      if (!existsSync(blend)) return { text: `no model "${id}" yet — model {action:"run", id:"${id}", code} first`, isError: true, summary: 'no model' };
+      if (a.action === 'check') {
+        const s = (await runModelPy('check', { blend, views: join(dir, 'views'), budget }, dir)) as unknown as ModelStats;
+        writeFileSync(join(dir, 'check.json'), JSON.stringify(s, null, 2));
+        return { text: formatStats(s, P), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
+      }
+      if (a.action === 'export') {
+        const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; animations: Record<string, string>; preview: string; previewTriangles: number };
+        const rel = (f: string) => f.slice(P.length + 1);
+        const anims = Object.entries(r.animations);
+        return {
+          text: [
+            `exported ${rel(r.model)} (${r.previewTriangles} triangles)`,
+            ...anims.map(([n, f]) => `  animation ${n}: ${rel(f)}`),
+            `next: model {action:"preview", id:"${id}"} to see it in Studio, then model {action:"import", id:"${id}"}`,
+          ].join('\n'),
+          summary: 'exported',
+        };
+      }
+      const exported = join(dir, 'export', 'model.fbx');
+      if (!existsSync(exported)) return { text: `export first: model {action:"export", id:"${id}"}`, isError: true, summary: 'not exported' };
+      if (a.action === 'preview') {
+        const prev = JSON.parse(readFileSync(join(dir, 'export', 'preview.json'), 'utf8')) as { triangles: { v: number[][]; c: string }[] };
+        const at = ((a.at as number[] | undefined) ?? [0, 0, 20]) as [number, number, number];
+        const r = await runLuau(ctx.session, previewLuau(id, prev, at), 'edit', { chunkName: 'modelPreview', timeoutMs: 60_000 });
+        if (!r.ok) return { text: `preview failed: ${r.error?.message}`, isError: true, summary: 'failed' };
+        const v = r.values[0] as { name: string; size: number[] };
+        return { text: `preview ${v.name} (${v.size.map((x) => x.toFixed(1)).join(' × ')} studs) — a local EditableMesh, not uploaded; it disappears when Studio closes. screenshot to judge it in the place.`, summary: 'preview' };
+      }
+      if (a.action === 'import') {
+        const m = loadManifest(P);
+        const file = exported.slice(P.length + 1);
+        const check = existsSync(join(dir, 'check.json')) ? (JSON.parse(readFileSync(join(dir, 'check.json'), 'utf8')) as ModelStats) : null;
+        const existing = m.assets.find((x) => x.id === id);
+        if (existing) {
+          existing.ref = { ...existing.ref, file };
+          if (check) existing.budget = { ...existing.budget, tris: check.triangles };
+          if (existing.status === 'approved') existing.status = 'candidate'; // new content needs a new sign-off
+          saveManifest(P, m);
+        } else {
+          const r = addAsset(P, {
+            id, kind: 'model', source: 'generated', licence: 'owned', ref: { file },
+            provenance: { tool: 'blender (blox model)', ...(brief?.prompt ? { prompt: brief.prompt } : {}), createdAt: new Date().toISOString() },
+            ...(check ? { budget: { tris: check.triangles } } : {}),
+          });
+          if (!r.ok) return { text: `not recorded:\n  ${r.errors.join('\n  ')}`, isError: true, summary: 'invalid' };
+        }
+        const anims = readdirSync(join(dir, 'export')).filter((f) => /^anim_.+\.fbx$/.test(f));
+        return {
+          text: [
+            `recorded ${id} → ${file} (candidate). A human approves it: blox asset approve ${id}; then asset {action:"upload", id:"${id}", confirm:true} (needs ROBLOX_OPEN_CLOUD_KEY) and insert it.`,
+            'Without an Open Cloud key: Studio → Home → Import 3D → the FBX above.',
+            ...(anims.length
+              ? [`Animations (${anims.join(', ')}): Open Cloud only takes .rbxm animations, so import each FBX in Studio's Animation Editor (… → Import → From FBX Animation) on the imported rig, then publish it.`]
+              : []),
+          ].join('\n'),
+          summary: 'recorded',
+        };
+      }
+      return { text: `unknown action ${a.action}`, isError: true, summary: 'bad action' };
     },
   },
   {

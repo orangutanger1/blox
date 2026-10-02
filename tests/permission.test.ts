@@ -147,6 +147,11 @@ describe('blox bridge gating', () => {
     expect(isGatedCall('mcp__blox__playtest', {})).toBeNull();
     expect(isGatedCall('mcp__Roblox_Studio__start_stop_play', {})).toBe('mcp__Roblox_Studio__start_stop_play');
   });
+  it('gates model run (agent-written Python in Blender) but not its read-only actions', () => {
+    expect(isGatedCall('mcp__blox__model', { action: 'run', id: 'x', code: 'reset()' })).toBe('model run');
+    expect(isGatedCall('mcp__blox__model', { action: 'check', id: 'x' })).toBeNull();
+    expect(nonGatedAllowedTools(['mcp__blox__model', 'mcp__blox__sync'])).toEqual(['mcp__blox__sync']);
+  });
   it('keeps studio_tool out of auto-approved tools in ask mode', () => {
     expect(nonGatedAllowedTools(['mcp__blox__status', 'mcp__blox__studio_tool'])).toEqual(['mcp__blox__status']);
   });
