@@ -48,6 +48,9 @@ mp.client(player, "invoke", "ReplicatedStorage.Remotes.X", ...) to act as each c
 Prefer code-built geometry. Record every other asset: asset {action:"sanitize", path, id}
 after inserting a Creator Store model (strips scripts, flags backdoors), asset {action:"add"}
 for generated/external ones, asset {action:"lint"}. Approval and uploads are human steps.
+Custom models (creatures, props, rigged pets): model {action:"brief"} → run (Blender Python with
+voxels/box/rig/bind_rigid/animate) → check (open the views, compare with references) → export →
+preview (EditableMesh in Studio) → import.
 
 ## Release and live-ops
 release {action:"check"} lists every gate. Publishing, live config and monetization are human

@@ -35,7 +35,7 @@ export function isGated(toolName: string): boolean {
 export function nonGatedAllowedTools(tools: string[]): string[] {
   // studio_tool is a passthrough that can reach gated asset tools, so it must
   // route through canUseTool, which inspects the inner name.
-  return tools.filter((t) => !isGated(t) && !t.endsWith('__studio_tool'));
+  return tools.filter((t) => !isGated(t) && !t.endsWith('__studio_tool') && !t.endsWith('__model'));
 }
 
 // Gate decision for a concrete call: blox's studio_tool is gated by the raw
@@ -46,6 +46,8 @@ export function isGatedCall(toolName: string, input: Record<string, unknown> | u
     const inner = typeof input?.name === 'string' ? input.name : '';
     return inner && isGated(inner) ? inner : null;
   }
+  // blox's model tool runs agent-written Python in Blender with full host access.
+  if (toolName.endsWith('__model')) return input?.action === 'run' ? 'model run' : null;
   return isGated(toolName) ? toolName : null;
 }
 

@@ -23,7 +23,7 @@ describe('blox mcp (stdio)', () => {
       expect(client.getInstructions()).toContain('# Building Roblox games with blox');
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name).sort()).toEqual(
-        ['asset', 'design', 'explore', 'kit', 'liveops', 'logs', 'metrics', 'multiplayer', 'play', 'playtest', 'present', 'release', 'run_luau', 'run_tests', 'scaffold', 'screenshot', 'status', 'studio_tool', 'sync', 'task', 'ui'],
+        ['asset', 'design', 'explore', 'kit', 'liveops', 'logs', 'metrics', 'model', 'multiplayer', 'play', 'playtest', 'present', 'release', 'run_luau', 'run_tests', 'scaffold', 'screenshot', 'status', 'studio_tool', 'sync', 'task', 'ui'],
       );
       const playtest = tools.find((t) => t.name === 'playtest')!;
       expect(Object.keys((playtest.inputSchema as { properties: object }).properties)).toContain('server_code');

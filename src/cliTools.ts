@@ -133,6 +133,33 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.timeout === 'string' ? { timeout: Number(o.timeout) } : {}),
         },
       };
+    case 'model': {
+      const action = f.rest[0] ?? 'list';
+      const id = f.rest[1];
+      const list = (k: string) => (typeof o[k] === 'string' ? (o[k] as string).split(',').map((x) => x.trim()).filter(Boolean) : undefined);
+      switch (action) {
+        case 'brief':
+          return {
+            tool: 'model',
+            args: {
+              action, id,
+              prompt: typeof o.prompt === 'string' ? o.prompt : f.rest.slice(2).join(' '),
+              ...(typeof o.style === 'string' ? { style: o.style } : {}),
+              ...(typeof o.tris === 'string' ? { tris: Number(o.tris) } : {}),
+              ...(o.rig === true ? { rig: true } : {}),
+              ...(list('anims') ? { animations: list('anims') } : {}),
+              ...(list('refs') ? { refs: list('refs') } : {}),
+            },
+          };
+        case 'run':
+          // blox model run <id> <build.py>
+          return { tool: 'model', args: { action, id, code: f.rest[2] ? readFileSync(f.rest[2], 'utf8') : '' } };
+        case 'preview':
+          return { tool: 'model', args: { action, id, ...(typeof o.at === 'string' ? { at: (o.at as string).split(',').map(Number) } : {}) } };
+        default:
+          return { tool: 'model', args: { action, ...(id ? { id } : {}) } };
+      }
+    }
     case 'asset': {
       const action = f.rest[0] ?? 'list';
       const num = (k: string) => (typeof o[k] === 'string' ? { [k]: Number(o[k]) } : {});
@@ -243,6 +270,8 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
+           blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
+           blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
            blox liveops report [--from export.json]|propose|apply <id>|push config|thumbnails [--confirm]
 Observe:   blox dashboard [--port 35780]
@@ -251,7 +280,7 @@ Agent:     blox "<prompt>"                built-in Claude runner (uses the same 
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'release', 'liveops', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'model', 'release', 'liveops', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {
