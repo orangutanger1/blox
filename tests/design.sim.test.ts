@@ -176,3 +176,19 @@ describe('simulate', () => {
     expect(() => simulate(d, { archetype: 'nope', horizonSec: 10, seed: 1 })).toThrow(/unknown archetype/);
   });
 });
+
+describe('rebirth resetting gates', () => {
+  it('lets consume-gates be bought again after a rebirth', () => {
+    const d = doc({
+      economy: {
+        resources: [{ id: 'cash' }],
+        actions: [{ id: 'click', yields: { cash: 1 }, perSec: 1 }],
+        gates: [{ id: 'vault', needs: { res: 'cash', amount: 10, consume: true } }],
+        rebirth: { needs: { res: 'cash', base: 20, growth: 1 }, mult: { target: '*', per: 1 }, resets: ['cash', 'gates'] },
+      },
+      archetypes: always,
+    });
+    const tr = simulate(d, { archetype: 'a', horizonSec: 200, seed: 1 });
+    expect(tr.events.filter((e) => e.ref === 'gate:vault').length).toBeGreaterThan(1);
+  });
+});

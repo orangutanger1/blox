@@ -1,29 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { validateDesign } from '../src/design/schema.js';
 import { runSimulation } from '../src/design/report.js';
-import { renderTunables, TUNABLES_PATH } from '../src/design/codegen.js';
 import { luneBin, luneCheck, runLuneSpecs } from './helpers/lune.js';
-
-const KIT = fileURLToPath(new URL('../kits/incremental/', import.meta.url));
-
-function kitDesign() {
-  const v = validateDesign(JSON.parse(readFileSync(join(KIT, 'design.json'), 'utf8')));
-  if (!v.ok) throw new Error(JSON.stringify(v.errors));
-  return v.doc;
-}
-
-// A project made of the kit's files plus Tunables generated from its design.
-export function kitProject(): string {
-  const d = mkdtempSync(join(tmpdir(), 'blox-kit-'));
-  cpSync(join(KIT, 'files'), d, { recursive: true });
-  mkdirSync(join(d, 'src/ReplicatedStorage/Design'), { recursive: true });
-  writeFileSync(join(d, TUNABLES_PATH), renderTunables(kitDesign()));
-  return d;
-}
+import { kitDesign, kitProject } from './helpers/kit.js';
 
 function luauFiles(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
