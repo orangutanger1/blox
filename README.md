@@ -83,7 +83,9 @@ never depend on it.
 
 `bench/` holds 7 tasks (basic creation → existing-project feature with regressions).
 Each has a seed project, a prompt, **hidden** Luau checks run by the harness through
-the same test runner, and a reference solution.
+the same test runner, and a reference solution. Agent runs cost real money, so they
+default to a 3-task **core** suite (t2-coins, t6-door, t7-shop); `--tasks all` runs
+all 7.
 
 ```bash
 blox bench --validate                       # checks must FAIL on seed, PASS on reference
@@ -93,9 +95,20 @@ blox bench --agent legacy --legacy-cli ../old-blox/dist/cli.js
 blox bench --agent custom --agent-cmd '["codex","exec","{prompt}"]'
 ```
 
+The bench measures the environment, not one vendor: any agent command works. Per run
+it records pass/fail, cost, time, turns, model and tokens (fresh input / cache read /
+cache write / output). Agents report stats by writing JSON to `$BLOX_BENCH_STATS`
+(`{turns, costUsd, model, tokens}`); stdout of the blox runner and `claude -p` is
+parsed too. If only tokens are reported, cost is derived from the pricing table when
+the model is known.
+
 Scores are reported twice: **live** (Studio exactly as the agent left it — what a
 player gets) and **synced** (after the harness pushes the agent's files). The harness
 resets the open place between tasks — **point it at a throwaway place.**
+
+Latest core-suite results (2026-10-01, one run each): legacy blox 0/3 tasks, 2/16 live
+checks, $4.27, 26 min; blox runner 3/3, 16/16, $0.75, 2.6 min; Claude Code + blox MCP
+3/3, 16/16, $0.92, 2.9 min. Details: [`bench/results/comparison.md`](bench/results/comparison.md).
 
 ## Built-in runner (optional)
 

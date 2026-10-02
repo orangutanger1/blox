@@ -59,7 +59,7 @@ src/cliTools.ts          same tools as CLI commands; `blox new`, `blox setup <ag
 src/bridge/bloxBridge.ts same tools in-process for the built-in runner
 src/dashboard/           read-only web view over .blox/
 src/bench/               agent-agnostic benchmark harness
-bench/tasks/             7 tasks: seed, prompt, hidden checks, reference solution
+bench/tasks/             7 tasks (3 core): seed, prompt, hidden checks, reference solution
 ```
 
 Key decisions:

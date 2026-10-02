@@ -302,7 +302,8 @@ export async function runBench(session: StudioSession, opts: BenchOptions): Prom
       const t0 = Date.now();
       if (opts.agent) {
         opts.agent.prepare?.(workdir);
-        const promptFile = join(workdir, '.bench-prompt.txt');
+        // Outside the workdir: agents that commit their tree would include it.
+        const promptFile = join(runsDir, `${task.id}-${attempt}.prompt.txt`);
         writeFileSync(promptFile, task.prompt);
         const argv = substitute(opts.agent.argv, { prompt: task.prompt, project: workdir, promptFile });
         // Outside the workdir so agents that commit their tree don't pick it up.
