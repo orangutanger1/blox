@@ -12,6 +12,9 @@ describe('ui probe', () => {
     expect(code).toContain('phone-landscape');
     expect(code).toContain('return HttpService:JSONEncode');
   });
+  it('skips Roblox-injected GUIs (legacy chat etc.)', () => {
+    expect(uiProbeProgram(DEVICES.slice(0, 1))).toMatch(/ENGINE_GUIS = \{ Chat = true/);
+  });
   it.skipIf(!luneBin())('generated program compiles', () => {
     const f = join(mkdtempSync(join(tmpdir(), 'blox-probe-')), 'probe.luau');
     writeFileSync(f, uiProbeProgram(DEVICES));
