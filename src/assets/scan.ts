@@ -119,5 +119,7 @@ export function untrackedFromScan(raw: unknown, m: AssetManifest): { id: string;
     if (a.ref.assetId) known.add(a.ref.assetId);
     if (a.uploaded) known.add(a.uploaded.assetId);
   }
-  return (Array.isArray(list) ? list : []).filter((x) => !known.has(x.id)).map((x) => ({ id: `rbxassetid://${x.id}`, where: x.count > 1 ? `${x.where} (+${x.count - 1} more)` : x.where }));
+  // A tracked model's own meshes/textures are covered by its entry.
+  const inside = m.assets.map((a) => a.ref.path).filter((p): p is string => !!p).map((p) => p + '.');
+  return (Array.isArray(list) ? list : []).filter((x) => !known.has(x.id) && !inside.some((p) => x.where.startsWith(p))).map((x) => ({ id: `rbxassetid://${x.id}`, where: x.count > 1 ? `${x.where} (+${x.count - 1} more)` : x.where }));
 }

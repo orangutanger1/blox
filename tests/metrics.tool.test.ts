@@ -22,6 +22,8 @@ function ctx(dump: unknown | null, seen: string[] = []): ToolCtx {
       if (code.includes('LocalPlayer')) return env([true]);
       return env([]);
     },
+    // The bot runs as an injected server Script created via multi_edit.
+    tools: { multi_edit: (a) => { seen.push(String((a.edits as { new_string: string }[])[0].new_string)); return 'Created'; } },
   });
   return {
     session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }),

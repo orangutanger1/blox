@@ -62,3 +62,23 @@ describe('renderShots', () => {
     expect(luneCheck([join(d, 'rig.luau'), join(d, 'clean.luau')])).toEqual([]);
   });
 });
+
+describe('rigProgram (live Studio findings, Oct 2026)', () => {
+  const shot = { id: 's', kind: 'thumbnail', theme: 'action', camera: { position: [0, 5, 0], lookAt: [0, 3, -10] }, subject: { at: [0, 3, -10], pose: 'cheer' }, overlay: { text: 'GO', color: '#FFD23F' } } as unknown as Parameters<typeof rigProgram>[0];
+  const code = rigProgram(shot);
+  it('poses AnimationConstraint joints (current R15) as well as Motor6Ds', () => {
+    expect(code).toContain('IsA("AnimationConstraint")');
+    expect(code).toContain('IsA("Motor6D")');
+  });
+  it('gives the default avatar real body colors', () => {
+    expect(code).toMatch(/hd\.HeadColor/);
+  });
+  it('strips scripts from the rig (the MCP thread may not parent them)', () => {
+    expect(code).toContain('IsA("LuaSourceContainer") then d:Destroy()');
+  });
+  it('draws the overlay as a non-AlwaysOnTop SurfaceGui (captures skip BillboardGuis and AlwaysOnTop)', () => {
+    expect(code).toContain('Instance.new("SurfaceGui")');
+    expect(code).not.toContain('Instance.new("BillboardGui")');
+    expect(code).not.toContain('AlwaysOnTop = true');
+  });
+});

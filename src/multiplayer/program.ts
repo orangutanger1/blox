@@ -81,8 +81,30 @@ local ok, err = pcall(function()
 		error(string.format("only %d/%d clients joined with a character and the blox agent", #ready, cfg.clients), 0)
 	end
 	local mp = { players = ready }
+	-- InvokeClient has no timeout; a client that stops answering would only
+	-- surface as a vague test timeout, so bound every call.
 	function mp.client(player, op, ...)
-		return rf:InvokeClient(player, op, ...)
+		local args = table.pack(...)
+		local done, res = false, nil
+		task.spawn(function()
+			res = table.pack(pcall(function() return rf:InvokeClient(player, op, table.unpack(args, 1, args.n)) end))
+			done = true
+		end)
+		local t = os.clock() + 10
+		while not done and os.clock() < t do task.wait(0.03) end
+		if not done then error(string.format("client %s did not answer %q within 10s", player.Name, tostring(op)), 2) end
+		if not res[1] then error(res[2], 2) end
+		return table.unpack(res, 2, res.n)
+	end
+	-- Prove each client agent answers before any spec runs.
+	for _, p in ready do
+		local t = os.clock() + 15
+		local okPing = false
+		while os.clock() < t and not okPing do
+			okPing = pcall(mp.client, p, "ping")
+			if not okPing then task.wait(0.5) end
+		end
+		if not okPing then error("client " .. p.Name .. " joined but its blox agent never answered a ping", 0) end
 	end
 	function mp.waitPlayers(n)
 		local t = os.clock() + 30
@@ -157,28 +179,23 @@ local sps = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScript
 local c = sps and sps:FindFirstChild("__BloxMpClient") if c then c:Destroy() end
 return true`;
 
-export function installProgram(specsSource: string, cfg: { clients: number; joinTimeout: number }): string {
+// Edit-DataModel prep: clear any previous run, create the __BloxMp folder and
+// the run config. The three scripts are created separately with Studio's
+// multi_edit (mpScripts): since Studio's Sep 2026 capability sandbox the
+// execute_luau thread may not parent scripts it creates.
+export function installProgram(cfg: { clients: number; joinTimeout: number }): string {
   return `${CLEANUP.replace(/\nreturn true$/, '')}
-local SES = game:GetService("ScriptEditorService")
-local function setSource(inst, src)
-	local ok = pcall(function() SES:UpdateSourceAsync(inst, function() return src end) end)
-	if not ok or inst.Source ~= src then inst.Source = src end
-end
 local folder = Instance.new("Folder")
 folder.Name = "__BloxMp"
 folder.Parent = SS
-local specs = Instance.new("ModuleScript")
-specs.Name = "Specs"
-specs.Parent = folder
-setSource(specs, ${longString(specsSource)})
-local harness = Instance.new("Script")
-harness.Name = "__BloxMpHarness"
-harness.Parent = game:GetService("ServerScriptService")
-setSource(harness, ${longString(HARNESS_SOURCE)})
-local client = Instance.new("LocalScript")
-client.Name = "__BloxMpClient"
-client.Parent = game:GetService("StarterPlayer"):WaitForChild("StarterPlayerScripts")
-setSource(client, ${longString(CLIENT_SOURCE)})
 SS:SetAttribute("BloxMpRun", ${longString(JSON.stringify(cfg))})
 return true`;
+}
+
+export function mpScripts(specsSource: string): { path: string[]; className: string; source: string }[] {
+  return [
+    { path: ['ServerStorage', '__BloxMp', 'Specs'], className: 'ModuleScript', source: specsSource },
+    { path: ['ServerScriptService', '__BloxMpHarness'], className: 'Script', source: HARNESS_SOURCE },
+    { path: ['StarterPlayer', 'StarterPlayerScripts', '__BloxMpClient'], className: 'LocalScript', source: CLIENT_SOURCE },
+  ];
 }

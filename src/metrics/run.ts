@@ -3,6 +3,7 @@ import { resolve, sep } from 'node:path';
 import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs } from '../studio/play.js';
+import { BOT_HOST, installScript, removeHosts } from '../testing/playHost.js';
 import type { DesignDoc } from '../design/schema.js';
 import { evaluateFtue, evaluateSoak, normalizeDump, type MetricResult, type MetricsReport } from './gamefeel.js';
 
@@ -48,7 +49,29 @@ end)
 return true`;
 }
 
-const DUMP_CODE = 'local f = game:GetService("ServerStorage"):FindFirstChild("BloxTelemetry")\nif not f then return nil end\nreturn f:Invoke("dump")';
+// Reads the dump BloxTelemetry publishes to a StringValue (the MCP thread may
+// not invoke game code since Studio's Sep 2026 capability sandbox); falls back
+// to invoking the bindable for projects with an older BloxTelemetry.
+// Script source for BloxBotHost: waits for the first player's character, then
+// runs botProgram (which spawns the bot and returns).
+export function botHostSource(program: string): string {
+  return `local Players = game:GetService("Players")
+local p = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
+if not p.Character then p.CharacterAdded:Wait() end
+local function __blox_bot()
+${program}
+end
+local ok, err = pcall(__blox_bot)
+if not ok then warn("[blox bot] " .. tostring(err)) end
+`;
+}
+
+const DUMP_CODE = `local SS = game:GetService("ServerStorage")
+local v = SS:FindFirstChild("BloxTelemetryDump")
+if v and v.Value ~= "" then return v.Value end
+local f = SS:FindFirstChild("BloxTelemetry")
+if not f then return nil end
+return f:Invoke("dump")`;
 
 export interface MetricsRunOptions {
   mode: 'ftue' | 'soak';
@@ -67,14 +90,18 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const program = botProgram(projectPath, o.bot, o.seconds); // validate before starting a playtest
   const notes: string[] = [];
-  const info = await startPlay(session);
+  // The bot runs as an injected server Script so it can require game modules
+  // (the MCP thread cannot, since Studio's Sep 2026 capability sandbox), which
+  // means it must exist before Play starts.
+  const st = await session.state();
+  if (st.mode !== 'Edit') await stopPlay(session);
+  await removeHosts(session);
+  if (o.bot !== 'idle') await installScript(session, BOT_HOST, botHostSource(program), 'metrics bot');
+  let info: Awaited<ReturnType<typeof startPlay>> | null = null;
   let raw: unknown = null;
   let errors = 0;
   try {
-    if (o.bot !== 'idle') {
-      const b = await runLuau(session, program, 'server', { chunkName: 'bot' });
-      if (!b.ok) notes.push(`bot did not start: ${b.error?.message}`);
-    }
+    info = await startPlay(session);
     await sleep(o.seconds * 1000);
     const d = await runLuau(session, DUMP_CODE, 'server', { chunkName: 'telemetry' });
     raw = d.ok ? d.values[0] : null;
@@ -85,7 +112,8 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
     for (const e of logs.errors.slice(0, 5)) notes.push(`runtime error [${e.context}] ${e.message}`);
     for (const w of logs.warnings) if (w.message.includes('[blox bot]')) notes.push(`bot: ${w.message}`);
   } finally {
-    if (!info.alreadyRunning) await stopPlay(session).catch(() => false);
+    await stopPlay(session).catch(() => false);
+    await removeHosts(session).catch(() => {});
   }
   if (info.players === 0) notes.push('no player joined the playtest');
   let results: MetricResult[];

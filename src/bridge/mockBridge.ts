@@ -166,6 +166,7 @@ export function createMockStudioBridge(opts: MockBridgeOptions = {}): StudioBrid
         'screen_capture',
         'generate_mesh', 'generate_material', 'generate_procedural_model', 'insert_from_creator_store',
         'wait_job_finished', 'search_creator_store',
+        'search_asset', 'insert_asset', 'generate_texture', 'segment_mesh', 'subagent',
       ].map((t) => `mcp__Roblox_Studio__${t}`),
   };
 }

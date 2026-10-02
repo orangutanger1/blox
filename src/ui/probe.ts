@@ -25,9 +25,11 @@ root.Name = "__BloxUiLint"
 root.IgnoreGuiInset = true
 root.ScreenInsets = Enum.ScreenInsets.None
 root.ResetOnSpawn = false
+-- Roblox-injected GUIs (legacy chat, mobile thumbstick, freecam) are not the game's UI.
+local ENGINE_GUIS = { Chat = true, BubbleChat = true, TouchGui = true, Freecam = true }
 local sources = {}
 for _, g in pg:GetChildren() do
-	if g:IsA("ScreenGui") and g.Enabled and g.Name ~= root.Name then
+	if g:IsA("ScreenGui") and g.Enabled and g.Name ~= root.Name and not ENGINE_GUIS[g.Name] then
 		table.insert(sources, g)
 	end
 end

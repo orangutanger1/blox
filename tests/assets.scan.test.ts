@@ -32,6 +32,12 @@ describe('gradeSanitize + untracked', () => {
     expect(untrackedFromScan(scan, m)).toEqual([{ id: 'rbxassetid://2', where: 'Workspace.B.Image (+2 more)' }]);
     expect(untrackedFromScan('{}', m)).toEqual([]);
   });
+  it('ids referenced inside a tracked model belong to that entry', () => {
+    // Live: a sanitized Creator Store crate's own MeshIds were flagged untracked.
+    const scan = JSON.stringify([{ id: 7, where: 'Workspace.Crate.Model.Boards.MeshId', count: 1 }, { id: 8, where: 'Workspace.CrateOther.MeshId', count: 1 }]);
+    const m = { version: 1 as const, assets: [{ id: 'c', kind: 'model' as const, source: 'creator-store' as const, licence: 'roblox-creator-store' as const, ref: { assetId: 5, path: 'Workspace.Crate' }, provenance: { tool: 'x', createdAt: 'y' }, status: 'candidate' as const }] };
+    expect(untrackedFromScan(scan, m)).toEqual([{ id: 'rbxassetid://8', where: 'Workspace.CrateOther.MeshId' }]);
+  });
   it.skipIf(!luneBin())('Luau programs compile', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-scan-'));
     writeFileSync(join(d, 'scan.luau'), SCAN_LUAU);

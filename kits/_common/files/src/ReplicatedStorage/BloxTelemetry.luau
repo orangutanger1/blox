@@ -4,7 +4,10 @@
 --   Telemetry.event(player, "generator:pet")  timeline entries (purchases, gates, rebirths)
 -- Steps listed in Design/Tunables.ftue are also sent to AnalyticsService as
 -- onboarding funnel steps (Creator Hub → Analytics → Funnels). blox's
--- `metrics ftue|soak` reads everything through ServerStorage.BloxTelemetry.
+-- `metrics ftue|soak` reads the JSON dump published (every PUBLISH_SEC) to
+-- ServerStorage.BloxTelemetryDump: Studio's MCP thread may read values but not
+-- invoke game code. ServerStorage.BloxTelemetry:Invoke("dump") still works for
+-- game scripts.
 local AnalyticsService = game:GetService("AnalyticsService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -14,6 +17,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Stats = game:GetService("Stats")
 
 local SAMPLE_SEC = 5
+local PUBLISH_SEC = 1
 local MAX_EVENTS = 5000
 local MAX_SAMPLES = 2000
 local SETTLE_SEC = 1 -- ignore leaderstats changes this soon after a value appears (initialisation)
@@ -160,6 +164,15 @@ function Telemetry.start()
 		while true do
 			sample()
 			task.wait(SAMPLE_SEC)
+		end
+	end)
+	local pub = ServerStorage:FindFirstChild("BloxTelemetryDump") or Instance.new("StringValue")
+	pub.Name = "BloxTelemetryDump"
+	pub.Parent = ServerStorage
+	task.spawn(function()
+		while true do
+			(pub :: StringValue).Value = HttpService:JSONEncode(Telemetry.dump())
+			task.wait(PUBLISH_SEC)
 		end
 	end)
 end
