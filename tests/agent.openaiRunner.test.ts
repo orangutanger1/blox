@@ -176,6 +176,17 @@ describe('runChatLoop', () => {
   });
 });
 
+describe('runner selection', () => {
+  it('provider,slug models default to the openai runner; an explicit runner wins', async () => {
+    const { runnerFor } = await import('../src/config.js');
+    expect(runnerFor({ model: 'claude-opus-5-5' })).toBe('claude');
+    expect(runnerFor({ model: 'openrouter,openai/gpt-6-luna' })).toBe('openai');
+    expect(runnerFor({ model: 'openrouter,openai/gpt-6-luna', runner: 'claude' })).toBe('claude');
+    expect(runnerFor({ model: 'gpt-6-luna', runner: 'openai' })).toBe('openai');
+    expect(BloxConfigSchema.parse({ projectPath: '/p' }).runner).toBeUndefined();
+  });
+});
+
 describe('--runner wiring', () => {
   it('parses --runner and passes it through the bench blox profile', () => {
     expect(parseArgs(['--runner', 'openai', 'go']).runner).toBe('openai');
