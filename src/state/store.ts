@@ -129,18 +129,21 @@ export function evaluateCriteria(task: TaskState, lastTests: TestSummaryLike | n
 // Offline checks count as synthetic test results so a criterion binds to one
 // with tests: ["design:<id>"] (design sim, .blox/sim-report.json) or
 // ["ftue:<id>"] / ["soak:<check>"] (playtest metrics, .blox/metrics-report.json) or
-// ["ui:<rule>"] (UI lint, .blox/ui-report.json).
+// ["ui:<rule>"] (UI lint, .blox/ui-report.json) or ["present:<rule>"]
+// (store-page lint, .blox/present-report.json).
 export function withSyntheticResults(projectPath: string, lt: TestSummaryLike | null): TestSummaryLike | null {
   const sim = readJson<{ ranAt: string; assertions: { id: string; ok: boolean }[] }>(projectPath, 'sim-report.json');
   const met = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'metrics-report.json');
   const ui = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'ui-report.json');
-  if (!sim && !met && !ui) return lt;
+  const pres = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'present-report.json');
+  if (!sim && !met && !ui && !pres) return lt;
   const tests = [
     ...(sim?.assertions ?? []).map((a) => ({ file: 'design', name: `design:${a.id}`, status: a.ok ? 'pass' : 'fail' })),
     ...(met?.results ?? []).map((r) => ({ file: 'metrics', name: r.id, status: r.ok ? 'pass' : 'fail' })),
     ...(ui?.results ?? []).map((r) => ({ file: 'ui', name: r.id, status: r.ok ? 'pass' : 'fail' })),
+    ...(pres?.results ?? []).map((r) => ({ file: 'present', name: r.id, status: r.ok ? 'pass' : 'fail' })),
   ];
-  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
+  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui?.ranAt ?? pres!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
 }
 
 // compact: for outputs repeated every turn (run_tests). Passing criteria shrink
