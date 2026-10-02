@@ -1,0 +1,12 @@
+{
+  "name": "steal",
+  "title": "Steal tycoon (buy pets → base earns → steal & defend → rebirth)",
+  "format": "steal-tycoon",
+  "description": "Buy pets at the market, they earn cash in your base (also offline), steal pets from other bases and carry them home, lock your base against raiders, rebirth. Server-authoritative economy that matches `design simulate`; stealing rules in StealRules.",
+  "next": [
+    "Rename/reskin: meta.title, pet ids (generators) and world/Bases.luau props; give pets real models",
+    "design {action:\"simulate\"} after every economy change, then design {action:\"codegen\"}",
+    "run_tests (kit_* specs) and multiplayer (kit_steal.mp) must stay green, then playtest: buy a pet, check it earns",
+    "Tune theft in design.json tunables: stealRange, carryMaxSec, carrySpeedMult, lockSec, lockCooldownSec"
+  ]
+}

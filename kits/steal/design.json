@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "Steal a Pet",
+    "format": "steal-tycoon",
+    "verb": "Steal",
+    "object": "pets",
+    "serverSize": 6
+  },
+  "loop": [
+    "buy a pet",
+    "base earns cash",
+    "buy rarer pets",
+    "steal from other bases",
+    "lock your base",
+    "rebirth"
+  ],
+  "ftue": [
+    {
+      "id": "first-buy",
+      "text": "Buy your first pet",
+      "targetSec": 30
+    },
+    {
+      "id": "first-rare",
+      "text": "Own a rare pet",
+      "targetSec": 180
+    }
+  ],
+  "monetization": [
+    {
+      "id": "income2x",
+      "kind": "pass",
+      "effect": "upgrade:income2x"
+    }
+  ],
+  "economy": {
+    "resources": [
+      {
+        "id": "cash",
+        "start": 30
+      }
+    ],
+    "generators": [
+      {
+        "id": "common",
+        "produces": {
+          "cash": 1
+        },
+        "cost": {
+          "res": "cash",
+          "base": 25,
+          "growth": 1.15
+        },
+        "max": 8
+      },
+      {
+        "id": "rare",
+        "produces": {
+          "cash": 6
+        },
+        "cost": {
+          "res": "cash",
+          "base": 250,
+          "growth": 1.18
+        },
+        "max": 8
+      },
+      {
+        "id": "epic",
+        "produces": {
+          "cash": 40
+        },
+        "cost": {
+          "res": "cash",
+          "base": 3500,
+          "growth": 1.2
+        },
+        "max": 6
+      },
+      {
+        "id": "legendary",
+        "produces": {
+          "cash": 300
+        },
+        "cost": {
+          "res": "cash",
+          "base": 50000,
+          "growth": 1.22
+        },
+        "max": 6
+      },
+      {
+        "id": "mythic",
+        "produces": {
+          "cash": 2000
+        },
+        "cost": {
+          "res": "cash",
+          "base": 400000,
+          "growth": 1.25
+        },
+        "max": 40
+      }
+    ],
+    "upgrades": [
+      {
+        "id": "income",
+        "cost": {
+          "res": "cash",
+          "base": 600,
+          "growth": 2
+        },
+        "effect": {
+          "target": "cash",
+          "mult": 1.25
+        },
+        "max": 8
+      },
+      {
+        "id": "income2x",
+        "cost": {
+          "res": "cash",
+          "base": 1000000000
+        },
+        "effect": {
+          "target": "cash",
+          "mult": 2
+        },
+        "max": 1
+      }
+    ],
+    "rebirth": {
+      "needs": {
+        "res": "cash",
+        "base": 600000000.0,
+        "growth": 2.5
+      },
+      "mult": {
+        "target": "*",
+        "per": 1.5
+      },
+      "resets": [
+        "cash",
+        "generators",
+        "upgrades"
+      ]
+    },
+    "offline": {
+      "fraction": 0.25,
+      "capSec": 7200
+    }
+  },
+  "tunables": {
+    "baseSlots": 68,
+    "plotRadius": 22,
+    "plotRingRadius": 110,
+    "stealRange": 30,
+    "tagRange": 6,
+    "carryMaxSec": 45,
+    "carrySpeedMult": 0.75,
+    "lockSec": 45,
+    "lockCooldownSec": 60,
+    "autosaveSec": 60,
+    "purchaseCooldownSec": 0.2
+  },
+  "archetypes": [
+    {
+      "id": "active",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi"
+    },
+    {
+      "id": "casual",
+      "session": {
+        "lengthSec": 600,
+        "perDay": 1
+      },
+      "policy": "cheapest"
+    },
+    {
+      "id": "payer",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi",
+      "owns": [
+        "income2x"
+      ]
+    },
+    {
+      "id": "bot",
+      "session": {
+        "lengthSec": 3600,
+        "perDay": 1
+      },
+      "policy": "cheapest"
+    }
+  ],
+  "assertions": [
+    {
+      "id": "first-pet",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "generator:common",
+      "op": "<=",
+      "value": 30
+    },
+    {
+      "id": "first-rare",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "generator:rare",
+      "op": "<=",
+      "value": 180
+    },
+    {
+      "id": "epic-pace",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "generator:epic",
+      "op": "between",
+      "value": [
+        300,
+        1800
+      ]
+    },
+    {
+      "id": "first-rebirth",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "rebirth:1",
+      "op": "between",
+      "value": [
+        1800,
+        7200
+      ]
+    },
+    {
+      "id": "no-stall",
+      "archetype": "active",
+      "metric": "maxIdleGap",
+      "op": "<=",
+      "value": 600
+    },
+    {
+      "id": "payer-fair",
+      "archetype": "active",
+      "vs": "payer",
+      "metric": "ratio",
+      "of": "timeTo",
+      "target": "rebirth:1",
+      "op": "<=",
+      "value": 3
+    }
+  ]
+}

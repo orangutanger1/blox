@@ -51,7 +51,7 @@ describe('generated Luau', () => {
 
 describe.skipIf(!luneBin())('plugin + kit mp spec', () => {
   it('compile under Luau', () => {
-    const files = ['plugin/src/init.server.luau', 'kits/incremental/files/tests/kit_multiplayer.mp.luau'].map((f) => join(process.cwd(), f));
+    const files = ['plugin/src/init.server.luau', 'kits/incremental/files/tests/kit_multiplayer.mp.luau', 'kits/steal/files/tests/kit_steal.mp.luau'].map((f) => join(process.cwd(), f));
     expect(luneCheck(files)).toEqual([]);
   });
 });
