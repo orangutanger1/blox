@@ -8,7 +8,7 @@ import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
 import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
-import { buildAuthEnv, authInfo, relayPreflight } from '../auth.js';
+import { buildAuthEnv, authInfo, relayPreflight, effectiveAuthMode, loadAuthStore } from '../auth.js';
 import { runOnce } from '../run.js';
 import { PolicyError } from '../policy.js';
 import { buildDigest } from '../context/digest.js';
@@ -155,6 +155,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
         sink: server,
         abortController,
         env,
+        authMode: effectiveAuthMode(loadAuthStore()),
         dockDeniedTools: () => server.gates.dockDeniedTools(),
         resultDecisions: () => server.gates.resultDecisions(),
       });

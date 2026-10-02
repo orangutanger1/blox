@@ -12,7 +12,7 @@ import { FILE_TOOLS, isFileTool, runChatLoop, runFileTool, type ChatLoopResult, 
 //
 //   node dist/bench/openaiAgent.js --project <dir> --model <id> [--max-turns N] [--budget USD] <prompt>
 //   env: OPENAI_BASE_URL (default https://openrouter.ai/api/v1), OPENAI_API_KEY or OPENROUTER_API_KEY
-//   writes { turns, costUsd?, model, tokens } to $BLOX_BENCH_STATS when set.
+//   writes { turns, costUsd?, model, tokens, billing } to $BLOX_BENCH_STATS when set.
 
 export { addUsage, FILE_TOOLS, runFileTool } from '../agent/chatLoop.js';
 
@@ -64,7 +64,7 @@ export async function main(argv: string[]): Promise<void> {
   const { tools: mcpTools } = await mcp.listTools();
   const writeStats = (r: Pick<ChatLoopResult, 'turns' | 'tokens' | 'costUsd'>) => {
     const f = process.env.BLOX_BENCH_STATS;
-    if (f) writeFileSync(f, JSON.stringify({ turns: r.turns, model, tokens: r.tokens, ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}) }));
+    if (f) writeFileSync(f, JSON.stringify({ turns: r.turns, model, tokens: r.tokens, billing: 'provider', ...(r.costUsd !== null ? { costUsd: r.costUsd } : {}) }));
   };
   let r: ChatLoopResult;
   try {

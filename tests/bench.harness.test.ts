@@ -15,6 +15,13 @@ describe('bench helpers', () => {
     expect(parseAgentStats('blox run — success\nturns: 12  cost: $0.4567\n')).toEqual({ turns: 12, costUsd: 0.4567 });
     expect(parseAgentStats('{"type":"result","total_cost_usd":1.5,"num_turns":9}')).toEqual({ costUsd: 1.5, turns: 9 });
     expect(parseAgentStats('nothing')).toEqual({});
+    const stream = [
+      '{"type":"system"}',
+      '{"type":"assistant","message":{"id":"a"}}', '{"type":"assistant","message":{"id":"a"}}', '{"type":"user"}',
+      '{"type":"assistant","message":{"id":"b"}}',
+      '{"type":"result","total_cost_usd":0.2,"num_turns":5}',
+    ].join('\n');
+    expect(parseAgentStats(stream)).toEqual({ costUsd: 0.2, turns: 2 });
   });
   it('builds agent profiles', () => {
     expect(agentSpec('blox', {}).argv).toContain('{prompt}');
@@ -32,6 +39,18 @@ describe('bench helpers', () => {
     const md = formatBenchMarkdown(r);
     expect(md).toContain('**1/2 tasks fully passing (live)** · live checks 2/3 · synced checks 2/2');
     expect(md).toContain('c: fail');
+  });
+  it('keeps subscription (API-equivalent) cost apart from billed cost', () => {
+    const run = (billing: string, costUsd: number) => ({ task: 't', level: '1', attempt: 1, agentExit: 0, timedOut: false, durationSec: 1, pass: true, workdir: '/w', notes: [], billing, costUsd });
+    const base = { label: 'x', agent: 'a', startedAt: 's', finishedAt: 'f', environment: {} };
+    expect(formatBenchMarkdown({ ...base, runs: [run('subscription', 0.5)] })).toContain('totals: cost $0.50 API-equivalent (subscription, not charged)');
+    expect(formatBenchMarkdown({ ...base, runs: [run('provider', 0.02), run('subscription', 0.5)] })).toContain('cost $0.02 + $0.50 API-equivalent');
+    expect(formatBenchMarkdown({ ...base, runs: [run('provider', 0.02)] })).toMatch(/\| \$0\.02 \| provider \|[^]*totals: cost \$0\.02 ·/);
+  });
+  it('reads billing from the stats file', () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'blox-bs-')), 's.json');
+    writeFileSync(f, JSON.stringify({ turns: 3, costUsd: 0.1, billing: 'subscription' }));
+    expect(collectAgentStats('', f)).toMatchObject({ turns: 3, billing: 'subscription' });
   });
 });
 

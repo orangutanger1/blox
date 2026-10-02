@@ -42,9 +42,11 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
       name: 'claude-code + blox MCP',
       model: modelId,
       argv: ['claude', '-p', '{prompt}', '--mcp-config', '{project}/.mcp.json', '--strict-mcp-config',
-        '--permission-mode', 'bypassPermissions', '--max-turns', turns, '--output-format', 'json', ...model],
+        '--permission-mode', 'bypassPermissions', '--max-turns', turns, '--output-format', 'stream-json', '--verbose', ...model],
       cwdIsProject: true,
       env: { BLOX_AGENT_NAME: 'claude-code' },
+      // claude -p prefers an API key in the env over its stored login.
+      billing: process.env.ANTHROPIC_API_KEY ? 'apiKey' : 'subscription',
       prepare: (wd) => { setupAgent('claude', wd); },
     };
   }

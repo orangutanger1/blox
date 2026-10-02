@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { Billing } from './report.js';
 
 export interface AuditEntry {
   ts: string;
@@ -8,6 +9,7 @@ export interface AuditEntry {
   turns: number;
   costUsd: number;
   costUnknown?: boolean;
+  billing?: Billing;
   status: 'success' | 'error';
   commit: string | null;
   prompt: string;

@@ -1,3 +1,15 @@
+// Who pays for a run, so a cost figure isn't misread. Subscription runs report
+// the API-equivalent price of their tokens (not charged; they count against
+// plan limits); the others are real charges.
+export type Billing = 'subscription' | 'apiKey' | 'relay' | 'provider';
+
+export const BILLING_NOTE: Record<Billing, string> = {
+  subscription: 'subscription (cost is API-equivalent, not charged)',
+  apiKey: 'API key (billed)',
+  relay: 'team relay (billed to the team key)',
+  provider: 'model provider (billed)',
+};
+
 export interface RunReport {
   prompt: string;
   changedFiles: string[];
@@ -5,6 +17,7 @@ export interface RunReport {
   numTurns: number;
   costUsd: number;
   costUnknown?: boolean;
+  billing?: Billing;
   model?: string;
   tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
   status: 'success' | 'error';
@@ -25,6 +38,7 @@ export function formatReport(r: RunReport): string {
     `prompt: ${r.prompt}`,
     ...(r.mode ? [`mode: ${r.mode}${r.effort ? `  effort: ${r.effort}` : ''}`] : []),
     `turns: ${r.numTurns}  cost: ${r.costUnknown ? 'unknown' : `$${r.costUsd.toFixed(4)}`}`,
+    ...(r.billing ? [`billing: ${BILLING_NOTE[r.billing]}`] : []),
     ...(r.model ? [`model: ${r.model}`] : []),
     ...(r.tokens
       ? [`tokens: input=${r.tokens.input} cache_read=${r.tokens.cacheRead} cache_write=${r.tokens.cacheWrite} output=${r.tokens.output}`]

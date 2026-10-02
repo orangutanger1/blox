@@ -11,7 +11,7 @@ import { runAgent } from './agent/runAgent.js';
 import { runOpenAiAgent } from './agent/openaiRunner.js';
 import { syncProject, realSpawn } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
-import type { RunReport } from './report.js';
+import type { Billing, RunReport } from './report.js';
 import { enforcePolicy } from './policy.js';
 import { appendAuditEntry } from './audit.js';
 import { renderCommitMessage } from './commitMessage.js';
@@ -33,6 +33,9 @@ export interface RunOnceDeps {
   // Env overrides for the agent's model call (the daemon points ANTHROPIC_BASE_URL
   // at CCR so a `provider,slug` model routes per-request). Merged over process.env.
   env?: Record<string, string>;
+  // The Anthropic credential mode the caller resolved (subscription / API key /
+  // relay) — labels the cost of Claude-runner runs. Omitted: not reported.
+  authMode?: Exclude<Billing, 'provider'>;
 }
 
 async function gitUserEmail(projectPath: string): Promise<string> {
@@ -95,7 +98,12 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   if (config.runner !== 'openai' && config.model.includes(',')) {
     agent = { ...agent, costUsd: 0, costUnknown: true };
   }
-  const cost = agent.costUnknown ? { costUsd: 0, costUnknown: true as const } : { costUsd: agent.costUsd };
+  const routedOrOpenai = config.runner === 'openai' || config.model.includes(',');
+  const billing: Billing | undefined = routedOrOpenai ? 'provider' : deps.authMode;
+  const cost = {
+    ...(agent.costUnknown ? { costUsd: 0, costUnknown: true as const } : { costUsd: agent.costUsd }),
+    ...(billing ? { billing } : {}),
+  };
 
   try {
     appendAuditEntry(config.projectPath, {

@@ -191,6 +191,11 @@ export async function runAgent(
     deniedByUser: [],
     nonGatedDenials: [],
   };
+  // Model requests, counted by distinct assistant message id: the SDK yields
+  // one assistant message per content block, and its num_turns counts about
+  // one per tool call, so neither matches the requests a run actually paid for
+  // (a request that makes 4 tool calls is one turn). Same unit as the openai runner.
+  const requestIds = new Set<string>();
   let turns = 0;
   const sink = extras.sink;
   const input = buildPromptInput(prompt, extras.image);
@@ -258,15 +263,19 @@ export async function runAgent(
     try {
       for await (const message of query({ prompt: input, options: queryOptions as never })) {
         lastActivity = Date.now();
+        let newRequest = false;
+        if (message.type === 'assistant') {
+          const id = (message as { message?: { id?: string } }).message?.id ?? `n${turns}`;
+          newRequest = !requestIds.has(id);
+          requestIds.add(id);
+          turns = requestIds.size;
+        }
         if (sink) {
           // The panel is observability, never control flow: a throwing sink must
           // not take down the run (spec §7).
           try {
             for (const e of eventsFromMessage(message)) sink.emit(e);
-            if (message.type === 'assistant') {
-              turns += 1;
-              sink.emit({ type: 'status', turns });
-            }
+            if (newRequest) sink.emit({ type: 'status', turns });
           } catch {
             // swallow — degraded panel beats a dead run
           }
@@ -276,6 +285,7 @@ export async function runAgent(
             message as unknown as ResultMessageLike,
             extras.dockDeniedTools?.() ?? [],
           );
+          if (turns > 0) result = { ...result, numTurns: turns };
         }
       }
     } catch (e) {
