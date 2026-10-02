@@ -71,7 +71,7 @@ export function briefText(b: ModelBrief): string {
     '   Separate body parts that move into their own objects so each binds to one bone.',
     `2. model {action:"run", id:"${b.id}", code} — rebuilds the .blend from your code (keep the whole build in one script; rerun after edits).`,
     `3. model {action:"check", id:"${b.id}"} — stats vs Roblox limits + front/right/back/¾ renders: open them and compare with the references; fix and rerun.`,
-    `4. model {action:"export", id:"${b.id}"} — model.fbx, anim_<name>.fbx, preview.json.`,
+    `4. model {action:"export", id:"${b.id}"} — model.glb (upload), model.fbx, anim_<name>.fbx, preview.json.`,
     `5. model {action:"preview", id:"${b.id}"} — coloured mesh in Studio (no upload) to judge scale in the real place.`,
     `6. model {action:"import", id:"${b.id}"} — records it in .blox/assets.json; a human approves (blox asset approve ${b.id}) before upload.`,
   ].join('\n');
