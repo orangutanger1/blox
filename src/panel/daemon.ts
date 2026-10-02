@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { PanelServer } from './server.js';
 import type { PanelController } from './server.js';
 import { readCcrModels, resolveModel, type CcrModels } from '../ccr.js';
-import { ensureCcr, ccrRunEnv } from '../ccrServe.js';
+import { ensureCcr, ensureCcrInstalled, ccrRunEnv } from '../ccrServe.js';
 import { buildAuthEnv, authInfo, authPreflight, effectiveAuthMode, loadAuthStore, fetchRelayUsage } from '../auth.js';
 import { runOnce } from '../run.js';
 import { PolicyError } from '../policy.js';
@@ -130,7 +130,10 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
       return;
     }
     const useCcr = ccr.provider !== null && runnerFor(runConfig) !== 'openai';
-    if (useCcr) await ensureCcr(log);
+    if (useCcr) {
+      ensureCcrInstalled(log);
+      await ensureCcr(log);
+    }
     // Direct-Anthropic runs pick the linked credential (subscription vs API key);
     // CCR/BYO-model runs keep their own endpoint + key override.
     const env = useCcr ? ccrRunEnv(true) : buildAuthEnv();
