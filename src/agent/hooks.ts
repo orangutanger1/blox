@@ -4,6 +4,9 @@ import { assetCacheKey, lookupAsset, recordAsset } from './assetCache.js';
 
 export const EXECUTE_LUAU_TOOL = 'mcp__Roblox_Studio__execute_luau';
 export const GEN_MESH_TOOL = 'mcp__Roblox_Studio__generate_mesh';
+// Since the Sep 2026 Studio build procedural models finish synchronously and
+// return {generationName, generationId, tag:"PrimitiveGen_<id>"} (no job).
+export const GEN_PROC_TOOL = 'mcp__Roblox_Studio__generate_procedural_model';
 export const WAIT_JOB_TOOL = 'mcp__Roblox_Studio__wait_job_finished';
 export const BLOX_STUDIO_TOOL = 'mcp__blox__studio_tool';
 
@@ -98,7 +101,7 @@ export function buildAssetResultHook(gate?: ResultGateChannel): HookCallback {
   return async (rawInput: HookInput): Promise<HookJSONOutput> => {
     const input = unwrapStudioTool(rawInput);
     if (input.hook_event_name !== 'PostToolUse') return { continue: true };
-    if (input.tool_name !== GEN_MESH_TOOL && input.tool_name !== WAIT_JOB_TOOL) return { continue: true };
+    if (input.tool_name !== GEN_MESH_TOOL && input.tool_name !== GEN_PROC_TOOL && input.tool_name !== WAIT_JOB_TOOL) return { continue: true };
     if (!gate?.isConnected()) return { continue: true };
     if (input.tool_name === WAIT_JOB_TOOL && jobLandedNothing(input.tool_response)) return { continue: true };
 
