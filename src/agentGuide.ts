@@ -43,6 +43,11 @@ specs, design.json) to reskin and tune instead of writing systems from scratch.
 Build HUDs with BloxUI (ui {action:"install"}; kits include it): scale-sized, 44px touch
 targets, safe-area aware. Then ui {action:"lint"} checks every device size; fix all errors.
 
+## Store page
+present {action:"generate"} drafts title/description/shots from design.json; adjust shot
+cameras to the real map, present {action:"render"} (16:9 viewport), present {action:"lint"}.
+Final title/art choice and uploading are for a human.
+
 ## Design first (economy games)
 design {action:"set"} a .blox/design.json (economy, archetypes, assertions such as
 "first egg <= 60s"), then design {action:"simulate"}; tune numbers until assertions

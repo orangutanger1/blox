@@ -21,6 +21,10 @@ import { runMetrics } from '../metrics/run.js';
 import { formatMetrics } from '../metrics/gamefeel.js';
 import { runUiLint } from '../ui/run.js';
 import { formatUiReport } from '../ui/lint.js';
+import { validatePresentation, type Presentation } from '../present/schema.js';
+import { defaultShots, describe as describeGame, titleCandidates } from '../present/generate.js';
+import { formatPresentLint, lintPresentation, presentResults } from '../present/lint.js';
+import { renderShots } from '../present/render.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -526,6 +530,68 @@ export const TOOLS: BloxTool[] = [
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: formatUiReport(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} rules` };
+    },
+  },
+  {
+    name: 'present',
+    description:
+      'Store-page presentation (.blox/presentation.json): get | set {doc} | generate (title candidates, description and 5 thumbnail + 1 icon shots from design.json; keeps what exists) | render {ids?} (stage a posed avatar/hero/overlay in the edit DataModel and screen_capture each shot; size the Studio viewport 16:9 first) | lint (policy: 9+, no "Roblox" in title, no links/scams, <=50/1000 chars; shots: 5 distinct themes, rendered from the real game, 16:9, no duplicates, icon readable at 64px). Choosing the final title/art and uploading are human decisions. Criteria bind via tests:["present:<rule>"].',
+    shape: {
+      action: z.enum(['get', 'set', 'generate', 'render', 'lint']),
+      doc: z.unknown().optional(),
+      ids: z.array(z.string()).optional(),
+    },
+    async handler(a, ctx) {
+      const load = (): Presentation | string => {
+        const raw = readJson<unknown>(ctx.projectPath, 'presentation.json');
+        if (raw === null) return 'no .blox/presentation.json — present {action:"generate"} drafts one from design.json';
+        const v = validatePresentation(raw);
+        return v.ok ? v.doc : `presentation.json is invalid:\n${v.errors.map((e) => `  ${e.path}: ${e.message}`).join('\n')}`;
+      };
+      if (a.action === 'set') {
+        const v = validatePresentation(a.doc);
+        if (!v.ok) return { text: `presentation not saved — ${v.errors.length} error(s):\n${v.errors.map((e) => `  ${e.path || '(root)'}: ${e.message}`).join('\n')}`, isError: true, summary: 'invalid' };
+        writeJson(ctx.projectPath, 'presentation.json', v.doc);
+        return { text: `saved .blox/presentation.json (${v.doc.shots.length} shots). Next: present {action:"render"} then {action:"lint"}.`, summary: 'saved' };
+      }
+      if (a.action === 'generate') {
+        const dv = validateDesign(readJson<unknown>(ctx.projectPath, 'design.json'));
+        if (!dv.ok) return { text: 'generate needs a valid .blox/design.json (design {action:"set"})', isError: true, summary: 'no design' };
+        const cur = load();
+        const doc: Presentation = typeof cur === 'string' ? { version: 1, title: '', description: '', shots: [] } : cur;
+        const titles = titleCandidates(dv.doc);
+        if (!doc.title) doc.title = titles[0] ?? dv.doc.meta.title;
+        if (!doc.description) doc.description = describeGame(dv.doc);
+        if (!doc.shots.length) doc.shots = defaultShots(dv.doc);
+        writeJson(ctx.projectPath, 'presentation.json', doc);
+        return {
+          text: [
+            `title candidates:`,
+            ...titles.map((t, i) => `  ${i + 1}. ${t}`),
+            `title: ${doc.title}`,
+            `description:\n${doc.description}`,
+            `shots: ${doc.shots.map((s) => `${s.id} (${s.kind}, ${s.theme})`).join(', ')}`,
+            'Adjust cameras/subjects to the real map, then present {action:"render"}. A human picks the final title and art.',
+          ].join('\n'),
+          summary: 'generated',
+        };
+      }
+      const doc = load();
+      if (typeof doc === 'string') return { text: doc, isError: true, summary: 'no presentation' };
+      if (a.action === 'get') return { text: JSON.stringify(doc, null, 2), summary: 'get' };
+      if (a.action === 'render') {
+        const r = await renderShots(ctx.session, ctx.projectPath, doc, a.ids as string[] | undefined);
+        writeJson(ctx.projectPath, 'presentation.json', doc);
+        const total = r.rendered.length + r.failed.length;
+        const lines = [`rendered ${r.rendered.length}/${total}`, ...r.rendered.map((x) => `  ${x.id} → ${x.file} (${x.avatar} avatar)`), ...r.failed.map((x) => `  FAILED ${x.id}: ${x.error}`)];
+        return { text: lines.join('\n'), isError: r.failed.length > 0, artifacts: r.rendered.map((x) => x.file), summary: `${r.rendered.length}/${total} rendered` };
+      }
+      const findings = lintPresentation(doc, ctx.projectPath);
+      const results = presentResults(findings);
+      writeJson(ctx.projectPath, 'present-report.json', { ranAt: new Date().toISOString(), findings, results });
+      refreshCriteria(ctx.projectPath);
+      const failed = results.filter((x) => !x.ok).length;
+      return { text: formatPresentLint(findings, results), isError: failed > 0, summary: `${results.length - failed}/${results.length} rules` };
     },
   },
   {
