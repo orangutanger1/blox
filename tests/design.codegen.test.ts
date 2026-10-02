@@ -15,6 +15,7 @@ function doc(): DesignDoc {
       upgrades: [{ id: 'cash2x', cost: { res: 'cash', base: 500 }, effect: { target: 'cash', mult: 2 } }],
     },
     tunables: { shieldSec: 60, 'guardian-speed': 18, debug: false },
+    ftue: [{ id: 'core-verb', text: 'x', targetSec: 5 }, { id: 'first-egg', text: 'y', targetSec: 60 }],
     archetypes: [{ id: 'a', session: { lengthSec: 900, perDay: 2 }, policy: 'roi' }],
   });
   if (!r.ok) throw new Error(JSON.stringify(r.errors));
@@ -45,6 +46,7 @@ describe('renderTunables', () => {
     expect(out).toMatch(/\["guardian-speed"\] = 18,/);
     expect(out).toMatch(/title = "Snow \\"Beast\\""/);
     expect(out).toMatch(/cash2x = table\.freeze\(\{\n\t\t\teffect = "upgrade:cash2x",\n\t\t\tkind = "pass",/);
+    expect(out).toMatch(/ftue = table\.freeze\(\{ "core-verb", "first-egg" \}\),/);
     expect(renderTunables(doc())).toBe(out);
     expect(out.split('{').length).toBe(out.split('}').length);
     expect(out.trimEnd().endsWith('})')).toBe(true);

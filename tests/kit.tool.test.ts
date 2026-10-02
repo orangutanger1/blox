@@ -28,6 +28,8 @@ describe('kits', () => {
     const r = applyKit(c.projectPath, 'incremental');
     expect(r.created).toContain('src/ReplicatedStorage/Kit/Economy.luau');
     expect(r.created).toContain('default.project.json');
+    expect(r.created).toContain('src/ReplicatedStorage/BloxTelemetry.luau');
+    expect(r.created).toContain('bots/active.luau');
     expect(r.designWritten).toBe(true);
     expect(existsSync(join(c.projectPath, '.blox/design.json'))).toBe(true);
     expect(readFileSync(join(c.projectPath, 'src/ReplicatedStorage/Design/Tunables.luau'), 'utf8')).toMatch(/^-- GENERATED/);

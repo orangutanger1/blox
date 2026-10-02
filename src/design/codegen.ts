@@ -52,6 +52,8 @@ export function renderTunables(doc: DesignDoc): string {
     economy: byId(doc.economy),
     tunables: doc.tunables,
     monetization: byId(doc.monetization),
+    // FTUE step ids in design order (BloxTelemetry numbers onboarding funnel steps by it)
+    ftue: doc.ftue.map((f) => f.id),
   };
   return `${HEADER}\nreturn ${toLuau(data, '')}\n`;
 }

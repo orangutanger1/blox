@@ -17,13 +17,18 @@
   "ftue": [
     {
       "id": "first-step",
-      "text": "Walking already gains speed",
-      "targetSec": 2
+      "text": "Moving already gains speed",
+      "targetSec": 10
     },
     {
-      "id": "first-wall",
+      "id": "open-wall1",
       "text": "Break the first wall",
       "targetSec": 60
+    },
+    {
+      "id": "first-buy",
+      "text": "Buy the first pet",
+      "targetSec": 90
     }
   ],
   "monetization": [
@@ -178,6 +183,14 @@
       "owns": [
         "speed2x"
       ]
+    },
+    {
+      "id": "bot",
+      "session": {
+        "lengthSec": 3600,
+        "perDay": 1
+      },
+      "policy": "cheapest"
     }
   ],
   "assertions": [

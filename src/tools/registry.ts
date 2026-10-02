@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BloxConfig } from '../config.js';
 import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from '../studio/session.js';
@@ -9,14 +9,16 @@ import { formatSyncResult, pushProject, syncDrift } from '../sync/push.js';
 import { formatTestRun, runTests, type TestContext, type TestRunResult } from '../testing/runner.js';
 import { captureScreenshot, formatPlaytest, playtest, type InputStep, type PlaytestResult } from '../testing/playtest.js';
 import {
-  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, withDesignResults, writeJson,
+  appendEvent, evaluateCriteria, formatTask, loadTask, readJson, saveTask, withSyntheticResults, writeJson,
   type Criterion, type TaskState, type TestSummaryLike,
 } from '../state/store.js';
 import { scaffoldProject } from '../scaffold.js';
 import { validateDesign, formatErrors } from '../design/schema.js';
 import { runSimulation, formatReport } from '../design/report.js';
 import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
-import { applyKit, formatApply, listKits } from '../kits.js';
+import { applyKit, formatApply, KITS_ROOT, listKits } from '../kits.js';
+import { runMetrics } from '../metrics/run.js';
+import { formatMetrics } from '../metrics/gamefeel.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -127,7 +129,7 @@ export const TOOLS: BloxTool[] = [
       }
       const lp = readJson<ReturnType<typeof compactPlaytest>>(ctx.projectPath, 'last-playtest.json');
       if (lp) lines.push(`last playtest (${lp.at}): ${lp.ok ? 'ok' : 'problems'}, ${lp.logs.errors.length} runtime error(s)`);
-      lines.push('', formatTask(loadTask(ctx.projectPath), withDesignResults(ctx.projectPath, lt)));
+      lines.push('', formatTask(loadTask(ctx.projectPath), withSyntheticResults(ctx.projectPath, lt)));
       return { text: lines.join('\n'), summary: 'status' };
     },
   },
@@ -167,7 +169,7 @@ export const TOOLS: BloxTool[] = [
       });
       if (!a.filter && !a.contexts) writeJson(ctx.projectPath, 'last-tests.json', compactTests(r));
       const task = loadTask(ctx.projectPath);
-      const crit = task ? `\n${formatTask(task, withDesignResults(ctx.projectPath, r), { compact: true })}` : '';
+      const crit = task ? `\n${formatTask(task, withSyntheticResults(ctx.projectPath, r), { compact: true })}` : '';
       const none = r.total === 0 && r.fileErrors.length === 0 ? '\n(no specs found — add tests/*.spec.luau)' : '';
       return { text: pre + formatTestRun(r) + none + crit, isError: !r.ok, summary: `${r.passed}/${r.total} passed` };
     },
@@ -350,7 +352,7 @@ export const TOOLS: BloxTool[] = [
       text: z.string().optional(),
     },
     async handler(a, ctx) {
-      const lt = withDesignResults(ctx.projectPath, readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json'));
+      const lt = withSyntheticResults(ctx.projectPath, readJson<{ ranAt: string; tests: { file: string; name: string; status: string }[] }>(ctx.projectPath, 'last-tests.json'));
       const now = new Date().toISOString();
       let task = loadTask(ctx.projectPath);
       if (a.action === 'set') {
@@ -424,13 +426,7 @@ export const TOOLS: BloxTool[] = [
         seed: a.seed as number | undefined,
       });
       writeJson(ctx.projectPath, 'sim-report.json', report);
-      const task = loadTask(ctx.projectPath);
-      if (task) {
-        // Same persistence the task tool does, so the dashboard sees fresh statuses.
-        const lt = withDesignResults(ctx.projectPath, readJson<TestSummaryLike>(ctx.projectPath, 'last-tests.json'));
-        task.criteria = evaluateCriteria(task, lt).map((c, i) => (task.criteria[i].tests?.length ? c : task.criteria[i]));
-        saveTask(ctx.projectPath, task);
-      }
+      refreshCriteria(ctx.projectPath);
       const failed = report.assertions.filter((x) => !x.ok).length;
       return { text: formatReport(report), isError: failed > 0, summary: `${report.assertions.length - failed}/${report.assertions.length} assertions` };
     },
@@ -451,6 +447,47 @@ export const TOOLS: BloxTool[] = [
     },
   },
   {
+    name: 'metrics',
+    description:
+      'Game-feel metrics from a real playtest (needs BloxTelemetry; kits include it). ftue {seconds?=60, bot?} → each design.json ftue step reached within targetSec + first currency <= 60s | soak {seconds?=300, bot?, archetype?, tolerance?} → no runtime errors, memory growth <= 10 MB/min, and (with archetype) purchase milestones on the simulator\'s pace | install (adds src/ReplicatedStorage/BloxTelemetry.luau). bot: "walk" (default) | "idle" | project file returning function(player, deadline) run on the server. Criteria bind via tests:["ftue:<id>"|"soak:<check>"]. Failing checks = isError.',
+    shape: {
+      action: z.enum(['ftue', 'soak', 'install']),
+      seconds: z.number().int().min(0).max(900).optional(),
+      bot: z.string().optional(),
+      archetype: z.string().optional(),
+      tolerance: z.number().min(1).optional(),
+    },
+    async handler(a, ctx) {
+      if (a.action === 'install') {
+        const rel = 'src/ReplicatedStorage/BloxTelemetry.luau';
+        const dest = join(ctx.projectPath, rel);
+        if (existsSync(dest)) return { text: `${rel} already exists`, summary: 'exists' };
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, readFileSync(join(KITS_ROOT, '_common/files', rel), 'utf8'));
+        return {
+          text: `wrote ${rel}. In a server script: local Telemetry = require(game.ReplicatedStorage.BloxTelemetry); Telemetry.start(); then Telemetry.step(player, "<ftue id>") where each design.json ftue step happens, Telemetry.event(player, "<ref>") for purchases.`,
+          artifacts: [rel],
+          summary: 'installed',
+        };
+      }
+      const raw = readJson<unknown>(ctx.projectPath, 'design.json');
+      const v = raw === null ? null : validateDesign(raw);
+      const doc = v?.ok ? v.doc : null;
+      const report = await runMetrics(ctx.session, ctx.projectPath, doc, {
+        mode: a.action as 'ftue' | 'soak',
+        seconds: (a.seconds as number | undefined) ?? (a.action === 'ftue' ? 60 : 300),
+        bot: (a.bot as string | undefined) ?? 'walk',
+        archetype: a.archetype as string | undefined,
+        tolerance: a.tolerance as number | undefined,
+      });
+      if (v && !v.ok) report.notes.push('design.json is invalid — FTUE targets and pace checks skipped');
+      writeJson(ctx.projectPath, 'metrics-report.json', report);
+      refreshCriteria(ctx.projectPath);
+      const failed = report.results.filter((x) => !x.ok).length;
+      return { text: formatMetrics(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} ${a.action}` };
+    },
+  },
+  {
     name: 'scaffold',
     description: 'Create the standard project layout (default.project.json, src/, world/, tests/, AGENTS.md); keeps existing files.',
     shape: { name: z.string().optional() },
@@ -460,6 +497,16 @@ export const TOOLS: BloxTool[] = [
     },
   },
 ];
+
+// Persist criteria statuses after offline/synthetic results change, so the
+// dashboard and task {get} see them without a separate run_tests.
+function refreshCriteria(projectPath: string): void {
+  const task = loadTask(projectPath);
+  if (!task) return;
+  const lt = withSyntheticResults(projectPath, readJson<TestSummaryLike>(projectPath, 'last-tests.json'));
+  task.criteria = evaluateCriteria(task, lt).map((c, i) => (task.criteria[i].tests?.length ? c : task.criteria[i]));
+  saveTask(projectPath, task);
+}
 
 export function argSummary(args: Record<string, unknown>): string {
   let s: string;

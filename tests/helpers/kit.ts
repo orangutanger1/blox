@@ -16,6 +16,7 @@ export function kitDesign(): DesignDoc {
 // A project made of the kit's files plus Tunables generated from its design.
 export function kitProject(): string {
   const d = mkdtempSync(join(tmpdir(), 'blox-kit-'));
+  cpSync(join(KIT_DIR, '../_common/files'), d, { recursive: true });
   cpSync(join(KIT_DIR, 'files'), d, { recursive: true });
   mkdirSync(join(d, 'src/ReplicatedStorage/Design'), { recursive: true });
   writeFileSync(join(d, TUNABLES_PATH), renderTunables(kitDesign()));
