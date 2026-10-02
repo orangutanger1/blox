@@ -3,6 +3,8 @@
 // every caller is testable without a real key; callers gate anything that
 // publishes, spends or changes live state behind explicit human confirmation.
 
+import { ENDPOINTS } from './endpoints.js';
+
 export const OPEN_CLOUD_BASE = 'https://apis.roblox.com';
 export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
@@ -81,5 +83,27 @@ export class OpenCloud {
       await sleep(o.intervalMs ?? 2000);
     }
     throw new OpenCloudError(`operation ${path} still running — check it later`);
+  }
+
+  // Place Publishing: the .rbxl becomes the live version. Human-gated by callers.
+  publishPlace(universeId: number, placeId: number, file: Buffer): Promise<{ versionNumber?: number }> {
+    return this.request('POST', ENDPOINTS.placePublish(universeId, placeId), { body: new Uint8Array(file), headers: { 'content-type': 'application/octet-stream' } });
+  }
+
+  // Analytics Query (scope universe.analytics:read). Path/body unverified — see endpoints.ts.
+  queryMetrics(universeId: number, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request('POST', ENDPOINTS.analyticsMetrics(universeId), { json: body });
+  }
+
+  // Live Configs. Path/body unverified — see endpoints.ts.
+  putConfigs(universeId: number, entries: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.request('PATCH', ENDPOINTS.configs(universeId), { json: { entries } });
+  }
+
+  // Thumbnail Personalization upload. Path/body unverified — see endpoints.ts.
+  uploadThumbnail(universeId: number, file: Buffer, fileName: string, contentType: string): Promise<Record<string, unknown>> {
+    const form = new FormData();
+    form.append('fileContent', new Blob([new Uint8Array(file)], { type: contentType }), fileName);
+    return this.request('POST', ENDPOINTS.thumbnails(universeId), { body: form });
   }
 }
