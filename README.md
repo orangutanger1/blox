@@ -105,9 +105,14 @@ instructions and tool schemas, the same surface any MCP client gets.
 The bench measures the environment, not one vendor: any agent command works. Per run
 it records pass/fail, cost, time, turns, model and tokens (fresh input / cache read /
 cache write / output). Agents report stats by writing JSON to `$BLOX_BENCH_STATS`
-(`{turns, costUsd, model, tokens}`); stdout of the blox runner and `claude -p` is
-parsed too. If only tokens are reported, cost is derived from the pricing table when
+(`{turns, costUsd, billing, model, tokens}`); stdout of the blox runner and `claude -p`
+is parsed too. If only tokens are reported, cost is derived from the pricing table when
 the model is known.
+
+`billing` says who pays. On `subscription` (a linked Claude plan), cost is the
+API-equivalent price of the tokens: nothing is charged, but the run counts against plan
+limits. `apiKey`, `relay` and `provider` costs are real charges. Reports keep the two
+totals apart. Run reports (`blox "<prompt>"`) print the same `billing:` line.
 
 Scores are reported twice: **live** (Studio exactly as the agent left it — what a
 player gets) and **synced** (after the harness pushes the agent's files). The harness
@@ -117,8 +122,10 @@ Latest core-suite results (2026-10-01, one run each): legacy blox 0/3 tasks, 2/1
 checks, $4.27, 26 min; blox runner 3/3, 16/16, $0.75, 2.6 min; Claude Code + blox MCP
 3/3, 16/16, $0.92, 2.9 min. Non-Claude models through `--agent openai`: GPT-6 Luna
 3/3, 16/16, $0.014, 4.9 min; GLM 5.3 Flash 3/3, 16/16, $0.07, 14.5 min. Later the
-same day, after turn cuts: blox runner (Opus 5.5) 3/3, 16/16, $0.68, 2.4 min, 26 turns;
-`--runner openai` with GPT-6 Luna 3/3, 16/16, $0.02, 6.6 min. Details:
+same day, after turn cuts: blox runner (Opus 5.5) 3/3, 16/16, $0.68, 2.4 min, 13 model
+requests; `--runner openai` with GPT-6 Luna 3/3, 16/16, $0.02, 6.6 min, 47 requests.
+Claude figures are API-equivalent prices on a subscription (not charged); OpenRouter
+figures are billed. Details:
 [`bench/results/comparison.md`](bench/results/comparison.md).
 
 ## Built-in runner (optional)

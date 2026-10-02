@@ -49,6 +49,7 @@ export interface TaskRun {
   timedOut: boolean;
   durationSec: number;
   costUsd?: number;
+  billing?: string;
   turns?: number;
   model?: string;
   tokens?: TokenUsage;
@@ -164,6 +165,9 @@ export interface TokenUsage {
 
 export interface AgentStats {
   costUsd?: number;
+  // Who pays: "subscription" means costUsd is the API-equivalent price of the
+  // tokens, not a charge; anything else ("apiKey", "relay", "provider") is billed.
+  billing?: string;
   turns?: number;
   model?: string;
   tokens?: TokenUsage;
@@ -172,6 +176,7 @@ export interface AgentStats {
 export interface AgentSpec {
   name: string;
   model?: string; // requested model, if the profile passes one
+  billing?: string; // default when the agent doesn't report it
   argv: string[]; // with {prompt} {project} placeholders
   env?: Record<string, string>;
   cwdIsProject?: boolean;
@@ -193,6 +198,25 @@ export function parseAgentStats(stdout: string): AgentStats {
     const mm = /^model:\s*(\S+)/m.exec(stdout);
     if (mm) out.model = mm[1];
     return out;
+  }
+  // claude -p --output-format stream-json: one JSON object per line. Turns =
+  // distinct assistant message ids (model requests); the result line's
+  // num_turns counts about one per tool call.
+  const lines = stdout.trim().split('\n');
+  if (lines.length > 1 && lines.every((l) => l.startsWith('{'))) {
+    const ids = new Set<string>();
+    let result = '';
+    for (const l of lines) {
+      try {
+        const o = JSON.parse(l) as { type?: string; message?: { id?: string } };
+        if (o.type === 'assistant' && o.message?.id) ids.add(o.message.id);
+        if (o.type === 'result') result = l;
+      } catch {
+        /* skip */
+      }
+    }
+    const out = result ? parseAgentStats(result) : {};
+    return ids.size ? { ...out, turns: ids.size } : out;
   }
   // claude -p --output-format json
   const j = /\{[^]*"total_cost_usd"[^]*\}\s*$/.exec(stdout.trim());
@@ -224,7 +248,7 @@ export function parseAgentStats(stdout: string): AgentStats {
 }
 
 // Generic contract for any agent: if it writes JSON to $BLOX_BENCH_STATS
-// ({ turns?, costUsd?, model?, tokens?: { input, cacheRead, cacheWrite, output } }),
+// ({ turns?, costUsd?, billing?, model?, tokens?: { input, cacheRead, cacheWrite, output } }),
 // that wins over stdout parsing. Missing cost is derived from tokens + model
 // via the pricing table when the model is known.
 export function collectAgentStats(stdout: string, statsFile: string | null, pricing = DEFAULT_PRICING): AgentStats {
@@ -235,6 +259,7 @@ export function collectAgentStats(stdout: string, statsFile: string | null, pric
       if (typeof f.turns === 'number') stats.turns = f.turns;
       if (typeof f.costUsd === 'number') stats.costUsd = f.costUsd;
       if (typeof f.model === 'string') stats.model = f.model;
+      if (typeof f.billing === 'string') stats.billing = f.billing;
       if (f.tokens && typeof f.tokens === 'object') {
         const t = f.tokens;
         stats.tokens = { input: t.input ?? 0, cacheRead: t.cacheRead ?? 0, cacheWrite: t.cacheWrite ?? 0, output: t.output ?? 0 };
@@ -315,6 +340,7 @@ export async function runBench(session: StudioSession, opts: BenchOptions): Prom
         run.timedOut = r.timedOut;
         const stats = collectAgentStats(r.stdout, statsFile);
         if (!stats.model && opts.agent.model) stats.model = opts.agent.model;
+        if (!stats.billing && opts.agent.billing) stats.billing = opts.agent.billing;
         Object.assign(run, stats);
       }
       run.durationSec = Math.round((Date.now() - t0) / 1000);
@@ -375,24 +401,30 @@ export function formatBenchMarkdown(r: BenchReport): string {
     '',
     `agent: \`${r.agent}\` · ${r.startedAt} → ${r.finishedAt}`,
     '',
-    '| task | level | live checks | synced checks | pass | agent exit | turns | cost | time | tokens in / cache read / cache write / out | blox calls (err) |',
-    '|---|---|---|---|---|---|---|---|---|---|---|',
+    '| task | level | live checks | synced checks | pass | agent exit | turns | cost | billing | time | tokens in / cache read / cache write / out | blox calls (err) |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
   ];
   const k = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : String(n));
   const tok = (t?: TokenUsage) => (t ? `${k(t.input)} / ${k(t.cacheRead)} / ${k(t.cacheWrite)} / ${k(t.output)}` : '-');
   for (const x of r.runs) {
-    lines.push(`| ${x.task}${x.attempt > 1 ? ` #${x.attempt}` : ''} | ${x.level} | ${x.live ? `${x.live.passed}/${x.live.total}` : 'n/a'} | ${x.synced ? `${x.synced.passed}/${x.synced.total}` : 'n/a'} | ${x.pass ? 'PASS' : 'fail'} | ${x.timedOut ? 'timeout' : x.agentExit ?? '-'} | ${x.turns ?? '-'} | ${x.costUsd !== undefined ? `$${x.costUsd.toFixed(2)}` : '-'} | ${x.durationSec}s | ${tok(x.tokens)} | ${x.bloxToolCalls !== undefined ? `${x.bloxToolCalls} (${x.bloxToolErrors})` : '-'} |`);
+    lines.push(`| ${x.task}${x.attempt > 1 ? ` #${x.attempt}` : ''} | ${x.level} | ${x.live ? `${x.live.passed}/${x.live.total}` : 'n/a'} | ${x.synced ? `${x.synced.passed}/${x.synced.total}` : 'n/a'} | ${x.pass ? 'PASS' : 'fail'} | ${x.timedOut ? 'timeout' : x.agentExit ?? '-'} | ${x.turns ?? '-'} | ${x.costUsd !== undefined ? `$${x.costUsd.toFixed(2)}` : '-'} | ${x.billing ?? '-'} | ${x.durationSec}s | ${tok(x.tokens)} | ${x.bloxToolCalls !== undefined ? `${x.bloxToolCalls} (${x.bloxToolErrors})` : '-'} |`);
   }
   const passed = r.runs.filter((x) => x.pass).length;
   const sum = (k: 'live' | 'synced') => r.runs.reduce((a, x) => [a[0] + (x[k]?.passed ?? 0), a[1] + (x[k]?.total ?? 0)], [0, 0]);
   const [lp, lt] = sum('live');
   const [sp, st] = sum('synced');
   lines.push('', `**${passed}/${r.runs.length} tasks fully passing (live)** · live checks ${lp}/${lt} · synced checks ${sp}/${st}`);
-  const cost = r.runs.reduce((a, x) => a + (x.costUsd ?? 0), 0);
+  // Subscription runs report the API-equivalent price, not a charge; keep the
+  // two apart so a total never reads as spend it wasn't.
+  const sumCost = (subscription: boolean) => r.runs.filter((x) => (x.billing === 'subscription') === subscription).reduce((a, x) => a + (x.costUsd ?? 0), 0);
+  const charged = sumCost(false);
+  const subscription = sumCost(true);
+  const subText = `$${subscription.toFixed(2)} API-equivalent (subscription, not charged)`;
+  const costText = !subscription ? `$${charged.toFixed(2)}` : charged ? `$${charged.toFixed(2)} + ${subText}` : subText;
   const secs = r.runs.reduce((a, x) => a + x.durationSec, 0);
   const turns = r.runs.reduce((a, x) => a + (x.turns ?? 0), 0);
   const models = [...new Set(r.runs.map((x) => x.model).filter(Boolean))];
-  lines.push('', `totals: cost $${cost.toFixed(2)} · time ${secs}s · turns ${turns}${models.length ? ` · model ${models.join(', ')}` : ''}`);
+  lines.push('', `totals: cost ${costText} · time ${secs}s · turns ${turns}${models.length ? ` · model ${models.join(', ')}` : ''}`);
   const fails = r.runs.filter((x) => x.live && x.live.failures.length);
   if (fails.length) {
     lines.push('', '## Live check failures');

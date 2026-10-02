@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
 import { parseArgs, type ParsedArgs } from './args.js';
 import { loadConfig, overridesFromArgs } from './config.js';
 import { buildDigest } from './context/digest.js';
@@ -31,7 +32,7 @@ import { PanelServer } from './panel/server.js';
 import { studioPluginsDir, installPanel } from './panel/install.js';
 import { startDaemon } from './panel/daemon.js';
 import {
-  runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore,
+  runClaudeAuth, readSubscriptionStatus, formatAuthStatus, loadAuthStore, effectiveAuthMode,
   setApiKey, clearApiKey, setMode, promptSecret, buildAuthEnv, authInfo,
   setRelay, clearRelay, checkRelay, relayPreflight,
 } from './auth.js';
@@ -110,7 +111,7 @@ async function main(): Promise<void> {
     }
     const env = buildAuthEnv({ override: args.authMode });
     const runTask: EvalRunner = async (task) => {
-      const report = await runOnce(config, task.prompt, { bridge, digest, env });
+      const report = await runOnce(config, task.prompt, { bridge, digest, env, authMode: effectiveAuthMode(loadAuthStore(), args.authMode) });
       return { status: report.status, numTurns: report.numTurns, costUsd: report.costUsd };
     };
     try {
@@ -441,6 +442,7 @@ async function main(): Promise<void> {
         // Direct-Anthropic one-shot: inject the linked credential (subscription
         // vs API key), honoring a per-run --auth override.
         env: routed ? ccrRunEnv(true) : buildAuthEnv({ override: args.authMode }),
+        authMode: effectiveAuthMode(loadAuthStore(), args.authMode),
         dockDeniedTools: panel ? () => panel!.gates.dockDeniedTools() : undefined,
         resultDecisions: panel ? () => panel!.gates.resultDecisions() : undefined,
       });
@@ -459,6 +461,13 @@ async function main(): Promise<void> {
       costUsd: report.costUsd,
     });
     console.log(formatReport(report));
+    // Bench stats contract (see bench/harness.ts collectAgentStats).
+    if (process.env.BLOX_BENCH_STATS) {
+      writeFileSync(process.env.BLOX_BENCH_STATS, JSON.stringify({
+        turns: report.numTurns, model: report.model, tokens: report.tokens, billing: report.billing,
+        ...(report.costUnknown ? {} : { costUsd: report.costUsd }),
+      }));
+    }
     // Leave Studio matching the committed files, whatever the agent last did.
     if (studio) {
       try {

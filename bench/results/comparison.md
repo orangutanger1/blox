@@ -5,6 +5,13 @@ throwaway Studio place. The place is reset before each task. Raw data:
 `baseline-legacy.json` (t2), `baseline-legacy-t6t7.json`, `after-blox.json`,
 `after-claude-code.json`.
 
+**Cost basis (all sections below).** Every Claude run (Opus 4.8/5.5, blox runner and
+Claude Code) used a Claude Pro subscription, not an API key. Their dollar figures are
+the API-equivalent price the SDK computes from tokens: nothing was charged, but the
+runs counted against plan limits. OpenRouter runs (GPT-6 Luna, GLM, MiMo) are real
+charges reported by the provider. Comparing at API prices is fair across models; just
+don't read the Claude column as spend. Results from now on carry a `billing` column.
+
 | agent | model | tasks passed (live) | live checks | cost | time | turns |
 |---|---|---|---|---|---|---|
 | legacy blox (ba9206e) | claude-opus-4-8 | 0/3 | 2/16 | $4.27 | 1560s | 110 |
@@ -142,8 +149,27 @@ Core suite, live checks, one run each. Raw: `runner-openai-gpt-6-luna.*`, `turns
   - The guide shows a UI flow as one playtest call and says to batch independent calls.
   The rerun verified the whole shop in one playtest: a click at 0 coins (rejected),
   then a coin pickup, then a click at 12 coins (bought). t7 went from 26 turns to 9.
-- Opus still makes one tool call per turn (reads 3 files in 3 turns) despite the
-  batching line, so that lever is unrealized for it.
+- ~~Opus still makes one tool call per turn~~: wrong, a counting artifact. See below.
+
+## Turn counts were not comparable (corrected)
+
+The Claude runner's "turns" came from the Agent SDK's `num_turns`, which counts
+about one per tool call. The openai runner counts model requests. Opus does batch:
+recounting distinct assistant message ids in the session transcripts gives the real
+number of model requests, with 1.5–2.5 tool calls each.
+
+| run | reported turns (SDK) | model requests | tool calls |
+|---|---|---|---|
+| blox runner, first round (`after-blox`) | 30 | 15 | 27 |
+| Claude Code + blox MCP (`after-claude-code`) | 26 | 18 | 23 |
+| blox runner, before turn cuts (`trim-blox-opus55`) | 44 | 28 | 41 |
+| blox runner, after turn cuts (`turns-blox-opus55`) | 26 | **13** (4 / 4 / 5) | 23 |
+| Luna `--runner openai` (already requests) | 47 | 47 | — |
+
+So Opus needs about 4 requests per core task and Luna about 16. Batching guidance
+has little left to win for Opus; its cost is per-request context, mostly cache reads.
+Both runners and the `claude-code` bench profile (now `--output-format stream-json`)
+count turns as model requests from now on.
 
 ## Bugs found on the CCR-routed path (dock smoke, Luna via the Claude runner)
 
