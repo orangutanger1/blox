@@ -66,39 +66,67 @@ local function blockRig()
 	return m
 end
 
+-- Joints are Motor6Ds (block rig, older R15) or AnimationConstraints between
+-- attachments (current R15). Both reduce to part0, part1, c0, c1 with
+-- part1.CFrame = part0.CFrame * c0 * rotation * c1:Inverse().
+local function joints(char)
+	local out = {}
+	for _, d in char:GetDescendants() do
+		if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+			table.insert(out, { name = d.Name, p0 = d.Part0, p1 = d.Part1, c0 = d.C0, c1 = d.C1 })
+		elseif d:IsA("AnimationConstraint") and d.Attachment0 and d.Attachment1 then
+			local a0, a1 = d.Attachment0, d.Attachment1
+			if a0.Parent:IsA("BasePart") and a1.Parent:IsA("BasePart") then
+				table.insert(out, { name = d.Name, p0 = a0.Parent, p1 = a1.Parent, c0 = a0.CFrame, c1 = a1.CFrame })
+			end
+		end
+	end
+	return out
+end
+
 local function pose(char, name)
 	local P = POSES[name or "idle"] or {}
-	local motors = {}
-	for _, d in char:GetDescendants() do
-		if d:IsA("Motor6D") then table.insert(motors, d) end
-	end
-	for _, m in motors do
-		local a = P[m.Name]
-		if a then m.C0 = m.C0 * CFrame.Angles(math.rad(a[1]), math.rad(a[2]), math.rad(a[3])) end
+	local js = joints(char)
+	for _, j in js do
+		local a = P[j.name]
+		if a then j.c0 = j.c0 * CFrame.Angles(math.rad(a[1]), math.rad(a[2]), math.rad(a[3])) end
 	end
 	local placed = { [char.PrimaryPart] = true }
-	for _ = 1, #motors do
-		for _, m in motors do
-			if m.Part0 and m.Part1 and placed[m.Part0] and not placed[m.Part1] then
-				m.Part1.CFrame = m.Part0.CFrame * m.C0 * m.C1:Inverse()
-				placed[m.Part1] = true
+	for _ = 1, #js do
+		for _, j in js do
+			if placed[j.p0] and not placed[j.p1] then
+				j.p1.CFrame = j.p0.CFrame * j.c0 * j.c1:Inverse()
+				placed[j.p1] = true
 			end
 		end
 	end
 	for _, d in char:GetDescendants() do
 		if d:IsA("BasePart") then d.Anchored = true end
+		-- Constraints would pull the posed parts back once physics steps.
+		if d:IsA("AnimationConstraint") or d:IsA("BallSocketConstraint") then d.Enabled = false end
 	end
 end
 
 local avatarKind = "none"
 if SHOT.subject then
 	local ok, char = pcall(function()
-		return game:GetService("Players"):CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
+		-- A fresh HumanoidDescription has every body color 0,0,0 (a black
+		-- silhouette); use the classic default avatar colors.
+		local hd = Instance.new("HumanoidDescription")
+		local skin, shirt, pants = Color3.fromRGB(245, 205, 48), Color3.fromRGB(13, 105, 172), Color3.fromRGB(40, 127, 71)
+		hd.HeadColor, hd.LeftArmColor, hd.RightArmColor = skin, skin, skin
+		hd.TorsoColor, hd.LeftLegColor, hd.RightLegColor = shirt, pants, pants
+		return game:GetService("Players"):CreateHumanoidModelFromDescription(hd, Enum.HumanoidRigType.R15)
 	end)
 	avatarKind = "r15"
 	if not ok or not char then
 		char = blockRig()
 		avatarKind = "block"
+	end
+	-- A posed still needs no scripts, and this thread may not parent a model
+	-- that contains one (Studio capability sandbox): drop Animate etc.
+	for _, d in char:GetDescendants() do
+		if d:IsA("LuaSourceContainer") then d:Destroy() end
 	end
 	char.Name = "Avatar"
 	if not char.PrimaryPart then char.PrimaryPart = char:FindFirstChild("HumanoidRootPart") end
@@ -134,20 +162,26 @@ end
 
 if SHOT.overlay then
 	local cam = CFrame.lookAt(v3(SHOT.camera.position), v3(SHOT.camera.lookAt))
-	local D = 10
+	-- screen_capture renders SurfaceGuis, but neither BillboardGuis nor
+	-- AlwaysOnTop GUIs: a camera-facing SurfaceGui 2 studs out (nearer than
+	-- any scenery) stands in for a screen overlay.
+	local D = 2
 	local anchor = Instance.new("Part")
 	anchor.Name = "OverlayAnchor"
 	anchor.Anchored = true
 	anchor.CanCollide = false
 	anchor.CanQuery = false
+	anchor.CastShadow = false
 	anchor.Transparency = 1
-	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
-	anchor.CFrame = cam * CFrame.new(0, D * 0.4, -D)
+	anchor.Size = Vector3.new(D * 2, D * 0.42, 0.01)
+	local at = (cam * CFrame.new(0, D * 0.4, -D)).Position
+	anchor.CFrame = CFrame.lookAt(at, at - cam.LookVector, cam.UpVector)
 	anchor.Parent = rig
-	local bb = Instance.new("BillboardGui")
-	bb.AlwaysOnTop = true
+	local bb = Instance.new("SurfaceGui")
+	bb.Face = Enum.NormalId.Front
 	bb.LightInfluence = 0
-	bb.Size = UDim2.new(D * 2, 0, D * 0.42, 0)
+	bb.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+	bb.CanvasSize = Vector2.new(1000, 210)
 	bb.Parent = anchor
 	local function text(name, str, y, h, color)
 		local l = Instance.new("TextLabel")
@@ -173,5 +207,24 @@ if SHOT.overlay then
 end
 
 rig.Parent = workspace
+-- Let overlay fonts load and text rasterize before the capture; without this
+-- some shots were captured with the SurfaceGui still blank.
+local labels = {}
+for _, d in rig:GetDescendants() do
+	if d:IsA("TextLabel") then table.insert(labels, d) end
+end
+if #labels > 0 then
+	pcall(function() game:GetService("ContentProvider"):PreloadAsync(labels) end)
+	local t0 = os.clock()
+	while os.clock() - t0 < 2 do
+		local ready = true
+		for _, l in labels do
+			if l.TextBounds.X <= 0 then ready = false end
+		end
+		if ready then break end
+		task.wait(0.05)
+	end
+	task.wait(0.25)
+end
 return avatarKind`;
 }
