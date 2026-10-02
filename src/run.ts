@@ -38,6 +38,10 @@ export interface RunOnceDeps {
   authMode?: Exclude<Billing, 'provider'>;
 }
 
+const FALLBACK_PREAMBLE =
+  'A previous agent ran out of usage partway through this task. Files on disk and Studio may already ' +
+  'hold part of the work: check status and the relevant files first, keep what is right, then finish.\n\nTask: ';
+
 async function gitUserEmail(projectPath: string): Promise<string> {
   try {
     const r = await realSpawn('git', ['config', 'user.email'], { cwd: projectPath });
@@ -54,18 +58,22 @@ async function gitUserEmail(projectPath: string): Promise<string> {
 export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceDeps): Promise<RunReport> {
   enforcePolicy(config); // throws PolicyError on violation, before any agent/model work
 
-  let agent;
-  if (config.runner === 'openai') {
+  const openaiRun = (cfg: BloxConfig, p: string) => {
     const ctx = deps.bridge.toolCtx;
     if (!ctx) throw new Error('--runner openai needs the blox toolset (a real Studio session, not --mock)');
-    if (deps.resume || deps.continueSession) throw new Error('--resume/--continue are Claude-runner sessions; not supported with --runner openai');
-    agent = await runOpenAiAgent(prompt, config, ctx, deps.digest, {
+    return runOpenAiAgent(p, cfg, ctx, deps.digest, {
       image: deps.image,
       verify: deps.verify,
       sink: deps.sink,
       gate: deps.gate,
       abortController: deps.abortController,
     });
+  };
+
+  let agent;
+  if (config.runner === 'openai') {
+    if (deps.resume || deps.continueSession) throw new Error('--resume/--continue are Claude-runner sessions; not supported with --runner openai');
+    agent = await openaiRun(config, prompt);
   } else {
     const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
       image: !!deps.image,
@@ -80,6 +88,32 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
       abortController: deps.abortController,
       env: deps.env,
     });
+  }
+
+  // Subscription out of usage: finish the task on the fallback model. The
+  // relay is excluded (it bills a team key, and openai runs would bypass it).
+  let fallbackFrom: RunReport['fallbackFrom'];
+  if (agent.stopReason === 'usage-limit' && config.fallbackModel && deps.authMode !== 'relay' && deps.bridge.toolCtx) {
+    const next: BloxConfig = { ...config, model: config.fallbackModel, runner: 'openai' };
+    let allowed = true;
+    try {
+      enforcePolicy(next);
+    } catch (e) {
+      allowed = false;
+      agent = { ...agent, detail: `${agent.detail}; fallback ${next.model} refused: ${(e as Error).message}` };
+    }
+    if (allowed) {
+      fallbackFrom = { model: config.model, turns: agent.numTurns, detail: agent.detail };
+      try {
+        deps.sink?.emit({ type: 'log', text: `${config.model}: ${agent.detail} — continuing on ${next.model}` });
+      } catch {
+        /* observability only */
+      }
+      config = next;
+      agent = await openaiRun(config, FALLBACK_PREAMBLE + prompt);
+    }
+  } else if (agent.stopReason === 'usage-limit' && !config.fallbackModel) {
+    agent = { ...agent, detail: `${agent.detail} (set fallbackModel in blox.config.json, or --fallback-model, to finish on another model)` };
   }
   const sync = await syncProject(config.projectPath);
 
@@ -122,6 +156,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     numTurns: agent.numTurns,
     ...cost,
     model: config.model,
+    ...(fallbackFrom ? { fallbackFrom } : {}),
     ...(agent.tokens ? { tokens: agent.tokens } : {}),
     status,
     stopReason: agent.stopReason,

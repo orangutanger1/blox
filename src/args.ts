@@ -16,6 +16,7 @@ export interface ParsedArgs {
   verify: boolean;
   model: string | null;
   runner: 'claude' | 'openai' | null;
+  fallbackModel: string | null;
   key: string | null;
   baseUrl: string | null;
   since: number | null;
@@ -43,6 +44,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let verify = false;
   let model: string | null = null;
   let runner: 'claude' | 'openai' | null = null;
+  let fallbackModel: string | null = null;
   let key: string | null = null;
   let baseUrl: string | null = null;
   let since: number | null = null;
@@ -92,6 +94,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (v !== 'claude' && v !== 'openai') throw new Error('--runner must be claude or openai');
       runner = v;
     }
+    else if (a === '--fallback-model') fallbackModel = argv[++i] ?? null;
     else if (a === '--key') key = argv[++i] ?? null;
     else if (a === '--base-url') baseUrl = argv[++i] ?? null;
     else if (a === '--since') {
@@ -140,6 +143,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     verify,
     model,
     runner,
+    fallbackModel,
     key,
     baseUrl,
     since,

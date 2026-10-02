@@ -50,7 +50,30 @@ export function buildPromptInput(
   })();
 }
 
-export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error' | 'idle-timeout';
+export type StopReason = 'completed' | 'maxTurns' | 'budget' | 'gated' | 'error' | 'idle-timeout' | 'usage-limit';
+
+// A subscription plan's usage limit, as the SDK reports it: a rejected
+// rate_limit_event, or an error message starting with one of these.
+const USAGE_LIMIT_PREFIXES = ["You've hit your", "You've reached your", "You're out of usage credits", "You're out of extra usage"];
+export function usageLimitText(message: unknown): string | null {
+  const m = message as {
+    type?: string;
+    error?: string;
+    result?: unknown;
+    rate_limit_info?: { status?: string; overageStatus?: string; isUsingOverage?: boolean };
+    message?: { content?: { type?: string; text?: string }[] };
+  };
+  if (m.type === 'rate_limit_event' && m.rate_limit_info?.status === 'rejected' && m.rate_limit_info.overageStatus !== 'allowed' && !m.rate_limit_info.isUsingOverage) {
+    return 'subscription usage limit reached';
+  }
+  const texts =
+    m.type === 'result' && typeof m.result === 'string'
+      ? [m.result]
+      : m.type === 'assistant' && m.error === 'rate_limit'
+        ? (m.message?.content ?? []).map((c) => c.text ?? '')
+        : [];
+  return texts.find((t) => USAGE_LIMIT_PREFIXES.some((p) => t.startsWith(p))) ?? null;
+}
 
 // Map an SDK result-message subtype to a coarse stop reason for the report.
 export function classifyStop(subtype: string): StopReason {
@@ -196,6 +219,7 @@ export async function runAgent(
   // one per tool call, so neither matches the requests a run actually paid for
   // (a request that makes 4 tool calls is one turn). Same unit as the openai runner.
   const requestIds = new Set<string>();
+  let usageLimit: string | null = null;
   let turns = 0;
   const sink = extras.sink;
   const input = buildPromptInput(prompt, extras.image);
@@ -263,6 +287,7 @@ export async function runAgent(
     try {
       for await (const message of query({ prompt: input, options: queryOptions as never })) {
         lastActivity = Date.now();
+        usageLimit = usageLimitText(message) ?? usageLimit;
         let newRequest = false;
         if (message.type === 'assistant') {
           const id = (message as { message?: { id?: string } }).message?.id ?? `n${turns}`;
@@ -291,10 +316,13 @@ export async function runAgent(
     } catch (e) {
       // The SDK throws after yielding an error result (e.g. "Reached maximum
       // budget"); keep that result so turns/cost reach the report, ledger and dock.
-      if (result.detail === 'no result') throw e;
+      if (result.detail === 'no result' && !usageLimit) throw e;
     }
   } finally {
     clearInterval(watchdog);
+  }
+  if (usageLimit) {
+    result = { ...result, status: 'error', stopReason: 'usage-limit', detail: usageLimit };
   }
   // An idle-abort surfaces as a thrown/empty result; tag it so the report reads
   // "idle-timeout" instead of a generic error.
