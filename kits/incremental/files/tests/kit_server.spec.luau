@@ -7,13 +7,19 @@ local ServerStorage = game:GetService("ServerStorage")
 local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"))
 
 local function player()
-	return waitFor(function() return Players:GetPlayers()[1] end, 10, "no player joined")
+	return waitFor(function()
+		return Players:GetPlayers()[1]
+	end, 10, "no player joined")
 end
 local function api()
-	return waitFor(function() return ServerStorage:FindFirstChild("KitApi") end, 10, "KitApi missing: is KitMain.server.luau running?")
+	return waitFor(function()
+		return ServerStorage:FindFirstChild("KitApi")
+	end, 10, "KitApi missing: did the server Bootstrap start KitService?")
 end
 local function state(p)
-	return waitFor(function() return api():Invoke("getState", p) end, 10, "no kit state for player")
+	return waitFor(function()
+		return api():Invoke("getState", p)
+	end, 10, "no kit state for player")
 end
 local function lowestGate()
 	local best
@@ -31,7 +37,9 @@ test("joining player gets state, leaderstats and remotes", function()
 	for res, r in Tunables.economy.resources do
 		expect(s.bal[res]).toBeGreaterThanOrEqual(0)
 	end
-	expect(waitFor(function() return p:FindFirstChild("leaderstats") end, 5, "no leaderstats")).toExist()
+	expect(waitFor(function()
+		return p:FindFirstChild("leaderstats")
+	end, 5, "no leaderstats")).toExist()
 	local remotes = ReplicatedStorage.Kit:WaitForChild("Remotes", 5)
 	expect(remotes:FindFirstChild("Purchase")).toBeA("RemoteFunction")
 	expect(remotes:FindFirstChild("Rebirth")).toBeA("RemoteFunction")
@@ -41,7 +49,9 @@ end)
 test("reaching a gate threshold opens it and unlocks what it gates", function()
 	local p = player()
 	local g = lowestGate()
-	if not g then return end
+	if not g then
+		return
+	end
 	local s = state(p)
 	expect(api():Invoke("grant", p, g.res, g.amount)).toBe(true)
 	s = waitFor(function()
@@ -60,7 +70,9 @@ end)
 
 test("rebirth spends the cost and increments the count", function()
 	local rb = Tunables.economy.rebirth
-	if not rb then return end
+	if not rb then
+		return
+	end
 	local p = player()
 	local before = state(p).owned.rebirth or 0
 	local need = rb.needs.base * (rb.needs.growth or 1) ^ before

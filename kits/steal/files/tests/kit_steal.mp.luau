@@ -8,10 +8,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"))
 
 local function api()
-	return waitFor(function() return ServerStorage:FindFirstChild("KitApi") end, 10, "KitApi missing")
+	return waitFor(function()
+		return ServerStorage:FindFirstChild("KitApi")
+	end, 10, "KitApi missing")
 end
 local function plot(p)
-	return waitFor(function() return api():Invoke("plot", p) end, 10, "no plot for " .. p.Name)
+	return waitFor(function()
+		return api():Invoke("plot", p)
+	end, 10, "no plot for " .. p.Name)
 end
 local function count(p, kind)
 	return api():Invoke("getState", p).owned["generator:" .. kind] or 0

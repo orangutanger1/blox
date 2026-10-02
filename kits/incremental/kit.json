@@ -8,5 +8,6 @@
     "design {action:\"simulate\"} after every economy change, then design {action:\"codegen\"}",
     "run_tests (kit_* specs must stay green), then playtest: walk into wall1",
     "Add your theme: pets models, wall art, sounds; keep every number in .blox/design.json"
-  ]
+  ],
+  "base": "boilerplate"
 }

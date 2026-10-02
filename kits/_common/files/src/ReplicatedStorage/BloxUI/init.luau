@@ -150,7 +150,12 @@ function BloxUI.CurrencyBar(parent: Instance, ids: { string }, opts: any?)
 		pill.BackgroundTransparency = 0.15
 		corner(pill, 999)
 		stroke(pill)
-		labels[id] = BloxUI.label(pill, "Value", id .. ": 0", { size = UDim2.fromScale(0.9, 0.8), position = UDim2.fromScale(0.05, 0.1) })
+		labels[id] = BloxUI.label(
+			pill,
+			"Value",
+			id .. ": 0",
+			{ size = UDim2.fromScale(0.9, 0.8), position = UDim2.fromScale(0.05, 0.1) }
+		)
 		pill.Parent = bar
 	end
 	bar.Parent = parent
@@ -183,7 +188,13 @@ function BloxUI.Rail(parent: Instance, items: { any }, opts: any?)
 	layout.Parent = rail
 	local buttons = {}
 	for i, it in items do
-		local b = BloxUI.Button(rail, { name = it.id, text = it.text or it.id, color = it.color or Theme.info, size = UDim2.fromScale(1, 1), round = true })
+		local b = BloxUI.Button(rail, {
+			name = it.id,
+			text = it.text or it.id,
+			color = it.color or Theme.info,
+			size = UDim2.fromScale(1, 1),
+			round = true,
+		})
 		b.LayoutOrder = i
 		buttons[it.id] = b
 	end
@@ -206,8 +217,21 @@ function BloxUI.Modal(parent: Instance, opts: any)
 	limits.MinSize = Vector2.new(280, 220)
 	limits.MaxSize = Vector2.new(760, 600)
 	limits.Parent = m
-	BloxUI.label(m, "Title", opts.title or m.Name, { size = UDim2.fromScale(0.7, 0.12), position = UDim2.fromScale(0.04, 0.02), font = Theme.fontHeavy, align = Enum.TextXAlignment.Left })
-	local close = BloxUI.Button(m, { name = "Close", text = "X", color = Theme.danger, size = UDim2.fromScale(0.12, 0.12), position = UDim2.fromScale(0.97, 0.02), anchor = Vector2.new(1, 0), round = true })
+	BloxUI.label(m, "Title", opts.title or m.Name, {
+		size = UDim2.fromScale(0.7, 0.12),
+		position = UDim2.fromScale(0.04, 0.02),
+		font = Theme.fontHeavy,
+		align = Enum.TextXAlignment.Left,
+	})
+	local close = BloxUI.Button(m, {
+		name = "Close",
+		text = "X",
+		color = Theme.danger,
+		size = UDim2.fromScale(0.12, 0.12),
+		position = UDim2.fromScale(0.97, 0.02),
+		anchor = Vector2.new(1, 0),
+		round = true,
+	})
 	local top = 0.17
 	local tabs = {}
 	if opts.tabs and #opts.tabs > 0 then
@@ -221,7 +245,12 @@ function BloxUI.Modal(parent: Instance, opts: any)
 		l.Padding = UDim.new(0.02, 0)
 		l.Parent = strip
 		for _, t in opts.tabs do
-			tabs[t] = BloxUI.Button(strip, { name = t, text = t, color = Theme.panelAlt, size = UDim2.fromScale(1 / #opts.tabs - 0.02, 1) })
+			tabs[t] = BloxUI.Button(strip, {
+				name = t,
+				text = t,
+				color = Theme.panelAlt,
+				size = UDim2.fromScale(1 / #opts.tabs - 0.02, 1),
+			})
 		end
 		strip.Parent = m
 		top = 0.31
@@ -264,8 +293,18 @@ function BloxUI.Row(list: Instance, opts: any)
 	row.BackgroundColor3 = Theme.panelAlt
 	row.LayoutOrder = opts.order or 0
 	corner(row, 10)
-	local label = BloxUI.label(row, "Label", opts.text or row.Name, { size = UDim2.fromScale(0.58, 0.7), position = UDim2.fromScale(0.03, 0.15), align = Enum.TextXAlignment.Left })
-	local button = BloxUI.Button(row, { name = "Action", text = opts.action or "Buy", size = UDim2.fromScale(0.34, 0.8), position = UDim2.fromScale(0.98, 0.5), anchor = Vector2.new(1, 0.5) })
+	local label = BloxUI.label(row, "Label", opts.text or row.Name, {
+		size = UDim2.fromScale(0.58, 0.7),
+		position = UDim2.fromScale(0.03, 0.15),
+		align = Enum.TextXAlignment.Left,
+	})
+	local button = BloxUI.Button(row, {
+		name = "Action",
+		text = opts.action or "Buy",
+		size = UDim2.fromScale(0.34, 0.8),
+		position = UDim2.fromScale(0.98, 0.5),
+		anchor = Vector2.new(1, 0.5),
+	})
 	row.Parent = list
 	return { frame = row, label = label, button = button }
 end
@@ -297,7 +336,12 @@ function BloxUI.Toast(parent: Instance)
 			t.BackgroundColor3 = Theme.panel
 			t.BackgroundTransparency = 0.1
 			corner(t, 999)
-			BloxUI.label(t, "Text", text, { size = UDim2.fromScale(0.94, 0.8), position = UDim2.fromScale(0.03, 0.1) })
+			BloxUI.label(
+				t,
+				"Text",
+				text,
+				{ size = UDim2.fromScale(0.94, 0.8), position = UDim2.fromScale(0.03, 0.1) }
+			)
 			t.Parent = stack
 			local kids = 0
 			for _, c in stack:GetChildren() do
@@ -342,9 +386,25 @@ function BloxUI.Reveal(parent: Instance)
 	local lim = Instance.new("UISizeConstraint")
 	lim.MinSize = Vector2.new(260, 200)
 	lim.Parent = card
-	local title = BloxUI.label(card, "Title", "", { size = UDim2.fromScale(0.9, 0.3), position = UDim2.fromScale(0.05, 0.12), font = Theme.fontHeavy })
-	local sub = BloxUI.label(card, "Subtitle", "", { size = UDim2.fromScale(0.9, 0.16), position = UDim2.fromScale(0.05, 0.45), color = Theme.textDim })
-	local ok = BloxUI.Button(card, { name = "Ok", text = "Nice!", size = UDim2.fromScale(0.5, 0.18), position = UDim2.fromScale(0.5, 0.92), anchor = Vector2.new(0.5, 1) })
+	local title = BloxUI.label(
+		card,
+		"Title",
+		"",
+		{ size = UDim2.fromScale(0.9, 0.3), position = UDim2.fromScale(0.05, 0.12), font = Theme.fontHeavy }
+	)
+	local sub = BloxUI.label(
+		card,
+		"Subtitle",
+		"",
+		{ size = UDim2.fromScale(0.9, 0.16), position = UDim2.fromScale(0.05, 0.45), color = Theme.textDim }
+	)
+	local ok = BloxUI.Button(card, {
+		name = "Ok",
+		text = "Nice!",
+		size = UDim2.fromScale(0.5, 0.18),
+		position = UDim2.fromScale(0.5, 0.92),
+		anchor = Vector2.new(0.5, 1),
+	})
 	card.Parent = shade
 	shade.Parent = parent
 	local api = { frame = shade, ok = ok }

@@ -161,7 +161,6 @@
     "carrySpeedMult": 0.75,
     "lockSec": 45,
     "lockCooldownSec": 60,
-    "autosaveSec": 60,
     "purchaseCooldownSec": 0.2
   },
   "archetypes": [

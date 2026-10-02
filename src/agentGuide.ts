@@ -26,7 +26,7 @@ outside folders mapped in default.project.json never reach Studio.
 ## Loop
 1. status (empty project? scaffold).
 2. task {action:"set"}: goal + acceptance criteria, each bound to the tests that prove it.
-3. Write code, world builders and tests.
+3. Write code, world builders and tests; check (stylua, luau-lsp types, rojo build) until clean.
 4. run_tests: syncs, runs every spec, returns failures with file:line + runtime errors.
 5. playtest: run the game a few seconds, probe server/client with Luau, optional input
    and screenshot; returns typed errors/warnings. A UI flow is one call: inputs
@@ -35,9 +35,14 @@ outside folders mapped in default.project.json never reach Studio.
 6. Fix and repeat until every criterion passes. Only passing tests / playtest
    observations count as proof, not a successful tool call.
 
-## Start from a format kit
+## Start from a kit, a template or a pack
 kit {action:"list"} then kit {action:"apply", name} gives a tested loop (modules, world,
-specs, design.json) to reskin and tune instead of writing systems from scratch.
+specs, design.json) to reskin and tune instead of writing systems from scratch. Kits sit on
+the boilerplate framework (Lifecycle services/controllers, Packet networking, ProfileStore
+data, safe receipts): follow FRAMEWORK.md. kit apply boilerplate = framework only.
+Before building a map or a UI from scratch, search the Creator Store for free map
+templates and UI packs (studio_tool search_asset), insert the best, sanitize it (Assets),
+then adapt it.
 
 ## Multiplayer
 Social/PvP rules (theft, trading, rounds) need real clients: tests/<name>.mp.luau

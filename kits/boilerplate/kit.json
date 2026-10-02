@@ -1,0 +1,13 @@
+{
+  "name": "boilerplate",
+  "title": "Game framework (Frazer's boilerplate): lifecycle, Packet networking, ProfileStore data, safe purchases",
+  "format": "framework",
+  "description": "Game-agnostic base every kit builds on: Init/Start/Destroy systems from a registry, typed + rate-limited Packet networking, session-locked ProfileStore player data replicated with Replica, receipt-safe developer products, tag components, EditorOnly stripping. Conventions in FRAMEWORK.md.",
+  "next": [
+    "Read FRAMEWORK.md before adding code: services own state and rules, controllers own input/UI",
+    "Set ReplicatedStorage/Config/GameConfig.luau Name; add player-data fields in ServerScriptService/Data/PlayerData.luau (Data, Template, Validate together)",
+    "Add a system: module in Services/ or Controllers/, then list it in that side's Registry.luau",
+    "check after every change (stylua, luau-lsp, rojo build), then sync + playtest: output shows 'Server services ready'"
+  ],
+  "common": false
+}

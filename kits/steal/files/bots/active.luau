@@ -11,7 +11,7 @@ return function(player: Player, deadline: number)
 	local econ = Economy.new(Tunables)
 	local api = ServerStorage:WaitForChild("KitApi", 10)
 	if not api then
-		error("bot: ServerStorage.KitApi missing (is KitMain.server.luau running?)")
+		error("bot: ServerStorage.KitApi missing (did the server Bootstrap start KitService?)")
 	end
 
 	local function cheapestAffordable(s)
@@ -47,7 +47,8 @@ return function(player: Player, deadline: number)
 			if not ref then
 				break
 			end
-			local ok = ref == "rebirth" and api:Invoke("rebirth", player) or api:Invoke("purchase", player, ref)
+			local ok = ref == "rebirth" and api:Invoke("rebirth", player)
+				or api:Invoke("purchase", player, ref)
 			if not ok then
 				break
 			end

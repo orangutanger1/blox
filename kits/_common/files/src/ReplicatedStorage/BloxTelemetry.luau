@@ -95,7 +95,12 @@ local function watchLeaderstats(player: Player)
 		local added = os.clock()
 		local last = (v :: any).Value
 		v.Changed:Connect(function(new)
-			if typeof(new) == "number" and typeof(last) == "number" and new > last and os.clock() - added > SETTLE_SEC then
+			if
+				typeof(new) == "number"
+				and typeof(last) == "number"
+				and new > last
+				and os.clock() - added > SETTLE_SEC
+			then
 				Telemetry.step(player, "auto:first-currency")
 			end
 			last = new
@@ -153,8 +158,8 @@ function Telemetry.start()
 	Players.PlayerAdded:Connect(onJoin)
 	local api = ServerStorage:FindFirstChild("BloxTelemetry") or Instance.new("BindableFunction")
 	api.Name = "BloxTelemetry"
-	api.Parent = ServerStorage
-	;(api :: BindableFunction).OnInvoke = function(op)
+	api.Parent = ServerStorage;
+	(api :: BindableFunction).OnInvoke = function(op)
 		if op == "dump" then
 			return HttpService:JSONEncode(Telemetry.dump())
 		end

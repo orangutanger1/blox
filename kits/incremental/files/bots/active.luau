@@ -11,7 +11,7 @@ return function(player: Player, deadline: number)
 	local econ = Economy.new(Tunables)
 	local api = ServerStorage:WaitForChild("KitApi", 10)
 	if not api then
-		error("bot: ServerStorage.KitApi missing (is KitMain.server.luau running?)")
+		error("bot: ServerStorage.KitApi missing (did the server Bootstrap start KitService?)")
 	end
 	local track = workspace:FindFirstChild("Track")
 	local run = track and track:FindFirstChild("Run")

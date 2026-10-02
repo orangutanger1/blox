@@ -34,7 +34,8 @@ end
 local rail = UI.Rail(gui, railItems)
 local shop = UI.Modal(gui, { name = "Shop", title = "Pets & upgrades" })
 local toasts = UI.Toast(gui)
-local status = UI.label(gui, "Status", "", { size = UDim2.fromScale(0.5, 0.06), position = UDim2.fromScale(0.25, 0.86) })
+local status =
+	UI.label(gui, "Status", "", { size = UDim2.fromScale(0.5, 0.06), position = UDim2.fromScale(0.25, 0.86) })
 
 local rows = {}
 for i, ref in econ:itemRefs() do
@@ -69,7 +70,8 @@ local function renderStatus()
 	else
 		status.Text = ""
 	end
-	rail.buttons.LockButton.Text = lock > 0 and ("Locked " .. Format.duration(lock)) or (cd > 0 and ("Lock " .. Format.duration(cd)) or "Lock")
+	rail.buttons.LockButton.Text = lock > 0 and ("Locked " .. Format.duration(lock))
+		or (cd > 0 and ("Lock " .. Format.duration(cd)) or "Lock")
 end
 
 local function render()

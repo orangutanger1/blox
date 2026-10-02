@@ -168,3 +168,77 @@ describe('pushProject script creation (Studio capability sandbox)', () => {
     expect(r.errors[0]).toMatch(/ServerScriptService\/Main: multi_edit failed: boom/);
   });
 });
+
+describe('pushProject deferral (module scripts with children)', () => {
+  const files = {
+    'default.project.json': '{}',
+    'src/ReplicatedStorage/Packet/init.luau': 'return {}',
+    'src/ReplicatedStorage/Packet/Task.luau': 'return {}',
+  };
+  const sm = {
+    name: 'game', className: 'DataModel', children: [
+      { name: 'ReplicatedStorage', className: 'ReplicatedStorage', children: [
+        { name: 'Packet', className: 'ModuleScript', filePaths: ['src/ReplicatedStorage/Packet/init.luau'], children: [
+          { name: 'Task', className: 'ModuleScript', filePaths: ['src/ReplicatedStorage/Packet/Task.luau'] },
+        ] },
+      ] },
+    ],
+  };
+  function setup() {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-push-'));
+    for (const [p, c] of Object.entries(files)) {
+      mkdirSync(join(dir, p, '..'), { recursive: true });
+      writeFileSync(join(dir, p), c);
+    }
+    return { dir, spawn: async () => ({ code: 0, stdout: JSON.stringify(sm), stderr: '' }) };
+  }
+  const ok = (o: object) => ({ content: [{ type: 'text', text: JSON.stringify({ created: [], updated: [], deleted: [], builders: [], errors: [], ...o }) }] });
+
+  it('creates the parent script, then re-applies it with its deferred children, then creates those', async () => {
+    const { dir, spawn } = setup();
+    const edits: string[] = [];
+    const rounds: string[][] = [];
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'multi_edit') {
+          edits.push(String(args.file_path));
+          return { content: [{ type: 'text', text: 'Created' }] };
+        }
+        const code = String(args.code);
+        if (!code.includes('PAYLOAD')) return { content: [{ type: 'text', text: '{}' }] };
+        const payload = JSON.parse(/local PAYLOAD = \[(=*)\[([\s\S]*?)\]\1\]/.exec(code)![2]);
+        const keys = payload.upserts.map((u: { key: string }) => u.key);
+        if (!keys.length) return ok({});
+        rounds.push(keys);
+        if (rounds.length === 1) return ok({ needCreate: [{ key: 'ReplicatedStorage/Packet', path: ['ReplicatedStorage', 'Packet'], className: 'ModuleScript' }], deferred: ['ReplicatedStorage/Packet/Task'] });
+        if (rounds.length === 2) return ok({ created: ['ReplicatedStorage/Packet'], needCreate: [{ key: 'ReplicatedStorage/Packet/Task', path: ['ReplicatedStorage', 'Packet', 'Task'], className: 'ModuleScript' }] });
+        return ok({ created: keys });
+      },
+    } as unknown as StudioSession;
+    const r = await pushProject(session, dir, { spawn });
+    expect(edits).toEqual(['game.ReplicatedStorage.Packet', 'game.ReplicatedStorage.Packet.Task']);
+    expect(rounds).toEqual([
+      ['ReplicatedStorage/Packet', 'ReplicatedStorage/Packet/Task'],
+      ['ReplicatedStorage/Packet', 'ReplicatedStorage/Packet/Task'],
+      ['ReplicatedStorage/Packet/Task'],
+    ]);
+    expect(r.ok).toBe(true);
+  });
+
+  it('children of a parent that could not be created are reported, not looped on', async () => {
+    const { dir, spawn } = setup();
+    let applies = 0;
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'multi_edit') return { isError: true, content: [{ type: 'text', text: 'boom' }] };
+        if (!String(args.code).includes('PAYLOAD')) return { content: [{ type: 'text', text: '{}' }] };
+        applies++;
+        return ok({ needCreate: applies === 1 ? [{ key: 'ReplicatedStorage/Packet', path: ['ReplicatedStorage', 'Packet'], className: 'ModuleScript' }] : [], deferred: applies === 1 ? ['ReplicatedStorage/Packet/Task'] : [] });
+      },
+    } as unknown as StudioSession;
+    const r = await pushProject(session, dir, { spawn });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/Packet\/Task: not synced, its parent script could not be created/);
+    expect(applies).toBeLessThanOrEqual(2);
+  });
+});

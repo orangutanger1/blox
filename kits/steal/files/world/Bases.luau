@@ -15,7 +15,14 @@ local RARITY_COLORS = {
 	Color3.fromRGB(60, 230, 200),
 }
 
-local function part(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?)
+local function part(
+	parent: Instance,
+	name: string,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	material: Enum.Material?
+)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Anchored = true
@@ -69,7 +76,14 @@ return function(model: Model)
 	local market = Instance.new("Model")
 	market.Name = "Market"
 	market.Parent = model
-	local floor = part(market, "Floor", Vector3.new(60, 1, 30), CFrame.new(0, 0, 0), Color3.fromRGB(90, 70, 50), Enum.Material.WoodPlanks)
+	local floor = part(
+		market,
+		"Floor",
+		Vector3.new(60, 1, 30),
+		CFrame.new(0, 0, 0),
+		Color3.fromRGB(90, 70, 50),
+		Enum.Material.WoodPlanks
+	)
 	floor:SetAttribute("MarketFloor", true)
 	local kinds = {}
 	for id, g in Tunables.economy.generators or {} do
@@ -81,7 +95,14 @@ return function(model: Model)
 	local spacing = math.min(10, 56 / math.max(1, #kinds))
 	for i, k in kinds do
 		local x = (i - (#kinds + 1) / 2) * spacing
-		local stand = part(market, "Stand_" .. k.id, Vector3.new(spacing * 0.7, 4, 4), CFrame.new(x, 2.5, -8), RARITY_COLORS[(i - 1) % #RARITY_COLORS + 1], Enum.Material.Neon)
+		local stand = part(
+			market,
+			"Stand_" .. k.id,
+			Vector3.new(spacing * 0.7, 4, 4),
+			CFrame.new(x, 2.5, -8),
+			RARITY_COLORS[(i - 1) % #RARITY_COLORS + 1],
+			Enum.Material.Neon
+		)
 		stand:SetAttribute("PetKind", k.id)
 		sign(stand, k.id)
 		prompt(stand, "Buy", k.id)
@@ -96,15 +117,42 @@ return function(model: Model)
 		plot.Name = "Plot" .. i
 		plot:SetAttribute("PlotIndex", i)
 		plot.Parent = model
-		local base = part(plot, "Floor", Vector3.new(half * 2, 1, half * 2), cf, Color3.fromRGB(60, 120, 70), Enum.Material.Grass)
+		local base = part(
+			plot,
+			"Floor",
+			Vector3.new(half * 2, 1, half * 2),
+			cf,
+			Color3.fromRGB(60, 120, 70),
+			Enum.Material.Grass
+		)
 		plot.PrimaryPart = base
-		local signPart = part(plot, "OwnerSign", Vector3.new(14, 4, 0.5), cf * CFrame.new(0, 6, -half), Color3.fromRGB(30, 30, 40))
+		local signPart = part(
+			plot,
+			"OwnerSign",
+			Vector3.new(14, 4, 0.5),
+			cf * CFrame.new(0, 6, -half),
+			Color3.fromRGB(30, 30, 40)
+		)
 		sign(signPart, "Empty plot", Enum.NormalId.Front)
 		sign(signPart, "Empty plot", Enum.NormalId.Back).Parent.Name = "SignBack"
-		local pad = part(plot, "LockPad", Vector3.new(5, 0.4, 5), cf * CFrame.new(half - 4, 0.7, -half + 4), Color3.fromRGB(80, 200, 255), Enum.Material.Neon)
+		local pad = part(
+			plot,
+			"LockPad",
+			Vector3.new(5, 0.4, 5),
+			cf * CFrame.new(half - 4, 0.7, -half + 4),
+			Color3.fromRGB(80, 200, 255),
+			Enum.Material.Neon
+		)
 		prompt(pad, "Lock base", "Base")
 		-- The shield is invisible until the owner locks the base.
-		local shield = part(plot, "Shield", Vector3.new(half * 2 + 2, 14, half * 2 + 2), cf * CFrame.new(0, 7, 0), Color3.fromRGB(80, 200, 255), Enum.Material.ForceField)
+		local shield = part(
+			plot,
+			"Shield",
+			Vector3.new(half * 2 + 2, 14, half * 2 + 2),
+			cf * CFrame.new(0, 7, 0),
+			Color3.fromRGB(80, 200, 255),
+			Enum.Material.ForceField
+		)
 		shield.Transparency = 1
 		shield.CanCollide = false
 		shield.CanQuery = false

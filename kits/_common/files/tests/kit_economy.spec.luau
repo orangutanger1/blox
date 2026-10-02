@@ -13,18 +13,40 @@ local function T(extra)
 				wall1 = { needs = { res = "speed", amount = 100, consume = false } },
 				vault = { needs = { res = "cash", amount = 50, consume = true } },
 			},
-			generators = { pet = { produces = { cash = 1 }, cost = { res = "cash", base = 10, growth = 2 }, max = 3, requires = "gate:wall1" } },
+			generators = {
+				pet = {
+					produces = { cash = 1 },
+					cost = { res = "cash", base = 10, growth = 2 },
+					max = 3,
+					requires = "gate:wall1",
+				},
+			},
 			upgrades = {
-				shoes = { cost = { res = "cash", base = 5, growth = 1 }, effect = { target = "speed", mult = 1.5 }, max = 2 },
-				x2 = { cost = { res = "cash", base = 1e9, growth = 1 }, effect = { target = "*", mult = 2 }, max = 1 },
+				shoes = {
+					cost = { res = "cash", base = 5, growth = 1 },
+					effect = { target = "speed", mult = 1.5 },
+					max = 2,
+				},
+				x2 = {
+					cost = { res = "cash", base = 1e9, growth = 1 },
+					effect = { target = "*", mult = 2 },
+					max = 1,
+				},
 			},
 			chance = {
 				egg = {
 					cost = { res = "cash", base = 1, growth = 1 },
-					outcomes = { common = { weight = 3, grants = { ["income:cash"] = 1 } }, rare = { weight = 1, grants = { ["res:cash"] = 100 } } },
+					outcomes = {
+						common = { weight = 3, grants = { ["income:cash"] = 1 } },
+						rare = { weight = 1, grants = { ["res:cash"] = 100 } },
+					},
 				},
 			},
-			rebirth = { needs = { res = "cash", base = 1000, growth = 2 }, mult = { target = "*", per = 1.5 }, resets = { "cash", "speed", "generators", "upgrades", "gates" } },
+			rebirth = {
+				needs = { res = "cash", base = 1000, growth = 2 },
+				mult = { target = "*", per = 1.5 },
+				resets = { "cash", "speed", "generators", "upgrades", "gates" },
+			},
 			offline = { fraction = 0.5, capSec = 100 },
 			drains = {},
 		},
@@ -109,10 +131,14 @@ end)
 test("chance rolls use the injected rng", function()
 	local e, s = fresh()
 	s.bal.cash = 10
-	local _, _, a = e:purchase(s, "chance:egg", function() return 0.1 end) -- ids sorted: common(3), rare(1)
+	local _, _, a = e:purchase(s, "chance:egg", function()
+		return 0.1
+	end) -- ids sorted: common(3), rare(1)
 	expect(a).toBe("common")
 	expect(s.chanceIncome.cash).toBe(1)
-	local _, _, b = e:purchase(s, "chance:egg", function() return 0.9 end)
+	local _, _, b = e:purchase(s, "chance:egg", function()
+		return 0.9
+	end)
 	expect(b).toBe("rare")
 	expect(s.bal.cash).toBe(10 - 2 + 100)
 end)
@@ -156,5 +182,11 @@ end)
 
 test("itemRefs lists purchasables cheapest first", function()
 	local e = fresh()
-	expect(e:itemRefs()).toEqual({ "chance:egg", "upgrade:shoes", "generator:pet", "gate:vault", "upgrade:x2" })
+	expect(e:itemRefs()).toEqual({
+		"chance:egg",
+		"upgrade:shoes",
+		"generator:pet",
+		"gate:vault",
+		"upgrade:x2",
+	})
 end)

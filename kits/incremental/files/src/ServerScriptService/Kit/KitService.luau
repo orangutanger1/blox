@@ -7,7 +7,6 @@
 -- ServerStorage.KitApi (BindableFunction): Invoke(op, player, ...) with op in
 -- getState | grant(res, amount) | grantPass(id) | purchase(ref) | rebirth.
 
-local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,67 +17,22 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("BloxTelemetry"))
 local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"))
 
 local TUN = Tunables.tunables or {}
-local STORE_NAME = "KitPlayerData_v1"
 local TICK_SEC = 1
 
-local KitService = {}
+local KitService = { Name = "KitService" }
 KitService.economy = Economy.new(Tunables)
 local econ = KitService.economy
 
 local states: { [Player]: any } = {}
-local canSave: { [Player]: boolean } = {}
 local lastAction: { [Player]: number } = {}
 local seenGates: { [Player]: { [string]: boolean } } = {}
-local memoryStore = {} -- used when DataStores are unavailable (Studio without API access)
-local store = nil
-
-local function dataStore()
-	if store == nil then
-		local ok, ds = pcall(function()
-			return DataStoreService:GetDataStore(STORE_NAME)
-		end)
-		store = ok and ds or false
-	end
-	return store or nil
-end
-
-local function key(player: Player): string
-	return "u" .. player.UserId
-end
-
-local function load(player: Player): (any?, boolean)
-	local ds = dataStore()
-	if not ds then
-		return memoryStore[key(player)], true
-	end
-	local ok, data = pcall(function()
-		return ds:GetAsync(key(player))
-	end)
-	if ok then
-		return data, true
-	end
-	-- Studio without API access or an outage: play from memory, never overwrite saved data.
-	warn("[Kit] data load failed for " .. player.Name .. ": " .. tostring(data) .. " — progress will not be saved this session")
-	return memoryStore[key(player)], false
-end
-
-local function save(player: Player)
-	local s = states[player]
-	if not s then
-		return
-	end
-	local data = { state = s, savedAt = os.time() }
-	memoryStore[key(player)] = HttpService:JSONDecode(HttpService:JSONEncode(data))
-	local ds = dataStore()
-	if ds and canSave[player] then
-		local ok, err = pcall(function()
-			ds:SetAsync(key(player), data)
-		end)
-		if not ok then
-			warn("[Kit] save failed for " .. player.Name .. ": " .. tostring(err))
-		end
-	end
-end
+-- Player data lives in the framework's DataService (session-locked
+-- ProfileStore): each profile's Data.Kit = { state, savedAt } holds this kit's
+-- state table itself, so ProfileStore autosaves whatever the kit changes.
+local dataService: any = nil
+local profiles: { [Player]: any } = {}
+local connections: { RBXScriptConnection | any } = {}
+local running = false
 
 local function leaderstats(player: Player)
 	local ls = player:FindFirstChild("leaderstats")
@@ -192,33 +146,39 @@ function KitService.rebirth(player: Player): (boolean, string?)
 	return ok, err
 end
 
-local function onJoin(player: Player)
-	local data, trusted = load(player)
-	canSave[player] = trusted
+local function onJoin(player: Player, profile: any)
+	local saved = profile.Kit
 	local s = econ:newState()
-	if type(data) == "table" and type(data.state) == "table" then
+	if type(saved) == "table" and type(saved.state) == "table" then
 		for _, field in { "bal", "owned", "open", "chanceIncome", "passes" } do
-			for k, v in data.state[field] or {} do
+			for k, v in saved.state[field] or {} do
 				s[field][k] = v
 			end
 		end
 		econ:applyPasses(s)
-		if type(data.savedAt) == "number" then
-			econ:offline(s, math.max(0, os.time() - data.savedAt))
+		if type(saved.savedAt) == "number" then
+			econ:offline(s, math.max(0, os.time() - saved.savedAt))
 		end
 	end
+	profile.Kit = { state = s, savedAt = os.time() }
+	profiles[player] = profile
 	states[player] = s
 	seenGates[player] = table.clone(s.open)
 	KitService.sync(player)
-	player.CharacterAdded:Connect(function()
-		task.defer(KitService.sync, player)
-	end)
+	table.insert(
+		connections,
+		player.CharacterAdded:Connect(function()
+			task.defer(KitService.sync, player)
+		end)
+	)
 end
 
-local function onLeave(player: Player)
-	save(player)
+local function onLeave(player: Player, profile: any)
+	if type(profile.Kit) == "table" then
+		profile.Kit.savedAt = os.time()
+	end
+	profiles[player] = nil
 	states[player] = nil
-	canSave[player] = nil
 	lastAction[player] = nil
 	seenGates[player] = nil
 end
@@ -249,12 +209,12 @@ local function rateLimited(player: Player): boolean
 	return false
 end
 
-local started = false
-function KitService.start()
-	if started then
-		return
-	end
-	started = true
+function KitService.Init(_self: any, services: { [string]: any })
+	dataService = services.DataService
+end
+
+function KitService.Start(_self: any)
+	running = true
 	Telemetry.start()
 	local kit = ReplicatedStorage:WaitForChild("Kit")
 	local remotes = kit:FindFirstChild("Remotes") or Instance.new("Folder")
@@ -300,22 +260,24 @@ function KitService.start()
 		error("unknown KitApi op " .. tostring(op))
 	end
 
-	Players.PlayerAdded:Connect(onJoin)
-	Players.PlayerRemoving:Connect(onLeave)
+	table.insert(connections, dataService.PlayerLoaded:Connect(onJoin))
+	table.insert(connections, dataService.PlayerReleasing:Connect(onLeave))
 	for _, p in Players:GetPlayers() do
-		task.spawn(onJoin, p)
-	end
-	game:BindToClose(function()
-		for p in states do
-			save(p)
+		local profile = dataService:GetData(p)
+		if profile and not states[p] then
+			task.spawn(onJoin, p, profile)
 		end
-	end)
+	end
 
 	task.spawn(function()
-		local sinceSave = 0
-		while true do
+		while running do
 			local dt = task.wait(TICK_SEC)
-			sinceSave += dt
+			local now = os.time()
+			for _, profile in profiles do
+				if type(profile.Kit) == "table" then
+					profile.Kit.savedAt = now
+				end
+			end
 			for player, s in states do
 				local active = isActive(player)
 				if active then
@@ -324,14 +286,16 @@ function KitService.start()
 				econ:tick(s, dt, active)
 				KitService.sync(player)
 			end
-			if sinceSave >= (TUN.autosaveSec or 60) then
-				sinceSave = 0
-				for player in states do
-					task.spawn(save, player)
-				end
-			end
 		end
 	end)
+end
+
+function KitService.Destroy(_self: any)
+	running = false
+	for _, connection in connections do
+		connection:Disconnect()
+	end
+	table.clear(connections)
 end
 
 return KitService
