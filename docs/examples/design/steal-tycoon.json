@@ -1,0 +1,355 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "Carve a Snow Beast",
+    "format": "steal-tycoon",
+    "verb": "Carve",
+    "object": "snow beast",
+    "serverSize": 6
+  },
+  "loop": [
+    "train",
+    "raid biome",
+    "escape",
+    "hatch",
+    "passive cash",
+    "upgrade",
+    "steal/defend",
+    "rebirth"
+  ],
+  "ftue": [
+    {
+      "id": "core-verb",
+      "text": "Treadmill next to spawn",
+      "targetSec": 5
+    },
+    {
+      "id": "first-egg",
+      "text": "Hatch the first egg",
+      "targetSec": 60
+    }
+  ],
+  "monetization": [
+    {
+      "id": "cash2x",
+      "kind": "pass",
+      "effect": "upgrade:cash2x"
+    },
+    {
+      "id": "luck",
+      "kind": "product",
+      "effect": "chance:egg2"
+    }
+  ],
+  "economy": {
+    "resources": [
+      {
+        "id": "cash",
+        "start": 20
+      },
+      {
+        "id": "speed",
+        "start": 16,
+        "spendable": false
+      }
+    ],
+    "actions": [
+      {
+        "id": "treadmill",
+        "yields": {
+          "speed": 0.5
+        },
+        "perSec": 1
+      },
+      {
+        "id": "carve",
+        "yields": {
+          "cash": 1
+        },
+        "perSec": 1
+      }
+    ],
+    "gates": [
+      {
+        "id": "biome2",
+        "needs": {
+          "res": "speed",
+          "amount": 250
+        }
+      },
+      {
+        "id": "biome3",
+        "needs": {
+          "res": "speed",
+          "amount": 800
+        }
+      }
+    ],
+    "generators": [
+      {
+        "id": "stand1",
+        "produces": {
+          "cash": 1
+        },
+        "cost": {
+          "res": "cash",
+          "base": 100,
+          "growth": 1.15
+        }
+      },
+      {
+        "id": "stand2",
+        "produces": {
+          "cash": 12
+        },
+        "cost": {
+          "res": "cash",
+          "base": 2500,
+          "growth": 1.15
+        },
+        "requires": "gate:biome2"
+      },
+      {
+        "id": "stand3",
+        "produces": {
+          "cash": 150
+        },
+        "cost": {
+          "res": "cash",
+          "base": 60000,
+          "growth": 1.15
+        },
+        "requires": "gate:biome3"
+      },
+      {
+        "id": "stand4",
+        "produces": {
+          "cash": 2000
+        },
+        "cost": {
+          "res": "cash",
+          "base": 1500000,
+          "growth": 1.15
+        },
+        "requires": "generator:stand3:10"
+      },
+      {
+        "id": "stand5",
+        "produces": {
+          "cash": 30000
+        },
+        "cost": {
+          "res": "cash",
+          "base": 40000000,
+          "growth": 1.15
+        },
+        "requires": "generator:stand4:10"
+      }
+    ],
+    "chance": [
+      {
+        "id": "egg1",
+        "cost": {
+          "res": "cash",
+          "base": 25,
+          "growth": 1.25
+        },
+        "max": 30,
+        "outcomes": [
+          {
+            "id": "common",
+            "weight": 80,
+            "grants": {
+              "income:cash": 0.6
+            }
+          },
+          {
+            "id": "rare",
+            "weight": 18,
+            "grants": {
+              "income:cash": 2
+            }
+          },
+          {
+            "id": "mythic",
+            "weight": 2,
+            "grants": {
+              "income:cash": 12
+            }
+          }
+        ]
+      },
+      {
+        "id": "egg2",
+        "cost": {
+          "res": "cash",
+          "base": 800,
+          "growth": 1.22
+        },
+        "max": 30,
+        "requires": "gate:biome2",
+        "outcomes": [
+          {
+            "id": "common",
+            "weight": 80,
+            "grants": {
+              "income:cash": 8
+            }
+          },
+          {
+            "id": "rare",
+            "weight": 18,
+            "grants": {
+              "income:cash": 25
+            }
+          },
+          {
+            "id": "mythic",
+            "weight": 2,
+            "grants": {
+              "income:cash": 150
+            }
+          }
+        ]
+      }
+    ],
+    "upgrades": [
+      {
+        "id": "conveyor",
+        "cost": {
+          "res": "cash",
+          "base": 150,
+          "growth": 2
+        },
+        "effect": {
+          "target": "cash",
+          "mult": 1.25
+        },
+        "max": 6
+      },
+      {
+        "id": "cash2x",
+        "cost": {
+          "res": "cash",
+          "base": 1000000000
+        },
+        "effect": {
+          "target": "cash",
+          "mult": 2
+        },
+        "max": 1
+      }
+    ],
+    "rebirth": {
+      "needs": {
+        "res": "cash",
+        "base": 80000000,
+        "growth": 3
+      },
+      "mult": {
+        "target": "*",
+        "per": 1.5
+      },
+      "resets": [
+        "cash",
+        "generators",
+        "upgrades",
+        "chance"
+      ]
+    },
+    "offline": {
+      "fraction": 0.1,
+      "capSec": 1800
+    },
+    "drains": [
+      {
+        "id": "theft",
+        "res": "cash",
+        "fractionPerHour": 0.05
+      }
+    ]
+  },
+  "tunables": {
+    "shieldSec": 60,
+    "guardianSpeed": 18,
+    "baseSlots": 10
+  },
+  "archetypes": [
+    {
+      "id": "active",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi"
+    },
+    {
+      "id": "casual",
+      "session": {
+        "lengthSec": 600,
+        "perDay": 1
+      },
+      "policy": "cheapest"
+    },
+    {
+      "id": "payer",
+      "session": {
+        "lengthSec": 1800,
+        "perDay": 2
+      },
+      "policy": "roi",
+      "owns": [
+        "cash2x"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "first-egg",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "chance:egg1",
+      "op": "<=",
+      "value": 60
+    },
+    {
+      "id": "biome2",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "gate:biome2",
+      "op": "between",
+      "value": [
+        300,
+        900
+      ]
+    },
+    {
+      "id": "first-rebirth",
+      "archetype": "active",
+      "metric": "timeTo",
+      "target": "rebirth:1",
+      "op": "between",
+      "value": [
+        2700,
+        3600
+      ]
+    },
+    {
+      "id": "no-stall",
+      "archetype": "active",
+      "metric": "maxIdleGap",
+      "op": "<=",
+      "value": 600
+    },
+    {
+      "id": "payer-fair",
+      "archetype": "active",
+      "vs": "payer",
+      "metric": "ratio",
+      "of": "timeTo",
+      "target": "rebirth:1",
+      "op": "<=",
+      "value": 3
+    }
+  ]
+}

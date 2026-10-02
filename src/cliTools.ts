@@ -80,6 +80,20 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
       return { tool: 'screenshot', args: { ...(vec(o.camera) ? { camera_position: vec(o.camera) } : {}), ...(vec(o['look-at']) ? { look_at: vec(o['look-at']) } : {}) } };
     case 'task':
       return { tool: 'task', args: f.rest[0] ? JSON.parse(f.rest.join(' ')) : { action: 'get' } };
+    case 'design': {
+      const action = f.rest[0] ?? 'get';
+      if (action === 'set') return { tool: 'design', args: { action, doc: JSON.parse(f.rest.slice(1).join(' ')) } };
+      return {
+        tool: 'design',
+        args: {
+          action,
+          ...(typeof o.runs === 'string' ? { runs: Number(o.runs) } : {}),
+          ...(typeof o.horizon === 'string' ? { horizon: Number(o.horizon) } : {}),
+          ...(typeof o.seed === 'string' ? { seed: Number(o.seed) } : {}),
+          ...(typeof o.archetypes === 'string' ? { archetypes: o.archetypes.split(',') } : {}),
+        },
+      };
+    }
     case 'tool':
       return { tool: f.rest[0] ?? '', args: f.rest[1] ? JSON.parse(f.rest.slice(1).join(' ')) : {} };
     default:
@@ -150,13 +164,14 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox play start|stop|state     blox logs [--context server] [--since 60]
            blox screenshot [--camera x,y,z --look-at x,y,z]
            blox task ['{"action":"get"}']  blox tool <name> '<json args>'
+           blox design [get|validate|simulate|codegen]  blox design set '<json>'
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {

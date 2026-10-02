@@ -126,6 +126,15 @@ export function evaluateCriteria(task: TaskState, lastTests: TestSummaryLike | n
   });
 }
 
+// Design-sim assertions (.blox/sim-report.json) count as synthetic test results
+// named design:<id>, so a criterion binds to one with tests: ["design:<id>"].
+export function withDesignResults(projectPath: string, lt: TestSummaryLike | null): TestSummaryLike | null {
+  const sim = readJson<{ ranAt: string; assertions: { id: string; ok: boolean }[] }>(projectPath, 'sim-report.json');
+  if (!sim) return lt;
+  const tests = sim.assertions.map((a) => ({ file: 'design', name: `design:${a.id}`, status: a.ok ? 'pass' : 'fail' }));
+  return { ranAt: lt?.ranAt ?? sim.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
+}
+
 // compact: for outputs repeated every turn (run_tests). Passing criteria shrink
 // to their ids and the goal is left out; the full form is one task {get} away.
 export function formatTask(task: TaskState | null, lastTests: TestSummaryLike | null, opts: { compact?: boolean } = {}): string {
