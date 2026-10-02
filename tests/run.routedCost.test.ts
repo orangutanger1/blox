@@ -20,7 +20,7 @@ describe('runOnce — routed model cost', () => {
     });
     const s = vi.spyOn(syncMod, 'syncProject').mockResolvedValue({ ok: false, detail: 'skip' } as never);
     try {
-      const cfg = { projectPath, model: 'openrouter,openai/gpt-6-luna', maxTurns: 40, maxBudgetUsd: 5, mode: 'auto' } as BloxConfig;
+      const cfg = { projectPath, model: 'openrouter,openai/gpt-6-luna', runner: 'claude', maxTurns: 40, maxBudgetUsd: 5, mode: 'auto' } as BloxConfig;
       const rep = await runOnce(cfg, 'x', { bridge: {} as never, digest: {} as never });
       expect(rep).toMatchObject({ costUsd: 0, costUnknown: true, numTurns: 12, billing: 'provider' });
       expect(readJsonl<AuditEntry>(auditPath(projectPath))[0]).toMatchObject({ costUsd: 0, costUnknown: true });

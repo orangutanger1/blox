@@ -1,5 +1,5 @@
 // src/run.ts
-import type { BloxConfig } from './config.js';
+import { runnerFor, type BloxConfig } from './config.js';
 import type { StudioBridge } from './bridge/types.js';
 import type { ProjectDigest } from './context/digest.js';
 import type { ImageInput } from './agent/imageInput.js';
@@ -72,7 +72,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   };
 
   let agent;
-  if (config.runner === 'openai') {
+  if (runnerFor(config) === 'openai') {
     agent = await openaiRun(config, prompt, { resume: deps.resume, continueSession: deps.continueSession });
   } else {
     const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
@@ -129,10 +129,10 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   const status = agent.status === 'success' && sync.ok ? 'success' : 'error';
   // The Agent SDK prices a CCR-routed "provider,slug" model at Claude rates
   // (observed ~500x too high for GPT-6 Luna); don't ledger that as spend.
-  if (config.runner !== 'openai' && config.model.includes(',')) {
+  if (runnerFor(config) !== 'openai' && config.model.includes(',')) {
     agent = { ...agent, costUsd: 0, costUnknown: true };
   }
-  const routedOrOpenai = config.runner === 'openai' || config.model.includes(',');
+  const routedOrOpenai = runnerFor(config) === 'openai' || config.model.includes(',');
   const billing: Billing | undefined = routedOrOpenai ? 'provider' : deps.authMode;
   const cost = {
     ...(agent.costUnknown ? { costUsd: 0, costUnknown: true as const } : { costUsd: agent.costUsd }),

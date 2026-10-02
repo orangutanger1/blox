@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs, type ParsedArgs } from './args.js';
-import { loadConfig, overridesFromArgs } from './config.js';
+import { loadConfig, overridesFromArgs, runnerFor } from './config.js';
 import { buildDigest } from './context/digest.js';
 import { studioLauncher } from './bridge/mcpBridge.js';
 import { createBloxToolsBridge } from './bridge/bloxBridge.js';
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     const bridge = studio
       ? createBloxToolsBridge({ session: studio, projectPath: config.projectPath, config, agent: 'blox-eval' })
       : createMockStudioBridge();
-    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: runnerFor(config) });
     if (authBlock) {
       console.error(authBlock);
       process.exit(1);
@@ -433,7 +433,7 @@ async function main(): Promise<void> {
     // A routed model (`provider,slug`) only routes if the SDK talks to CCR, not
     // api.anthropic.com — the daemon already does this; the one-shot must too.
     // The openai runner talks to the provider directly (no CCR translation).
-    const routed = config.runner !== 'openai' && (config.model ?? '').includes(',');
+    const routed = runnerFor(config) !== 'openai' && (config.model ?? '').includes(',');
     if (routed) {
       ensureCcrInstalled((m) => console.log(m));
       if (!(await ensureCcr((m) => console.log(m)))) {
@@ -441,7 +441,7 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     }
-    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: config.runner });
+    const authBlock = await authPreflight({ override: args.authMode, model: config.model, runner: runnerFor(config) });
     if (authBlock) {
       console.error(authBlock);
       process.exit(1);

@@ -135,8 +135,12 @@ runs an agent loop over the same toolset (in-process), then commits the project 
 leaves Studio synced. `--ask` gates credit-spending asset generation (dock panel can
 approve).
 
-- `--runner claude` (default): the Claude Agent SDK. Non-Claude models can still be
-  routed through claude-code-router (`blox model add …`, `--model provider,slug`).
+- Default runner: a `provider,slug` model (from `blox model add`, or the dock's model
+  list) runs on `--runner openai`, which talks to the provider directly: real cost,
+  no CCR daemon. Any other model runs on the Claude runner. Set `"runner"` (or pass
+  `--runner`) to override.
+- `--runner claude`: the Claude Agent SDK. With `--runner claude`, a `provider,slug`
+  model is routed through claude-code-router as before (its cost is reported unknown).
 - `--runner openai`: a vendor-neutral loop (`src/agent/chatLoop.ts`) over any
   OpenAI-compatible `/chat/completions` endpoint, with no translation layer.
   `--model provider,slug` uses a provider added with `blox model add`
@@ -147,7 +151,7 @@ approve).
   only), the dock's post-generation asset review, and `--resume <id>` / `--continue`
   (conversations are saved under `$XDG_STATE_HOME/blox/chat-sessions`, outside the
   project, with images dropped).
-  Set `"runner": "openai"` in `blox.config.json` to make it the default (the dock uses it too).
+  Set `"runner": "openai"` in `blox.config.json` to use it for every model (the dock too).
 - **Usage-limit fallback**: with `"fallbackModel": "openrouter,openai/gpt-6-luna"` in
   `blox.config.json` (or `--fallback-model`), a subscription run that hits its plan's
   usage limit continues on that model through `--runner openai`. The fallback agent is

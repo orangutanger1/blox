@@ -15,7 +15,7 @@ import { buildDigest } from '../context/digest.js';
 import { createBloxToolsBridge } from '../bridge/bloxBridge.js';
 import { studioSessionFor } from '../mcp/server.js';
 import { pushProject, formatSyncResult } from '../sync/push.js';
-import type { BloxConfig } from '../config.js';
+import { runnerFor, type BloxConfig } from '../config.js';
 
 // The daemon's run launcher: emits run_started/run_finished around runOnce.
 // Injected so the state machine is unit-testable without a real run. The
@@ -123,13 +123,13 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
     // not api.anthropic.com. Point ANTHROPIC_BASE_URL at CCR for this run. The
     // x-api-key path (ANTHROPIC_API_KEY) is what CCR accepts; clear any inherited
     // AUTH_TOKEN so the SDK doesn't send a competing bearer.
-    const authBlock = await authPreflight({ model: modelString, runner: config.runner });
+    const authBlock = await authPreflight({ model: modelString, runner: runnerFor(runConfig) });
     if (authBlock) {
       log(authBlock);
       server.emit({ type: 'run_finished', status: 'error', stopReason: 'error', turns: 0, costUsd: 0, detail: authBlock });
       return;
     }
-    const useCcr = ccr.provider !== null && config.runner !== 'openai';
+    const useCcr = ccr.provider !== null && runnerFor(runConfig) !== 'openai';
     if (useCcr) await ensureCcr(log);
     // Direct-Anthropic runs pick the linked credential (subscription vs API key);
     // CCR/BYO-model runs keep their own endpoint + key override.

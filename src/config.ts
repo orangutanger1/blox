@@ -46,7 +46,10 @@ export const BloxConfigSchema = z.object({
   model: z.string().default('claude-opus-5-5'),
   // Which agent loop drives a run: the Claude Agent SDK, or a vendor-neutral
   // loop over any OpenAI-compatible endpoint (OpenRouter, OpenAI, local).
-  runner: z.enum(['claude', 'openai']).default('claude'),
+  // Unset: a "provider,slug" model uses the openai runner (talks to the provider
+  // directly: real cost, no CCR daemon), any other model the Claude runner.
+  // Set "claude" to route provider,slug models through CCR instead.
+  runner: z.enum(['claude', 'openai']).optional(),
   // When a subscription run hits its plan usage limit, finish the task on this
   // model through the openai runner (e.g. "openrouter,openai/gpt-6-luna").
   // Unset: the run stops at the limit. Fallback runs are billed by the provider.
@@ -73,6 +76,10 @@ export const BloxConfigSchema = z.object({
 });
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
+
+export function runnerFor(c: { runner?: 'claude' | 'openai'; model: string }): 'claude' | 'openai' {
+  return c.runner ?? (c.model.includes(',') ? 'openai' : 'claude');
+}
 
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(
