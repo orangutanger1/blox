@@ -48,17 +48,20 @@ export function applyKit(projectPath: string, name: string): ApplyResult {
   const sc = scaffoldProject(projectPath);
   const created = [...sc.created];
   const kept: string[] = [];
-  const files = join(root, 'files');
-  for (const src of walk(files)) {
-    const rel = relative(files, src).replace(/\\/g, '/');
-    const dest = join(projectPath, rel);
-    if (existsSync(dest)) {
-      kept.push(rel);
-      continue;
+  // kits/_common (BloxTelemetry, …) ships with every kit.
+  for (const files of [join(KITS_ROOT, '_common', 'files'), join(root, 'files')]) {
+    if (!existsSync(files)) continue;
+    for (const src of walk(files)) {
+      const rel = relative(files, src).replace(/\\/g, '/');
+      const dest = join(projectPath, rel);
+      if (existsSync(dest)) {
+        kept.push(rel);
+        continue;
+      }
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(src, dest);
+      created.push(rel);
     }
-    mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(src, dest);
-    created.push(rel);
   }
   let designWritten = false;
   if (readJson(projectPath, 'design.json') === null) {

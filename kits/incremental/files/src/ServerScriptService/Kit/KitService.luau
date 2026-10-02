@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Economy = require(ReplicatedStorage:WaitForChild("Kit"):WaitForChild("Economy"))
+local Telemetry = require(ReplicatedStorage:WaitForChild("BloxTelemetry"))
 local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"))
 
 local TUN = Tunables.tunables or {}
@@ -27,6 +28,7 @@ local econ = KitService.economy
 local states: { [Player]: any } = {}
 local canSave: { [Player]: boolean } = {}
 local lastAction: { [Player]: number } = {}
+local seenGates: { [Player]: { [string]: boolean } } = {}
 local memoryStore = {} -- used when DataStores are unavailable (Studio without API access)
 local store = nil
 
@@ -91,6 +93,7 @@ local function leaderstats(player: Player)
 		if not val then
 			val = Instance.new("NumberValue")
 			val.Name = res
+			val.Value = math.floor(v) -- before parenting: telemetry ignores initial values
 			val.Parent = ls
 		end
 		val.Value = math.floor(v)
@@ -100,6 +103,7 @@ local function leaderstats(player: Player)
 		if not rb then
 			rb = Instance.new("IntValue")
 			rb.Name = "Rebirths"
+			rb.Value = s.owned.rebirth or 0
 			rb.Parent = ls
 		end
 		rb.Value = s.owned.rebirth or 0
@@ -111,6 +115,17 @@ function KitService.sync(player: Player)
 	local s = states[player]
 	if not s then
 		return
+	end
+	-- Gate opens (from ticks, grants or purchases) → FTUE step "open-<gate>" + timeline.
+	local seen = seenGates[player]
+	if seen then
+		for id in s.open do
+			if not seen[id] then
+				seen[id] = true
+				Telemetry.event(player, "gate:" .. id)
+				Telemetry.step(player, "open-" .. id)
+			end
+		end
 	end
 	player:SetAttribute("KitState", HttpService:JSONEncode(s))
 	leaderstats(player)
@@ -154,6 +169,10 @@ function KitService.purchase(player: Player, ref: string): (boolean, string?, st
 		return false, "no state", nil
 	end
 	local ok, err, outcome = econ:purchase(s, ref)
+	if ok then
+		Telemetry.event(player, ref)
+		Telemetry.step(player, "first-buy")
+	end
 	KitService.sync(player)
 	return ok, err, outcome
 end
@@ -164,6 +183,11 @@ function KitService.rebirth(player: Player): (boolean, string?)
 		return false, "no state"
 	end
 	local ok, err = econ:rebirth(s)
+	if ok then
+		seenGates[player] = {}
+		Telemetry.event(player, "rebirth")
+		Telemetry.step(player, "first-rebirth")
+	end
 	KitService.sync(player)
 	return ok, err
 end
@@ -184,6 +208,7 @@ local function onJoin(player: Player)
 		end
 	end
 	states[player] = s
+	seenGates[player] = table.clone(s.open)
 	KitService.sync(player)
 	player.CharacterAdded:Connect(function()
 		task.defer(KitService.sync, player)
@@ -195,6 +220,7 @@ local function onLeave(player: Player)
 	states[player] = nil
 	canSave[player] = nil
 	lastAction[player] = nil
+	seenGates[player] = nil
 end
 
 -- Actions (e.g. "+1 speed per step") only accrue while the character moves.
@@ -218,6 +244,7 @@ function KitService.start()
 		return
 	end
 	started = true
+	Telemetry.start()
 	local kit = ReplicatedStorage:WaitForChild("Kit")
 	local remotes = kit:FindFirstChild("Remotes") or Instance.new("Folder")
 	remotes.Name = "Remotes"
@@ -279,7 +306,11 @@ function KitService.start()
 			local dt = task.wait(TICK_SEC)
 			sinceSave += dt
 			for player, s in states do
-				econ:tick(s, dt, isActive(player))
+				local active = isActive(player)
+				if active then
+					Telemetry.step(player, "first-step")
+				end
+				econ:tick(s, dt, active)
 				KitService.sync(player)
 			end
 			if sinceSave >= (TUN.autosaveSec or 60) then
