@@ -6,6 +6,7 @@ import { TOOLS, findTool, invokeTool, type ToolCtx } from './tools/registry.js';
 import { serveMcp, studioSessionFor } from './mcp/server.js';
 import { scaffoldProject } from './scaffold.js';
 import { AGENT_GUIDE } from './agentGuide.js';
+import { approveAsset } from './assets/manifest.js';
 
 // CLI front-end for the blox toolset. Every command maps onto the same tool
 // registry the MCP server exposes, so an agent without MCP (or a human, or CI)
@@ -131,6 +132,22 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.timeout === 'string' ? { timeout: Number(o.timeout) } : {}),
         },
       };
+    case 'asset': {
+      const action = f.rest[0] ?? 'list';
+      const num = (k: string) => (typeof o[k] === 'string' ? { [k]: Number(o[k]) } : {});
+      switch (action) {
+        case 'add':
+          return { tool: 'asset', args: { action, entry: JSON.parse(f.rest.slice(1).join(' ')) } };
+        case 'sanitize':
+          return { tool: 'asset', args: { action, path: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}), ...(typeof o['asset-id'] === 'string' ? { asset_id: Number(o['asset-id']) } : {}), ...(o['keep-scripts'] === true ? { keep_scripts: true } : {}) } };
+        case 'normalize':
+          return { tool: 'asset', args: { action, file: f.rest[1], ...(typeof o.out === 'string' ? { out: o.out } : {}), ...num('tris'), ...num('height'), ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
+        case 'upload':
+          return { tool: 'asset', args: { action, id: f.rest[1], ...(o.confirm === true ? { confirm: true } : {}) } };
+        default:
+          return { tool: 'asset', args: { action } };
+      }
+    }
     case 'tool':
       return { tool: f.rest[0] ?? '', args: f.rest[1] ? JSON.parse(f.rest.slice(1).join(' ')) : {} };
     default:
@@ -207,13 +224,15 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox ui lint|install [--devices a,b] [--prepare '<client luau>']
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
+           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
+           blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {
@@ -240,6 +259,16 @@ export async function runToolCommand(argv: string[]): Promise<boolean> {
       console.error((e as Error).message);
       process.exitCode = 1;
     }
+    return true;
+  }
+  if (cmd === 'asset' && (f.rest[0] === 'approve' || f.rest[0] === 'reject')) {
+    // Human sign-off lives only here (not an MCP action).
+    const id = f.rest[1];
+    const err = id ? approveAsset(projectPath, id, f.rest[0] === 'approve' ? 'approved' : 'rejected') : 'usage: blox asset approve|reject <id>';
+    if (err) {
+      console.error(err);
+      process.exitCode = 1;
+    } else console.log(`${f.rest[0] === 'approve' ? 'approved' : 'rejected'} ${id}`);
     return true;
   }
   const config = loadConfig(projectPath, { projectPath });

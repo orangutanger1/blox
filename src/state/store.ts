@@ -138,15 +138,17 @@ export function withSyntheticResults(projectPath: string, lt: TestSummaryLike | 
   const ui = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'ui-report.json');
   const pres = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'present-report.json');
   const mp = readJson<{ ranAt: string; results: { file: string; name: string; status: string }[] }>(projectPath, 'mp-report.json');
-  if (!sim && !met && !ui && !pres && !mp) return lt;
+  const assets = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'asset-report.json');
+  if (!sim && !met && !ui && !pres && !mp && !assets) return lt;
   const tests = [
     ...(sim?.assertions ?? []).map((a) => ({ file: 'design', name: `design:${a.id}`, status: a.ok ? 'pass' : 'fail' })),
     ...(met?.results ?? []).map((r) => ({ file: 'metrics', name: r.id, status: r.ok ? 'pass' : 'fail' })),
     ...(ui?.results ?? []).map((r) => ({ file: 'ui', name: r.id, status: r.ok ? 'pass' : 'fail' })),
     ...(pres?.results ?? []).map((r) => ({ file: 'present', name: r.id, status: r.ok ? 'pass' : 'fail' })),
     ...(mp?.results ?? []).map((r) => ({ file: r.file, name: r.name, status: r.status })),
+    ...(assets?.results ?? []).map((r) => ({ file: 'assets', name: r.id, status: r.ok ? 'pass' : 'fail' })),
   ];
-  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui?.ranAt ?? pres?.ranAt ?? mp!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
+  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui?.ranAt ?? pres?.ranAt ?? mp?.ranAt ?? assets!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
 }
 
 // compact: for outputs repeated every turn (run_tests). Passing criteria shrink

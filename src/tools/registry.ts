@@ -26,6 +26,11 @@ import { defaultShots, describe as describeGame, titleCandidates } from '../pres
 import { formatPresentLint, lintPresentation, presentResults } from '../present/lint.js';
 import { renderShots } from '../present/render.js';
 import { formatMp, runMultiplayer } from '../multiplayer/run.js';
+import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
+import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
+import { gradeSanitize, sanitizeProgram, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
+import { runNormalize } from '../assets/blender.js';
+import { uploadAsset } from '../assets/upload.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -617,6 +622,98 @@ export const TOOLS: BloxTool[] = [
       const failed = r.results.filter((t) => t.status !== 'pass').length;
       const bad = failed > 0 || !!r.error || r.fileErrors.length > 0;
       return { text: (s.errors.length ? `sync errors: ${s.errors.join('; ')}\n` : '') + formatMp(r), isError: bad, summary: `${r.results.length - failed}/${r.results.length} mp` };
+    },
+  },
+  {
+    name: 'asset',
+    description:
+      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run).',
+    shape: {
+      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload']),
+      entry: z.unknown().optional(),
+      path: z.string().optional(),
+      id: z.string().optional(),
+      asset_id: z.number().int().positive().optional(),
+      keep_scripts: z.boolean().optional(),
+      file: z.string().optional(),
+      out: z.string().optional(),
+      tris: z.number().int().positive().optional(),
+      height: z.number().nonnegative().optional(),
+      confirm: z.boolean().optional(),
+    },
+    async handler(a, ctx) {
+      const P = ctx.projectPath;
+      if (a.action === 'list') {
+        const m = loadManifest(P);
+        const rows = m.assets.map((x) => `${x.id}  ${x.kind}  ${x.source}  ${x.licence}  ${x.status}${x.sanitized ? '  sanitized' : ''}${x.budget?.tris ? `  ${x.budget.tris} tris` : ''}${x.uploaded ? `  uploaded ${x.uploaded.assetId}` : ''}`);
+        return { text: rows.join('\n') || '(no assets recorded)', summary: `${m.assets.length} assets` };
+      }
+      if (a.action === 'add') {
+        const r = addAsset(P, a.entry);
+        return r.ok ? { text: `added ${r.entry.id} (candidate — a human approves it with \`blox asset approve ${r.entry.id}\`)`, summary: 'added' } : { text: `not added:\n  ${r.errors.join('\n  ')}`, isError: true, summary: 'invalid' };
+      }
+      if (a.action === 'sanitize') {
+        if (typeof a.path !== 'string') return { text: 'sanitize needs path (e.g. "Workspace.FreeTree")', isError: true, summary: 'no path' };
+        const r = await runLuau(ctx.session, sanitizeProgram(a.path, a.keep_scripts === true), 'edit', { chunkName: 'sanitize' });
+        if (!r.ok) return { text: `sanitize failed: ${r.error?.message}`, isError: true, summary: 'failed' };
+        const g = gradeSanitize(r.values[0]);
+        const findings = g.scripts.flatMap((s) => s.findings.map((f) => `${s.path}: ${f}`));
+        const id = typeof a.id === 'string' ? a.id : null;
+        if (id) {
+          const m = loadManifest(P);
+          let e = m.assets.find((x) => x.id === id);
+          if (!e) {
+            const added = addAsset(P, { id, kind: 'model', source: 'creator-store', licence: 'roblox-creator-store', ref: { path: a.path, ...(a.asset_id ? { assetId: a.asset_id } : {}) }, provenance: { tool: 'insert_asset', createdAt: new Date().toISOString() } });
+            if (!added.ok) return { text: `could not record ${id}: ${added.errors.join('; ')}`, isError: true, summary: 'invalid' };
+          }
+          const m2 = loadManifest(P);
+          e = m2.assets.find((x) => x.id === id)!;
+          e.sanitized = { at: new Date().toISOString(), scriptsRemoved: g.removed, findings };
+          e.budget = { ...(e.budget ?? {}), parts: g.parts };
+          saveManifest(P, m2);
+        }
+        const lines = [
+          `${g.path}: ${g.scripts.length} script(s), ${g.parts} parts (${g.meshParts} MeshParts), ${g.textures} texture(s); removed ${g.removed} script(s)`,
+          ...g.scripts.map((s) => `  ${s.findings.length ? 'RISK' : 'ok  '} ${s.path} (${s.class})${s.findings.length ? ': ' + s.findings.join(', ') : ''}`),
+          id ? `recorded on asset "${id}"` : 'pass id to record this in .blox/assets.json',
+        ];
+        return { text: lines.join('\n'), summary: `${findings.length} risks` };
+      }
+      if (a.action === 'scan') {
+        const r = await runLuau(ctx.session, SCAN_LUAU, 'edit', { chunkName: 'assetScan', timeoutMs: 60_000 });
+        if (!r.ok) return { text: `scan failed: ${r.error?.message}`, isError: true, summary: 'failed' };
+        const untracked = untrackedFromScan(r.values[0], loadManifest(P));
+        writeJson(P, 'asset-scan.json', { at: new Date().toISOString(), untracked });
+        return { text: [`${untracked.length} untracked asset id(s)`, ...untracked.slice(0, 30).map((u) => `  ${u.id}  ${u.where}`)].join('\n'), summary: `${untracked.length} untracked` };
+      }
+      if (a.action === 'lint') {
+        const scan = readJson<{ untracked: { id: string; where: string }[] }>(P, 'asset-scan.json') ?? undefined;
+        const findings = lintAssets(loadManifest(P), scan);
+        const results = assetResults(findings);
+        writeJson(P, 'asset-report.json', { ranAt: new Date().toISOString(), findings, results });
+        refreshCriteria(P);
+        const failed = results.filter((x) => !x.ok).length;
+        return { text: formatAssetLint(findings, results), isError: failed > 0, summary: `${results.length - failed}/${results.length} rules` };
+      }
+      if (a.action === 'normalize') {
+        if (typeof a.file !== 'string') return { text: 'normalize needs file', isError: true, summary: 'no file' };
+        const out = typeof a.out === 'string' ? a.out : a.file.replace(/\.[^.\/]+$/, '') + '.normalized.fbx';
+        const r = await runNormalize({ input: join(P, a.file), out: join(P, out), tris: (a.tris as number | undefined) ?? 10_000, height: (a.height as number | undefined) ?? 0 });
+        if (typeof a.id === 'string') {
+          const m = loadManifest(P);
+          const e = m.assets.find((x) => x.id === a.id);
+          if (e) {
+            e.budget = { ...(e.budget ?? {}), tris: r.trisAfter };
+            e.ref.file = out;
+            saveManifest(P, m);
+          }
+        }
+        return { text: `normalized → ${out}: ${r.trisBefore} → ${r.trisAfter} triangles, size ${r.size.join(' × ')} studs`, artifacts: [out], summary: `${r.trisAfter} tris` };
+      }
+      if (typeof a.id !== 'string') return { text: 'upload needs id', isError: true, summary: 'no id' };
+      const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
+      if (r.dryRun) return { text: `DRY RUN — would upload:\n${JSON.stringify(r.plan, null, 2)}\nRe-run with confirm:true only if the human asked for this upload.`, summary: 'dry run' };
+      return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})`, summary: 'uploaded' };
     },
   },
   {
