@@ -26,8 +26,16 @@ export class EventBuffer {
     return this.evicted + this.events.length;
   }
 
+  // A fresh client (cursor 0) starts at the latest run: the daemon keeps one
+  // buffer across runs, and replaying earlier runs made the dock flicker
+  // through their states on every reconnect.
   since(cursor: number): { events: PanelEvent[]; cursor: number } {
-    const start = Math.max(cursor - this.evicted, 0);
+    let start = Math.max(cursor - this.evicted, 0);
+    if (cursor === 0) {
+      for (let i = this.events.length - 1; i >= 0; i--) {
+        if (this.events[i].type === 'run_started') { start = i; break; }
+      }
+    }
     return { events: this.events.slice(start), cursor: this.cursor() };
   }
 
