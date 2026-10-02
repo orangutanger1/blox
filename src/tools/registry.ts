@@ -25,6 +25,7 @@ import { validatePresentation, type Presentation } from '../present/schema.js';
 import { defaultShots, describe as describeGame, titleCandidates } from '../present/generate.js';
 import { formatPresentLint, lintPresentation, presentResults } from '../present/lint.js';
 import { renderShots } from '../present/render.js';
+import { formatMp, runMultiplayer } from '../multiplayer/run.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -592,6 +593,30 @@ export const TOOLS: BloxTool[] = [
       refreshCriteria(ctx.projectPath);
       const failed = results.filter((x) => !x.ok).length;
       return { text: formatPresentLint(findings, results), isError: failed > 0, summary: `${results.length - failed}/${results.length} rules` };
+    },
+  },
+  {
+    name: 'multiplayer',
+    description:
+      'Multiplayer test lane: runs tests/**/*.mp.luau (first line "-- @context multiplayer", optional "-- @clients N") in a real Studio server with N clients (<= 8) via StudioTestService through the blox dock plugin (keep Studio open with the plugin installed). Specs get mp.players and mp.client(player, op, ...) with ops invoke/fire <remote path> args | get <path> <prop> | attr <name> | moveTo x y z, driving real clients. Syncs first. Criteria bind to spec files like run_tests.',
+    shape: {
+      clients: z.number().int().min(1).max(8).optional(),
+      filter: z.string().optional(),
+      timeout: z.number().int().positive().max(900).optional().describe('seconds for the whole job, default 180'),
+    },
+    async handler(a, ctx) {
+      const s = await pushProject(ctx.session, ctx.projectPath, { worldDir: ctx.config.worldDir });
+      writeJson(ctx.projectPath, 'last-sync.json', { ...s, at: new Date().toISOString() });
+      const r = await runMultiplayer(ctx.session, ctx.projectPath, {
+        clients: a.clients as number | undefined,
+        filter: a.filter as string | undefined,
+        timeoutSec: a.timeout as number | undefined,
+      });
+      writeJson(ctx.projectPath, 'mp-report.json', r);
+      refreshCriteria(ctx.projectPath);
+      const failed = r.results.filter((t) => t.status !== 'pass').length;
+      const bad = failed > 0 || !!r.error || r.fileErrors.length > 0;
+      return { text: (s.errors.length ? `sync errors: ${s.errors.join('; ')}\n` : '') + formatMp(r), isError: bad, summary: `${r.results.length - failed}/${r.results.length} mp` };
     },
   },
   {

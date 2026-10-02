@@ -39,6 +39,11 @@ outside folders mapped in default.project.json never reach Studio.
 kit {action:"list"} then kit {action:"apply", name} gives a tested loop (modules, world,
 specs, design.json) to reskin and tune instead of writing systems from scratch.
 
+## Multiplayer
+Social/PvP rules (theft, trading, rounds) need real clients: tests/<name>.mp.luau
+("-- @context multiplayer", "-- @clients N"), then multiplayer {}. Specs get mp.players and
+mp.client(player, "invoke", "ReplicatedStorage.Remotes.X", ...) to act as each client.
+
 ## UI
 Build HUDs with BloxUI (ui {action:"install"}; kits include it): scale-sized, 44px touch
 targets, safe-area aware. Then ui {action:"lint"} checks every device size; fix all errors.
