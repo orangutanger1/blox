@@ -2,7 +2,10 @@
 -- (sorted by amount, `wallSpacing` studs apart). Walls carry the GateId attribute;
 -- the HUD makes opened walls passable for that player.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Tunables = require(ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"))
+-- Require a clone: edit-mode require caches by instance, and builders rerun on every sync.
+local tunablesModule = ReplicatedStorage:WaitForChild("Design"):WaitForChild("Tunables"):Clone()
+local Tunables = require(tunablesModule)
+tunablesModule:Destroy()
 
 return function(model: Model)
 	local spacing = (Tunables.tunables and Tunables.tunables.wallSpacing) or 80

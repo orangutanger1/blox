@@ -94,6 +94,8 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
         },
       };
     }
+    case 'kit':
+      return f.rest[0] === 'apply' ? { tool: 'kit', args: { action: 'apply', name: f.rest[1] } } : { tool: 'kit', args: { action: 'list' } };
     case 'tool':
       return { tool: f.rest[0] ?? '', args: f.rest[1] ? JSON.parse(f.rest.slice(1).join(' ')) : {} };
     default:
@@ -165,13 +167,14 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox screenshot [--camera x,y,z --look-at x,y,z]
            blox task ['{"action":"get"}']  blox tool <name> '<json args>'
            blox design [get|validate|simulate|codegen]  blox design set '<json>'
+           blox kit [list]                blox kit apply <name>   (format kits: proven loops)
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'kit', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {

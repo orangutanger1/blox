@@ -16,6 +16,7 @@ import { scaffoldProject } from '../scaffold.js';
 import { validateDesign, formatErrors } from '../design/schema.js';
 import { runSimulation, formatReport } from '../design/report.js';
 import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
+import { applyKit, formatApply, listKits } from '../kits.js';
 
 // blox's agent-facing contract, defined once and served two ways: as a stdio
 // MCP server (`blox mcp`, for Claude Code / Codex / Cursor / any MCP client)
@@ -432,6 +433,21 @@ export const TOOLS: BloxTool[] = [
       }
       const failed = report.assertions.filter((x) => !x.ok).length;
       return { text: formatReport(report), isError: failed > 0, summary: `${report.assertions.length - failed}/${report.assertions.length} assertions` };
+    },
+  },
+  {
+    name: 'kit',
+    description:
+      'Format kits: proven game loops as tested Luau modules + world builder + specs + design.json. list | apply {name} (non-destructive: existing files and an existing .blox/design.json are kept; Tunables regenerated). After apply: design simulate, run_tests, then reskin/tune.',
+    shape: { action: z.enum(['list', 'apply']), name: z.string().optional() },
+    async handler(a, ctx) {
+      if (a.action === 'list') {
+        const kits = listKits();
+        return { text: kits.map((k) => `${k.name} — ${k.title}\n  ${k.description}`).join('\n') || '(no kits installed)', summary: `${kits.length} kits` };
+      }
+      if (typeof a.name !== 'string') return { text: 'kit apply needs name (see kit {action:"list"})', isError: true, summary: 'no name' };
+      const r = applyKit(ctx.projectPath, a.name);
+      return { text: formatApply(r), isError: r.tunables !== null, artifacts: r.created, summary: `${r.created.length} created` };
     },
   },
   {
