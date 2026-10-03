@@ -69,7 +69,7 @@ export function briefText(b: ModelBrief): string {
     '1. Write Blender Python using the helpers (1 unit = 1 stud, Z up, model faces -Y):',
     '   reset() · voxels(name, [(x,y,z,"#hex"),…]) · box(name, size, at, color) · join(objs, name)',
     b.rig
-      ? '   rig(name, [{name, head, tail, parent?}]) · bind_rigid(armature, {bone: [objs]}, name) · animate(armature, "Walk", {frame: {bone: {"rot": (x,y,z)}}})'
+      ? '   rig(name, [{name, head, tail, parent?}]) · bind_rigid(armature, {bone: [objs]}, name) · animate(armature, "Walk", {frame: {bone: {"rot": (x,y,z)}}}) · rig_rigid(armature, {bone: [objs]}) (separate pieces → a Studio Motor6D rig)'
       : '   (static: no rig needed)',
     '   Separate body parts that move into their own objects so each binds to one bone.',
     `2. model {action:"run", id:"${b.id}", code} — rebuilds the .blend from your code (keep the whole build in one script; rerun after edits).`,

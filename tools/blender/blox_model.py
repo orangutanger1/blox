@@ -13,6 +13,11 @@ Units: 1 Blender unit = 1 stud. Z is up in Blender; export maps it to Roblox Y.
   rig(name, bones)                         bones: [{name, head, tail, parent?}]
   bind_rigid(armature, parts, name)        parts: {bone: [mesh objects]} → one
       skinned mesh, every vertex 100% on its part's bone (blocky rigs)
+  rig_rigid(armature, parts)               parts: {bone: [mesh objects]} → each
+      piece stays its own object (no join, no skin); model export then writes a
+      pieces-only model.glb + pivots.json for a Studio Motor6D rig
+      (animate rig joints:"blender"). The biggest piece on a bone carries its
+      joint; the rest ride it.
   animate(armature, action, keys, loop=True)
       keys: {frame: {bone: {"rot": (x, y, z) degrees, "loc": (x, y, z)}}}
       Each action is stored on its own NLA track so all of them export.
@@ -23,6 +28,7 @@ Export helpers (used by `model export` and `asset normalize`):
                              set MeshPart.Color white after insert)
 Colours are "#rrggbb" sRGB as you see them; materials store them linear.
 """
+import json
 import math
 
 import bmesh
@@ -177,6 +183,84 @@ def bind_rigid(armature, parts, name):
     mod.object = armature
     mesh.parent = armature
     return mesh
+
+
+def rig_rigid(armature, parts):
+    names = {b.name for b in armature.data.bones}
+    m = {}
+    for bone, objs in parts.items():
+        if bone not in names:
+            raise ValueError("rig_rigid: no bone named %s" % bone)
+        for o in objs:
+            _select_only([o], o)
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            m[o.name] = bone
+    armature["blox_rigid"] = json.dumps(m)
+    return armature
+
+
+def rigid_pivots(armature):
+    """pivots.json for `animate rig joints:"blender"`: each piece's world
+    bounds, and for each bone carrying pieces a joint at the bone's head from
+    the nearest ancestor bone's main piece (its biggest). A bone's other pieces
+    ride its main piece. On a root bone the extra pieces get their own joint
+    to the main piece, at the point of it nearest their centre (the trunk has no
+    joint for them to ride)."""
+    m = json.loads(armature["blox_rigid"])
+    pieces, by_bone, lo_hi = {}, {}, {}
+    for name, bone in m.items():
+        o = bpy.data.objects[name]
+        pts = [o.matrix_world @ v.co for v in o.data.vertices]
+        lo = [min(p[i] for p in pts) for i in range(3)]
+        hi = [max(p[i] for p in pts) for i in range(3)]
+        lo_hi[name] = (lo, hi)
+        pieces[name] = {
+            "name": name,
+            "bone": bone,
+            "center": [round((lo[i] + hi[i]) / 2, 6) for i in range(3)],
+            "size": [round(hi[i] - lo[i], 6) for i in range(3)],
+        }
+        by_bone.setdefault(bone, []).append(name)
+
+    def vol(n):
+        s = pieces[n]["size"]
+        return s[0] * s[1] * s[2]
+
+    for names in by_bone.values():
+        names.sort(key=lambda n: (-vol(n), n))
+    main = {bone: names[0] for bone, names in by_bone.items()}
+    joints, riders = [], {}
+    mw = armature.matrix_world
+    for b in armature.data.bones:
+        if b.name not in main:
+            continue
+        names = by_bone[b.name]
+        anc = b.parent
+        while anc is not None and anc.name not in main:
+            anc = anc.parent
+        if anc is None:
+            lo, hi = lo_hi[names[0]]
+            for n in names[1:]:
+                c = pieces[n]["center"]
+                joints.append({"name": n, "part": n, "parent": names[0], "pivot": [round(min(max(c[i], lo[i]), hi[i]), 6) for i in range(3)]})
+            continue
+        head = mw @ b.head_local
+        joints.append({"name": b.name, "part": names[0], "parent": main[anc.name], "pivot": [round(x, 6) for x in head]})
+        if len(names) > 1:
+            riders[names[0]] = names[1:]
+    return {"pieces": list(pieces.values()), "joints": joints, "riders": riders}
+
+
+def piece_materials(objs):
+    """Give each piece its own copy of its first material, named after it: an
+    upload makes one MeshPart per material, so this keeps one MeshPart per
+    piece (and its name)."""
+    for o in objs:
+        if o.type != "MESH" or not o.data.materials:
+            continue
+        mat = o.data.materials[0].copy()
+        mat.name = o.name
+        o.data.materials[0] = mat
 
 
 def animate(armature, action, keys, loop=True):

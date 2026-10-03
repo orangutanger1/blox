@@ -298,7 +298,8 @@ def cmd_export(a):
             p = os.path.join(a["out"], "anim_%s.fbx" % act.name)
             export_fbx(p, objs, anim=True)
             anims[act.name] = p
-        arm.animation_data.action = None
+        if arm.animation_data:  # a rig with no actions (e.g. rig_rigid pieces) has none
+            arm.animation_data.action = None
     files["animations"] = anims
     anim_data = {}
     for arm in arms:
@@ -316,10 +317,21 @@ def cmd_export(a):
         json.dump({"triangles": tris}, f)
     files["preview"] = prev
     files["previewTriangles"] = len(tris)
+    rigid = [arm for arm in arms if "blox_rigid" in arm.keys()]
+    if rigid:
+        piv = os.path.join(a["out"], "pivots.json")
+        with open(piv, "w") as f:
+            json.dump(blox_model.rigid_pivots(rigid[0]), f)
+        files["pivots"] = piv
     # Last: baking replaces materials in this (unsaved) session only.
     glb = os.path.join(a["out"], "model.glb")
     files["bake"] = blox_model.bake_vertex_colors(meshes())
-    blox_model.export_glb(glb, meshes() + arms)
+    if rigid:
+        # Pieces only: Studio joins them with Motor6Ds (animate rig joints:"blender").
+        blox_model.piece_materials(meshes())
+        blox_model.export_glb(glb, meshes())
+    else:
+        blox_model.export_glb(glb, meshes() + arms)
     files["upload"] = glb
     out(files)
 

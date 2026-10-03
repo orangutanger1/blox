@@ -851,12 +851,13 @@ export const TOOLS: BloxTool[] = [
         return { text, ...(att?.images.length ? { images: att.images } : {}), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
       }
       if (a.action === 'export') {
-        const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };
+        const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; pivots?: string; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };
         const rel = (f: string) => f.slice(P.length + 1);
         const anims = Object.entries(r.animations);
         return {
           text: [
             ...(r.upload ? [`upload file ${rel(r.upload)}: ${r.bake?.materials ?? '?'} material(s) → that many MeshParts; flat colours baked into vertex colours (Roblox drops flat material colours)`] : []),
+            ...(r.pivots ? [`rig pivots ${rel(r.pivots)}: after upload + insert, animate {action:"rig", model:<inserted model path>, joints:"blender", blender_id:"${id}", controller:"Humanoid"|"AnimationController"}`] : []),
             `Studio-import file ${rel(r.model)} (${r.previewTriangles} triangles)`,
             ...anims.map(([n, f]) => `  animation ${n}: ${rel(f)}`),
             `next: model {action:"preview", id:"${id}"} to see it in Studio, then model {action:"import", id:"${id}"}`,

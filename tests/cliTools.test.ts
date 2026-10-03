@@ -6,6 +6,17 @@ import { parseFlags, cliArgs, setupAgent, mcpServerEntry } from '../src/cliTools
 import { scaffoldProject } from '../src/scaffold.js';
 
 describe('parseFlags / cliArgs', () => {
+  it('maps animate rig flags', () => {
+    expect(cliArgs('animate', parseFlags(['rig', 'Workspace.Dog', '--suggest', '--plan', 'quadruped']))).toEqual({
+      tool: 'animate', args: { action: 'rig', model: 'Workspace.Dog', suggest: true, plan: 'quadruped' },
+    });
+    expect(cliArgs('animate', parseFlags(['rig', 'Workspace.Dog', '--joints', 'suggested', '--controller', 'Humanoid', '--revision', 'rr1:ab']))).toEqual({
+      tool: 'animate', args: { action: 'rig', model: 'Workspace.Dog', joints: 'suggested', controller: 'Humanoid', expected_revision: 'rr1:ab' },
+    });
+    expect(cliArgs('animate', parseFlags(['rig', 'Workspace.Wolf', '--joints', 'blender', '--blender', 'wolf', '--controller', 'Humanoid']))).toEqual({
+      tool: 'animate', args: { action: 'rig', model: 'Workspace.Wolf', joints: 'blender', blender_id: 'wolf', controller: 'Humanoid' },
+    });
+  });
   it('maps friendly flags onto tool args', () => {
     expect(cliArgs('test', parseFlags(['coins', '--context', 'server,client', '--no-sync']))).toEqual({
       tool: 'run_tests', args: { filter: 'coins', contexts: ['server', 'client'], sync: false },
