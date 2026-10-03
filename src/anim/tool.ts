@@ -4,7 +4,8 @@ import { compactChecks, prepareAnimation, MOTION_CHECK_IDS, ANIMATE_SLOTS } from
 import { renderContactSheet } from './contact-sheet.js';
 import { rigFor } from './rigs.js';
 import { loadRecipes } from './recipes.js';
-import { ANIM_NAME, saveChecked } from './store.js';
+import { ANIM_NAME, clearRigReading, loadRigReading, saveChecked, saveRigReading } from './store.js';
+import { RIGS } from './rigs.js';
 import { relative } from 'node:path';
 import { runLuau } from '../studio/luau.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
@@ -64,18 +65,32 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     const spec = a.animation as Record<string, unknown> | undefined;
     if (!spec) return err('check needs animation (start from animate {action:"recipes"})', 'no animation');
     if (typeof spec.name !== 'string' || !ANIM_NAME.test(spec.name)) return err(`animation.name must be letters, digits, _ and -, starting with a letter (max 64); got ${JSON.stringify(spec.name)}`, 'bad name');
-    const p = prepareAnimation(spec, { locomotion: a.locomotion, grounded: a.grounded, waive: a.waive });
+    let rig = RIGS.get(String(spec.rig));
+    let notes: string[] = [];
+    let animation = spec;
+    if (!rig && typeof spec.rig === 'string') {
+      const read = await readRig(ctx.session, spec.rig);
+      if (!read.ok) return err(read.error, read.code ?? 'refused');
+      rig = read.rig;
+      notes = read.notes;
+      animation = { ...spec, rig: read.reading.path };
+      saveRigReading(P, spec.name, read.reading);
+    } else {
+      clearRigReading(P, spec.name);
+    }
+    const p = prepareAnimation(animation, { locomotion: a.locomotion, grounded: a.grounded, waive: a.waive }, rig && !RIGS.has(rig.name) ? rig : undefined);
     if (!p.ok) {
       rmSync(join(animDir(P, spec.name), 'sequence.json'), { force: true }); // build only what the last check accepted
       return err(`does not compile:\n${p.errors.map((e) => `  ${e}`).join('\n')}`, `${p.errors.length} errors`);
     }
     const { sequence, report, failing, waived } = p.value;
     const options = { locomotion: a.locomotion === true, grounded: a.grounded === true };
-    const sheet = renderContactSheet(sequence, undefined, { locomotion: options.locomotion, rig: rigFor(sequence.rig) });
-    saveChecked(P, { spec, sequence, options, failing, waived }, report, sheet.png);
+    const sheet = renderContactSheet(sequence, undefined, { locomotion: options.locomotion, rig: rig ?? rigFor(sequence.rig) });
+    saveChecked(P, { spec: animation, sequence, options, failing, waived }, report, sheet.png);
     const lines = [`${sequence.name} (${sequence.rig}, ${sequence.duration}s${sequence.loop ? ', loop' : ''}, ${sequence.keyframes.length} keyframes):`];
     for (const c of compactChecks(report)) lines.push(`  ${c.status === 'pass' ? '✓' : c.status === 'fail' ? '✗' : '·'} ${c.id} ${c.status}  ${c.detail}${c.measured ? ` ${JSON.stringify(c.measured)}` : ''}`);
     if (waived.length) lines.push(`waived: ${waived.join(', ')}`);
+    if (rig && !RIGS.has(rig.name)) lines.push(...notes.map((n) => `note: ${n}`), ...skippedChecks(rig), 'note: the sheet draws each part as its box');
     lines.push(`sheet: columns at ${sheet.times.map((t, i) => `${t.toFixed(2)}s${sheet.labels[i] ? ` (${sheet.labels[i]})` : ''}`).join(', ')}`);
     lines.push(failing.length ? `failing: ${failing.join(', ')} — fix the description, or waive a failure you mean (e.g. groundContact on a jump), then check again` : `Next: animate {action:"build", name:"${sequence.name}"}`);
     return { text: lines.join('\n'), images: [{ data: sheet.png.toString('base64'), mimeType: 'image/png' }], summary: failing.length ? `${failing.length} failing` : 'checks pass' };
@@ -86,15 +101,30 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     if (!stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
     if (stored.failing.length) return err(`${a.name} has failing checks (${stored.failing.join(', ')}): fix them or waive the ones you mean, then check again`, 'failing');
     const seq = stored.sequence;
-    const play = await runLuau(ctx.session, buildProgram(seq, previewSampleTimes(seq)), 'edit', { chunkName: 'animateBuild', timeoutMs: 120_000 });
+    let rig = RIGS.get(seq.rig);
+    let model: { path: string; rootPart: string } | null = null;
+    if (!rig) {
+      const saved = loadRigReading(P, seq.name);
+      if (!saved) return err(`${seq.name} has no saved rig reading: check it again`, 'not checked');
+      const now = await readRig(ctx.session, seq.rig);
+      if (!now.ok) return err(now.error, now.code ?? 'refused');
+      if (now.reading.revision !== saved.revision) return err(`${seq.rig}'s rig changed since check (${saved.revision} → ${now.reading.revision}); check it again`, 'rig changed');
+      rig = now.rig;
+      model = { path: now.reading.path, rootPart: now.reading.rootPart };
+    }
+    const play = await runLuau(ctx.session, buildProgram(seq, previewSampleTimes(seq), model), 'edit', { chunkName: 'animateBuild', timeoutMs: 120_000 });
     if (!play.ok) return err(`build failed in Studio: ${play.error?.message}`, 'studio error');
-    const reply = JSON.parse(String(play.values[0])) as BuildReply;
+    const pr = parseReply(play.values, 'build');
+    if (!pr.ok) return err(pr.error, 'studio error');
+    const reply = pr.value as unknown as BuildReply;
     if (!reply.ok) return err(`build failed in Studio: ${reply.error}`, 'studio error');
-    const v = verifyPlayback(seq, reply.samples);
+    const v = verifyPlayback(seq, reply.samples, rig);
     if (!v.verified) return err(`not written: ${v.reason}${v.worst ? ` (worst: ${v.worst.part} at ${v.worst.time}s)` : ''}`, 'mismatch');
     const commit = await runLuau(ctx.session, commitProgram(seq, a.force === true), 'edit', { chunkName: 'animateCommit', timeoutMs: 60_000 });
     if (!commit.ok) return err(`write failed in Studio: ${commit.error?.message}`, 'studio error');
-    const c = JSON.parse(String(commit.values[0])) as BuildReply;
+    const pc = parseReply(commit.values, 'commit');
+    if (!pc.ok) return err(pc.error, 'studio error');
+    const c = pc.value as unknown as BuildReply;
     if (!c.ok) return err(`${c.error}; rebuild with force:true to replace it${c.code === 'edited' ? ' (discards the Studio edits)' : ''}`, c.code ?? 'refused');
     const taken = loadManifest(P).assets.find((x) => x.id === seq.name && x.kind !== 'animation');
     if (taken) return err(`asset id ${seq.name} is already a ${taken.kind} in .blox/assets.json; rename the animation (its name is the asset id)`, 'id taken');
@@ -113,7 +143,7 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
       if (!added.ok) return err(`built, but not recorded in assets.json: ${added.errors.join('; ')}`, 'not recorded');
     }
     return {
-      text: `${seq.name}: played on a stock ${seq.rig} dummy within ${v.maxDegrees}° / ${v.maxStuds} studs of the checked motion (${v.samples} samples); written to ServerStorage.BloxAnimations.${seq.name} and ${file}, recorded as candidate "${seq.name}".\nNext: a human runs \`blox asset approve ${seq.name}\`, then asset {action:"upload", id:"${seq.name}", confirm:true}, then animate {action:"wire", slot, asset:<uploaded id>}.`,
+      text: `${seq.name}: played on ${model ? `a copy of ${model.path}` : `a stock ${seq.rig} dummy`} within ${v.maxDegrees}° / ${v.maxStuds} studs of the checked motion (${v.samples} samples); written to ServerStorage.BloxAnimations.${seq.name} and ${file}, recorded as candidate "${seq.name}".\nNext: a human runs \`blox asset approve ${seq.name}\`, then asset {action:"upload", id:"${seq.name}", confirm:true}, then animate {action:"wire", slot, asset:<uploaded id>}.`,
       summary: 'built',
     };
   }

@@ -101,6 +101,7 @@ describe('animate Luau compiles', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-animluau-'));
     const files = {
       'build.luau': buildProgram(c.sequence, [0.1]),
+      'build_model.luau': buildProgram(c.sequence, [0.1], { path: 'Workspace.Dog', rootPart: 'HumanoidRootPart' }),
       'commit.luau': commitProgram(c.sequence, false),
       'verify.luau': verifyProgram(c.sequence, null, 'walk'),
       'verify_id.luau': verifyProgram(null, 'rbxassetid://1', 'walk'),

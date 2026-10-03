@@ -1,6 +1,7 @@
 import { longString } from '../studio/luau.js';
 import { jsonToLuau, SOURCE_SUM_LUAU } from '../sync/push.js';
 import type { KeyframeSequenceDescription } from './pose-compiler.js';
+import { RESOLVE_LUAU } from './modelRig.js';
 
 // Fixed Luau for the animate tool. Agent data arrives only as JSON in PAYLOAD.
 export const BUILD_FOLDER = 'BloxAnimations';
@@ -96,20 +97,32 @@ local ok, res = pcall(function()
 	folder.Name = "__BloxAnimPreview"
 	folder.Archivable = false
 	folder.Parent = workspace
-	local rig = Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), P.sequence.rig == "R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15)
+	local rig, root
+	if P.model then
+		local source = resolve(P.model.path)
+		if not source then error(P.model.path .. " does not exist") end
+		rig = source:Clone()
+		if not rig then error(P.model.path .. " could not be copied") end
+		for _, tag in rig:GetTags() do rig:RemoveTag(tag) end
+		root = rig:FindFirstChild(P.model.rootPart, true)
+		if not root then error("the copy has no " .. P.model.rootPart) end
+	else
+		rig = Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), P.sequence.rig == "R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15)
+		root = rig.HumanoidRootPart
+	end
 	rig.Archivable = false
 	rig:PivotTo(CFrame.new(0, 100000, 0))
-	rig.HumanoidRootPart.Anchored = true
+	root.Anchored = true
 	rig.Parent = folder
-	local hum = rig:FindFirstChildOfClass("Humanoid")
-	local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
+	local controller = rig:FindFirstChildOfClass("Humanoid") or rig:FindFirstChildOfClass("AnimationController")
+	local animator = controller:FindFirstChildOfClass("Animator") or Instance.new("Animator", controller)
 	local anim = Instance.new("Animation")
 	anim.AnimationId = tostring(id)
 	track = animator:LoadAnimation(anim)
 	track:Play(0)
 	local deadline = os.clock() + 10
 	while track.Length == 0 and os.clock() < deadline do task.wait(0.05) end
-	if track.Length == 0 then error("the animation never loaded on the dummy") end
+	if track.Length == 0 then error("the animation never loaded on the " .. (P.model and "copy" or "dummy")) end
 	local js = joints(rig)
 	local samples = {}
 	animator:StepAnimations(0)
@@ -154,8 +167,8 @@ ks.Parent = folder
 if rec then pcall(function() CHS:FinishRecording(rec, Enum.FinishRecordingOperation.Commit) end) end
 return HS:JSONEncode({ ok = true, written = true })`;
 
-export function buildProgram(seq: KeyframeSequenceDescription, sampleTimes: number[]): string {
-  return `local WRITE = false\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq, times: sampleTimes }))}\n${EDIT_HEAD}${SEQUENCE_LUAU}${PLAY_LUAU}`;
+export function buildProgram(seq: KeyframeSequenceDescription, sampleTimes: number[], model: { path: string; rootPart: string } | null = null): string {
+  return `local WRITE = false\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq, times: sampleTimes, model }))}\n${EDIT_HEAD}${RESOLVE_LUAU}${SEQUENCE_LUAU}${PLAY_LUAU}`;
 }
 
 export function commitProgram(seq: KeyframeSequenceDescription, force: boolean): string {
