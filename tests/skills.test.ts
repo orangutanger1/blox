@@ -3,10 +3,10 @@ import { listSkills, loadSkill, formatSkillList } from '../src/skills.js';
 import { TOOLS, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 
 describe('skills', () => {
-  it('lists the vendored roblox-brain skills by library', () => {
+  it('lists the vendored roblox-brain skills and the blox skills by library', () => {
     const all = listSkills();
-    expect(all.length).toBe(29);
-    expect(new Set(all.map((s) => s.library))).toEqual(new Set(['core', 'gameplay', 'design', 'tools']));
+    expect(all.length).toBe(30);
+    expect(new Set(all.map((s) => s.library))).toEqual(new Set(['core', 'gameplay', 'design', 'tools', 'animation']));
     expect(all.every((s) => s.description.length > 10)).toBe(true);
     expect(formatSkillList(all)).toMatch(/roblox-security — /);
   });
