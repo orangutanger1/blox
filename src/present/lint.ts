@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MetricResult } from '../metrics/gamefeel.js';
 import { imageSize } from './image.js';
+import { colourGrid, decodeSmall, gridDiff, pixelStats } from './pixels.js';
 import type { Presentation } from './schema.js';
 
 // Store-page policy + quality lint. Text rules follow Roblox's metadata rules
@@ -13,11 +14,11 @@ import type { Presentation } from './schema.js';
 export type PresentRule =
   | 'title-length' | 'title-roblox' | 'title-tags' | 'title-caps'
   | 'desc-length' | 'desc-links' | 'scam' | 'claims' | 'engagement-bait' | 'emoji-spam' | 'mature'
-  | 'thumb-count' | 'thumb-variety' | 'thumb-rendered' | 'thumb-aspect' | 'thumb-duplicate' | 'icon';
+  | 'thumb-count' | 'thumb-variety' | 'thumb-rendered' | 'thumb-aspect' | 'thumb-duplicate' | 'thumb-blank' | 'thumb-contrast' | 'thumb-similar' | 'icon';
 export const PRESENT_RULES: PresentRule[] = [
   'title-length', 'title-roblox', 'title-tags', 'title-caps',
   'desc-length', 'desc-links', 'scam', 'claims', 'engagement-bait', 'emoji-spam', 'mature',
-  'thumb-count', 'thumb-variety', 'thumb-rendered', 'thumb-aspect', 'thumb-duplicate', 'icon',
+  'thumb-count', 'thumb-variety', 'thumb-rendered', 'thumb-aspect', 'thumb-duplicate', 'thumb-blank', 'thumb-contrast', 'thumb-similar', 'icon',
 ];
 export interface PresentFinding {
   rule: PresentRule;
@@ -40,6 +41,32 @@ const MIN_THUMBS = 5;
 const SAME_CAMERA_STUDS = 5;
 const ASPECT = 16 / 9;
 const ASPECT_TOL = 0.05;
+
+// Pixel thresholds (0..255 luma), loose on purpose: they catch broken frames
+// (camera in a wall, sky only, failed capture), not taste.
+const BLANK_STD = 8;
+const MIN_RANGE = 48; // p95 - p5
+const DARK = 35;
+const BRIGHT = 225;
+const SIMILAR = 10; // colour-grid mean abs diff; distinct shots measured 24-58
+
+// Blank / contrast checks on one image; returns its colour grid for similarity.
+function pixelChecks(buf: Buffer, where: string, add: (rule: PresentRule, severity: 'error' | 'warn', where: string, detail: string) => void): Float64Array | null {
+  const img = decodeSmall(buf);
+  if (!img) {
+    add('thumb-blank', 'warn', where, 'pixels not checked (needs 8-bit PNG or baseline JPEG)');
+    return null;
+  }
+  const s = pixelStats(img);
+  if (s.std < BLANK_STD) {
+    add('thumb-blank', 'error', where, `one flat colour (luma spread ${s.std.toFixed(1)}) — the camera may be inside a wall or the capture failed; re-render`);
+    return colourGrid(img);
+  }
+  if (s.p95 - s.p5 < MIN_RANGE) add('thumb-contrast', 'warn', where, `low contrast (luma ${Math.round(s.p5)}–${Math.round(s.p95)}) — fog, flat lighting or murky colours read poorly at small sizes`);
+  else if (s.mean < DARK) add('thumb-contrast', 'warn', where, `very dark (mean luma ${Math.round(s.mean)})`);
+  else if (s.mean > BRIGHT) add('thumb-contrast', 'warn', where, `very bright (mean luma ${Math.round(s.mean)})`);
+  return colourGrid(img);
+}
 
 const dist = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -70,6 +97,7 @@ export function lintPresentation(doc: Presentation, projectPath: string): Presen
     if (twin) add('thumb-variety', 'error', s.id, `same theme "${s.theme}" and framing as ${twin.id} — variants must differ (action vs exploration vs character…)`);
   });
   const hashes = new Map<string, string>();
+  const grids: { id: string; grid: Float64Array }[] = [];
   for (const s of thumbs) {
     const file = s.file ? join(projectPath, s.file) : null;
     if (!file || !existsSync(file)) {
@@ -85,12 +113,22 @@ export function lintPresentation(doc: Presentation, projectPath: string): Presen
       add('thumb-aspect', 'error', s.id, `${size.w}×${size.h} is not 16:9 — size the Studio viewport 16:9 before rendering (ideal 1920×1080)`);
     const h = createHash('sha256').update(buf).digest('hex');
     const dup = hashes.get(h);
-    if (dup) add('thumb-duplicate', 'error', s.id, `identical image to ${dup}`);
-    else hashes.set(h, s.id);
+    if (dup) {
+      add('thumb-duplicate', 'error', s.id, `identical image to ${dup}`);
+      continue;
+    }
+    hashes.set(h, s.id);
+    const grid = pixelChecks(buf, s.id, add);
+    if (!grid) continue;
+    const near = grids.find((g) => gridDiff(g.grid, grid) < SIMILAR);
+    if (near) add('thumb-similar', 'error', s.id, `looks like ${near.id} (colour difference ${gridDiff(near.grid, grid).toFixed(1)} < ${SIMILAR}) — variants must show different scenes`);
+    grids.push({ id: s.id, grid });
   }
   const icons = doc.shots.filter((s) => s.kind === 'icon');
   if (icons.length !== 1) add('icon', 'error', 'shots', `${icons.length} icon shots (need exactly 1)`);
   else {
+    const iconFile = icons[0].file ? join(projectPath, icons[0].file) : null;
+    if (iconFile && existsSync(iconFile)) pixelChecks(readFileSync(iconFile), icons[0].id, add);
     const text = icons[0].overlay?.text ?? '';
     if (text.length > 12 || text.split(/\s+/).filter(Boolean).length > 2) add('icon', 'error', icons[0].id, `icon text "${text}" will not read at 64 px (<= 12 chars, <= 2 words)`);
   }

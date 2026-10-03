@@ -8,15 +8,19 @@ import { BloxConfigSchema } from '../src/config.js';
 import { readJson, withSyntheticResults, writeJson } from '../src/state/store.js';
 import { cliArgs, parseFlags } from '../src/cliTools.js';
 import { fakeStudio } from './fakeStudio.js';
+import { makePng } from './helpers/png.js';
 
-const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000007800000043808020000', 'hex');
+// A distinct real 16:9 picture per capture so variants are neither duplicates nor look-alikes.
 let n = 0;
+const capture = () => {
+  const i = n++;
+  return makePng(160, 90, 2, (x) => (x < 20 + (i % 6) * 24 ? [40 * (i % 6), 20, 200 - 30 * (i % 6)] : [250, 240 - 35 * (i % 6), 120]));
+};
 function ctx(): ToolCtx {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-ptool-'));
   const f = fakeStudio({
     luau: () => JSON.stringify({ ok: true, n: 1, values: { v1: 'r15' }, logs: [] }),
-    // distinct bytes per capture so variants are not duplicates
-    tools: { screen_capture: () => ({ content: [{ type: 'image', data: Buffer.concat([PNG, Buffer.from([n++])]).toString('base64'), mimeType: 'image/png' }] }) },
+    tools: { screen_capture: () => ({ content: [{ type: 'image', data: capture().toString('base64'), mimeType: 'image/png' }] }) },
   });
   return {
     session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }),
@@ -41,7 +45,7 @@ describe('present tool', () => {
     expect(r.isError).toBeFalsy();
     expect(r.text).toMatch(/rendered 6\/6/);
     const l = await call({ action: 'lint' }, c);
-    expect(l.text).toMatch(/17\/17 rules pass/);
+    expect(l.text).toMatch(/20\/20 rules pass/);
     expect(l.isError).toBeFalsy();
     expect(withSyntheticResults(c.projectPath, null)!.tests.some((t) => t.name === 'present:thumb-rendered' && t.status === 'pass')).toBe(true);
   });
