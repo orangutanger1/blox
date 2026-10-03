@@ -81,6 +81,16 @@ describe('metrics bot through the eval bridge', () => {
     expect(r.notes.join(' ')).toMatch(/eval bridge failed.*no plugin picked up/);
   });
 
+  it('an idle bot with no plugin still reads the telemetry on the MCP thread', async () => {
+    bridge.impl = async () => {
+      throw new StudioError('wrong_mode', 'eval bridge: no plugin picked up the job');
+    };
+    const { session, f } = studio(true);
+    const r = await runMetrics(session, mkdtempSync(join(tmpdir(), 'blox-mb-')), null, { mode: 'soak', seconds: 10, bot: 'idle', sleep: async () => {} });
+    expect(f.calls.some((c) => c.name === 'execute_luau' && String(c.args.code).includes('BloxTelemetryDump'))).toBe(true);
+    expect(r.notes.join(' ')).not.toMatch(/telemetry/i);
+  });
+
   it('HTTP-disabled errors while the bridge holds HTTP off are not the game\'s errors', async () => {
     serverLogs = [
       { level: 'error', message: 'Http requests are not enabled. Enable via game settings', t: 1e12 },

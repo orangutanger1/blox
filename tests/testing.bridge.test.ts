@@ -89,6 +89,22 @@ describe('runTests through the eval bridge', () => {
     expect(bridge.calls.every((c) => c.code.includes('__SPECFNS'))).toBe(true);
   });
 
+  it('a live playtest is stopped so the syntax precheck still runs', async () => {
+    const { session, f } = studio(true);
+    f.setMode('Play');
+    const r = await runTests(session, project({ ...SPECS, 'c.spec.luau': '-- @context server\ntest("broken", function(\n' }), { testTimeoutSec: 1 });
+    expect(f.calls.some((c) => c.name === 'start_stop_play' && c.args.is_start === false)).toBe(true);
+    expect(f.calls.some((c) => c.name === 'execute_luau' && String(c.args.code).includes('loadstring(s.source'))).toBe(true);
+    expect(r.passed).toBe(2);
+  });
+
+  it('a spec file named like an HTTP call still runs through the bridge', async () => {
+    const { bridgeIneligible, testProgram } = await import('../src/testing/runner.js');
+    const spec = { file: 'tests/httpPost.spec.luau', source: 'test("x", function() end)', context: 'server' as const };
+    expect(bridgeIneligible({ server: [spec], client: [] }, 1)).toBeNull();
+    expect(testProgram([spec], 1).code).not.toMatch(/httpPost/i);
+  });
+
   it('a spec the bridge guardrail refuses sends the run to injected hosts', async () => {
     const { session, f } = studio(true);
     const r = await runTests(session, project({ ...SPECS, 'a.spec.luau': '-- @context server\nlocal _ = "DataStoreService"\ntest("server works", function() end)\n' }), { testTimeoutSec: 1 });
