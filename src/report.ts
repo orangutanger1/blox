@@ -26,6 +26,7 @@ export interface RunReport {
   status: 'success' | 'error';
   stopReason?: string;
   detail?: string;
+  finalText?: string;
   mode?: 'auto' | 'ask';
   effort?: string;
   sessionId?: string | null;
@@ -75,6 +76,7 @@ export function formatReport(r: RunReport): string {
           ),
         ]
       : []),
+    ...(r.finalText ? ['agent report:', ...r.finalText.split('\n').map((l) => `  ${l}`)] : []),
     `changed files (${r.changedFiles.length}):`,
     ...r.changedFiles.map((f) => `  ${f}`),
     r.commitSha ? `commit: ${r.commitSha}` : 'commit: (none)',

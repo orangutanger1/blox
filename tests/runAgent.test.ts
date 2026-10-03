@@ -70,6 +70,11 @@ describe('summarizeResult', () => {
     expect(r.gatedActions).toEqual([]);
   });
 
+  it('keeps the closing message as finalText, but not an API error message', () => {
+    expect(summarizeResult({ ...base, result: '  Done: HUD built.  ' }).finalText).toBe('Done: HUD built.');
+    expect(summarizeResult({ ...base, is_error: true, result: 'API Error: 403' }).finalText).toBeUndefined();
+  });
+
   it('derives a gated stop from permission_denials and forces error status', () => {
     const r = summarizeResult({
       ...base,
