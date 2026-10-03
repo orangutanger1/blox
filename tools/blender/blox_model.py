@@ -239,7 +239,17 @@ def _base_link(mat):
     bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
     if bsdf is None or not bsdf.inputs["Base Color"].is_linked:
         return None
-    return bsdf.inputs["Base Color"].links[0].from_node
+    node = bsdf.inputs["Base Color"].links[0].from_node
+    # Pass-through nodes keep the colour's source (blox's own vertex material
+    # has a Gamma node; glTF imports and tidy node trees add Reroutes).
+    for _ in range(16):
+        if node.type not in ("REROUTE", "GAMMA"):
+            break
+        inp = node.inputs[0]
+        if not inp.is_linked:
+            break
+        node = inp.links[0].from_node
+    return node
 
 
 def _image_ok(img):
@@ -255,8 +265,10 @@ def colour_class(mat):
     """How a material's colour fares on a Roblox upload:
     flat (baked into vertex colours on export), vertex (Color Attribute, kept),
     texture (image, embedded), procedural / missing-image (arrive white)."""
-    if mat is None or mat.name == VERTEX_MATERIAL:
-        return "vertex" if mat is not None else "flat"
+    if mat is None:
+        return "flat"
+    if mat.name.startswith(VERTEX_MATERIAL):
+        return "vertex"
     if _has_texture(mat):
         imgs = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image]
         return "texture" if all(_image_ok(i) for i in imgs) else "missing-image"
@@ -319,9 +331,10 @@ def _vertex_material():
 
 
 def bake_vertex_colors(objs):
-    """Bake every untextured material's flat colour into a "Col" corner
-    attribute and replace those materials with one shared vertex-colour
-    material. Textured materials stay (their packed image survives upload).
+    """Bake every untextured material's colour into a "Col" corner attribute
+    and replace those materials with one shared vertex-colour material: flat
+    colours as they are, painted Color Attribute materials copied per corner.
+    Textured materials stay (their packed image survives upload).
     Returns {"materials": n_after, "baked": n_faces, "textured": n_textured}."""
     vmat = _vertex_material()
     baked = textured = 0
@@ -330,38 +343,46 @@ def bake_vertex_colors(objs):
             continue
         me = o.data
         mats = [s.material for s in o.material_slots]
-        col = me.color_attributes.get("Col") or me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
         keep = {}  # old slot index -> new slot index (textured materials)
         new_mats = [vmat]
         for i, m in enumerate(mats):
             if _has_texture(m):
                 keep[i] = len(new_mats)
                 new_mats.append(m)
-        # Painted materials keep their colours: read them before "Col" is overwritten.
-        painted = {}
+        # Read every colour first: the source may itself be "Col", which is
+        # replaced below by a fresh FLOAT/CORNER attribute.
+        sources = {}
         for i, m in enumerate(mats):
             if i not in keep and m is not None and colour_class(m) == "vertex":
                 attr = _vertex_source(m, me)
-                if attr is not None and attr.name != col.name:
-                    painted[i] = attr
+                if attr is not None:
+                    # blox's own vertex material stores sRGB numbers; painted
+                    # attributes store linear colours (Blender's convention).
+                    raw = m.name.startswith(VERTEX_MATERIAL)
+                    sources[i] = (attr.domain, [tuple(d.color[:3]) if raw else tuple(d.color_srgb[:3]) for d in attr.data])
+        values = [None] * len(me.loops)
         for poly in me.polygons:
             m = mats[poly.material_index] if poly.material_index < len(mats) else None
             if poly.material_index in keep:
                 textured += 1
-                rgb = (1.0, 1.0, 1.0)
-            elif poly.material_index in painted:
-                attr = painted[poly.material_index]
-                for li, vi in zip(poly.loop_indices, poly.vertices):
-                    # "Col" holds sRGB values (as the flat bake writes them).
-                    c = attr.data[li if attr.domain == "CORNER" else vi].color_srgb
-                    col.data[li].color = (c[0], c[1], c[2], 1.0)
-                baked += 1
+                for li in poly.loop_indices:
+                    values[li] = (1.0, 1.0, 1.0)
                 continue
+            baked += 1
+            if poly.material_index in sources:
+                domain, data = sources[poly.material_index]
+                for li, vi in zip(poly.loop_indices, poly.vertices):
+                    values[li] = data[li if domain == "CORNER" else vi]
             else:
                 rgb = tuple(to_srgb(c) for c in _flat_color(m))
-                baked += 1
-            for li in poly.loop_indices:
-                col.data[li].color = (*rgb, 1.0)
+                for li in poly.loop_indices:
+                    values[li] = rgb
+        old = me.color_attributes.get("Col")
+        if old is not None:
+            me.color_attributes.remove(old)
+        col = me.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
+        for li, rgb in enumerate(values):
+            col.data[li].color = (*(rgb or (1.0, 1.0, 1.0)), 1.0)
         idx = [keep.get(p.material_index, 0) for p in me.polygons]
         me.materials.clear()
         for m in new_mats:

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, isAbsolute, join, relative } from 'node:path';
+import { basename, extname, join, relative, resolve } from 'node:path';
+import { isPathContained } from '../agent/guardrail.js';
 import { fileURLToPath } from 'node:url';
 import { blenderBin, defaultSpawn, type Spawner } from '../assets/blender.js';
 import { longString } from '../studio/luau.js';
@@ -133,6 +134,8 @@ export function formatStats(s: ModelStats, projectPath: string, budget = 0): str
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_REFS = 4;
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 
 // check hands the renders and the brief's references back as images, so any
 // MCP client sees them side by side (not every agent can open image files).
@@ -145,7 +148,14 @@ export function checkImages(views: string[], refs: string[], projectPath: string
     if (!mimeType) return notes.push(`${shown}: not attached (PNG or JPEG only)`), false;
     if (!existsSync(file)) return notes.push(`${shown}: missing`), false;
     if (statSync(file).size > MAX_IMAGE_BYTES) return notes.push(`${shown}: not attached (over 2 MB)`), false;
-    images.push({ data: readFileSync(file).toString('base64'), mimeType });
+    const bytes = readFileSync(file);
+    // Model APIs reject a request whose image bytes don't match its media type.
+    const isPng = bytes.subarray(0, 4).equals(PNG_MAGIC);
+    const isJpeg = bytes.subarray(0, 3).equals(JPEG_MAGIC);
+    if ((mimeType === 'image/png' && !isPng) || (mimeType === 'image/jpeg' && !isJpeg)) {
+      return notes.push(`${shown}: not attached (its bytes are not a ${mimeType === 'image/png' ? 'PNG' : 'JPEG'}; re-save it)`), false;
+    }
+    images.push({ data: bytes.toString('base64'), mimeType });
     labels.push(label);
     return true;
   };
@@ -156,7 +166,13 @@ export function checkImages(views: string[], refs: string[], projectPath: string
       notes.push(`${r}: not attached (only ${MAX_REFS} references are)`);
       continue;
     }
-    if (add(isAbsolute(r) ? r : join(projectPath, r), `reference ${r}`, r)) n++;
+    // Only project files reach the model's context.
+    const file = resolve(projectPath, r);
+    if (!isPathContained(projectPath, file)) {
+      notes.push(`${r}: not attached (outside the project — copy it into the project)`);
+      continue;
+    }
+    if (add(file, `reference ${r}`, r)) n++;
   }
   return { images, labels, notes };
 }

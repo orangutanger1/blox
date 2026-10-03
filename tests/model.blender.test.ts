@@ -87,4 +87,52 @@ r, g, b, _ = col.data[0].color
 assert abs(r - 1.0) < 0.02 and abs(g - 0.735) < 0.03 and b < 0.02, (r, g, b)
 `);
   }, 180_000);
+
+  it('paint already in "Col" (float corner or byte point) survives the bake', async () => {
+    await build(`reset()
+a = box("A", (1, 1, 1), (0, 0, 1), "#0000ff")
+b = box("B", (1, 1, 1), (3, 0, 1), "#0000ff")
+fa = a.data.color_attributes.new("Col", "FLOAT_COLOR", "CORNER")
+for d in fa.data:
+    d.color = (1.0, 0.0, 0.0, 1.0)
+fb = b.data.color_attributes.new("Col", "BYTE_COLOR", "POINT")
+for d in fb.data:
+    d.color = (0.0, 1.0, 0.0, 1.0)
+for o in (a, b):
+    m = bpy.data.materials.new("P_" + o.name)
+    m.use_nodes = True
+    ca = m.node_tree.nodes.new("ShaderNodeVertexColor")
+    ca.layer_name = "Col"
+    m.node_tree.links.new(ca.outputs["Color"], m.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+    o.data.materials.clear()
+    o.data.materials.append(m)
+bake_vertex_colors([a, b])
+ra = a.data.color_attributes["Col"].data[0].color
+rb = b.data.color_attributes["Col"].data[0].color
+assert ra[0] > 0.98 and ra[1] < 0.02, tuple(ra)
+assert rb[1] > 0.98 and rb[0] < 0.02, tuple(rb)
+assert a.data.color_attributes["Col"].domain == "CORNER"
+`);
+  }, 180_000);
+
+  it('a Reroute between the Color Attribute and Base Color is still vertex colour', async () => {
+    const s = await build(`reset()
+c = box("Tail", (1, 1, 1), (0, 0, 1), "#0000ff")
+attr = c.data.color_attributes.new("Paint", "FLOAT_COLOR", "CORNER")
+for d in attr.data:
+    d.color = (1.0, 0.0, 0.0, 1.0)
+v = bpy.data.materials.new("Rerouted")
+v.use_nodes = True
+nt = v.node_tree
+ca = nt.nodes.new("ShaderNodeVertexColor")
+ca.layer_name = "Paint"
+rr = nt.nodes.new("NodeReroute")
+nt.links.new(ca.outputs["Color"], rr.inputs[0])
+nt.links.new(rr.outputs[0], nt.nodes["Principled BSDF"].inputs["Base Color"])
+c.data.materials.clear()
+c.data.materials.append(v)
+assert colour_class(v) == "vertex", colour_class(v)
+`);
+    expect(s.colours).toMatchObject({ Rerouted: 'vertex' });
+  }, 180_000);
 });

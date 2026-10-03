@@ -41,7 +41,8 @@ describe('model helpers', () => {
   it('checkImages attaches views then refs (PNG/JPEG, size-capped, at most 4 refs)', () => {
     const p = project();
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-    for (const f of ['front.png', 'r1.png', 'r2.jpg', 'r3.png', 'r4.png', 'r5.png']) writeFileSync(join(p, f), png);
+    for (const f of ['front.png', 'r1.png', 'r3.png', 'r4.png', 'r5.png']) writeFileSync(join(p, f), png);
+    writeFileSync(join(p, 'r2.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
     writeFileSync(join(p, 'big.png'), Buffer.alloc(3 * 1024 * 1024));
     writeFileSync(join(p, 'sheet.webp'), png);
     const r = checkImages([join(p, 'front.png'), join(p, 'gone.png')], ['big.png', 'sheet.webp', 'r1.png', 'r2.jpg', 'r3.png', 'r4.png', 'r5.png'], p);
@@ -52,6 +53,18 @@ describe('model helpers', () => {
     expect(r.notes.join('\n')).toMatch(/sheet\.webp.*PNG or JPEG/);
     expect(r.notes.join('\n')).toMatch(/r5\.png.*4 references/);
     expect(r.notes.join('\n')).toMatch(/gone\.png.*missing/);
+  });
+  it('checkImages sniffs the bytes and keeps refs inside the project', () => {
+    const p = project();
+    const outside = project();
+    writeFileSync(join(p, 'fake.png'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    writeFileSync(join(p, 'real.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    writeFileSync(join(outside, 'x.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const r = checkImages([], ['fake.png', 'real.jpg', join(outside, 'x.png'), '../escape.png'], p);
+    expect(r.images.map((i) => i.mimeType)).toEqual(['image/jpeg']);
+    expect(r.notes.join('\n')).toMatch(/fake\.png.*not a PNG/);
+    expect(r.notes.join('\n')).toMatch(/x\.png.*outside the project/);
+    expect(r.notes.join('\n')).toMatch(/escape\.png.*outside the project/);
   });
   it('runModelPy passes software-GL env on linux and parses the result line', async () => {
     const p = project();
