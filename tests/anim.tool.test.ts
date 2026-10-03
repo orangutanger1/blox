@@ -57,3 +57,21 @@ describe('animate recipes/check', () => {
     }
   });
 });
+
+describe('animate wire (tool)', () => {
+  it('refuses an R6 animation for an R15-only place, and syncs after writing', async () => {
+    const calls: string[] = [];
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        calls.push(name);
+        const code = String(args.code ?? '');
+        const v = code.includes('GameSettingsAvatar') ? 'R15' : '{}';
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] }) }] };
+      },
+    } as unknown as StudioSession;
+    const c = ctx(session);
+    const bad = await call({ action: 'wire', slot: 'walk', asset: 1, rig: 'R6' }, c);
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/R15/);
+  });
+});
