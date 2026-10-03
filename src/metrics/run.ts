@@ -2,9 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
-import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason } from '../studio/evalBridge.js';
+import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason, isBridgeFailure } from '../studio/evalBridge.js';
 
 const botTimeoutMs = (seconds: number) => seconds * 1000 + 15_000;
+const HTTP_OFF = /Http requests are not enabled/i;
 import { collectLogs, startPlay, stopPlay, summarizeLogs } from '../studio/play.js';
 import { BOT_HOST, installScript, removeHosts } from '../testing/playHost.js';
 import type { DesignDoc } from '../design/schema.js';
@@ -121,10 +122,11 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
       info = await startPlay(session);
       try {
         const b = await runLuau(session, bridgeBot, 'server', { chunkName: 'bot', timeoutMs: botTimeoutMs(o.seconds) });
-        if (!b.ok && /^eval bridge: |guardrail/.test(b.error?.message ?? '')) throw new Error(b.error!.message);
+        if (!b.ok && isBridgeFailure(b.error?.message ?? '')) throw new Error(b.error!.message);
         if (!b.ok) notes.push(`bot: ${b.error?.message}`);
         notes.push('bot ran through the eval bridge');
       } catch (e) {
+        if (!isBridgeFailure((e as Error).message)) throw e;
         notes.push(`eval bridge failed (${(e as Error).message}); bot reran as an injected script`);
         bridgeBot = null;
         bridgeDown = true;
@@ -141,6 +143,13 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
     const since = info!.startedAt - 1; // set by one of the two branches above
     const [sl, cl] = await Promise.all([collectLogs(session, 'server', since).catch(() => []), collectLogs(session, 'client', since).catch(() => [])]);
     const logs = summarizeLogs([...sl, ...cl]);
+    // The bridge turns the server's HttpEnabled off while its probe (the bot)
+    // runs: the game's HTTP calls failing then is the harness, not the game.
+    const httpOff = bridgeBot ? logs.errors.filter((e) => HTTP_OFF.test(e.message)) : [];
+    if (httpOff.length) {
+      logs.errors = logs.errors.filter((e) => !HTTP_OFF.test(e.message));
+      notes.push(`${httpOff.length} HTTP error(s) ignored: HTTP requests are off while the eval bridge runs the bot`);
+    }
     errors = logs.errors.length;
     for (const e of logs.errors.slice(0, 5)) notes.push(`runtime error [${e.context}] ${e.message}`);
     for (const w of logs.warnings) if (w.message.includes('[blox bot]')) notes.push(`bot: ${w.message}`);

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { longString, runLuau, userLineOffset } from '../studio/luau.js';
 import { StudioError, type StudioSession } from '../studio/session.js';
-import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason, bridgeSource, mapBridgeLines } from '../studio/evalBridge.js';
+import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason, bridgeSource, isBridgeFailure, mapBridgeLines } from '../studio/evalBridge.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary } from '../studio/play.js';
 import { hostSource, installHost, newRunId, normalizeHostPositions, pollResults, removeHosts, type PlayContext } from './playHost.js';
 
@@ -348,7 +348,7 @@ async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestCont
   const bridgeOffset = viaBridge ? bridgeSource(code).userLineOffset : 0;
   const lines = code.split('\n').length;
   const map = (m: string) => mapSpecPositions(viaBridge ? mapBridgeLines(m, bridgeOffset, chunk, lines) : m, specs, specLines, userLineOffset(fresh), chunk);
-  if (bridge && !r.ok && /^eval bridge: |guardrail/.test(r.error?.message ?? '')) throw new StudioError('tool_error', r.error!.message);
+  if (bridge && !r.ok && isBridgeFailure(r.error?.message ?? '')) throw new StudioError('tool_error', r.error!.message);
   if (!r.ok) {
     return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })) };
   }
@@ -391,6 +391,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
           b = await runPlayViaBridge(session, play, timeoutSec);
           via = 'bridge';
         } catch (e) {
+          if (!isBridgeFailure((e as Error).message)) throw e;
           notes.push(`eval bridge failed (${(e as Error).message}); specs reran in injected hosts`);
         }
       }
@@ -421,7 +422,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
 
 export function formatTestRun(r: TestRunResult): string {
   const lines = [`tests ${r.ok ? 'PASS' : 'FAIL'}: ${r.passed}/${r.total} passed (${r.durationMs}ms)`];
-  if (r.via === 'bridge') lines.push('  (play specs ran through the eval bridge)');
+  if (r.via === 'bridge') lines.push('  (play specs ran through the eval bridge; HTTP requests are off while it runs)');
   for (const n of r.notes ?? []) lines.push(`  note: ${n}`);
   for (const f of r.fileErrors) lines.push(`  ERROR ${f.file}: ${f.message}`);
   // Failures in full; passes as one line of names (they repeat on every run).

@@ -74,3 +74,19 @@ session with `evalBridge: true`. Cases:
 - Metrics, long run falls back to injection.
 
 Live: `run_tests` in ~/blox-fw with server/client specs and the bridge on.
+
+## Review rulings (2026-10-03)
+
+- **HTTP during a bridge probe.** The plugin turns the server's
+  `HttpEnabled` off while a probe runs, and a probe now spans the whole
+  bot run or test batch.
+  - For **metrics**, server errors matching `Http requests are not enabled`
+    are dropped from `soak:errors` when the bot ran through the bridge.
+    Each drop gets a note.
+  - For **tests**, the output states that HTTP is off. A spec that needs
+    live HTTP should mock it, or run with `bridge.eval` off.
+- **Fallback scope.** blox falls back to injected scripts only for the
+  bridge's own failures (`isBridgeFailure`): lane errors (now prefixed
+  `eval bridge:`), guardrail refusals, and garbled replies. Anything else,
+  such as no player joining or a Studio error, propagates. Otherwise the
+  run would wait twice and the note would blame the bridge.

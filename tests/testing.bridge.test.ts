@@ -65,7 +65,7 @@ describe('runTests through the eval bridge', () => {
     expect(r.via).toBe('bridge');
     expect(f.calls.some((c) => c.name === 'multi_edit')).toBe(false);
     expect(bridge.calls.filter((c) => c.code.includes('__SPECFNS')).map((c) => c.ctx)).toEqual(['server', 'client']);
-    expect(formatTestRun(r)).toMatch(/play specs ran through the eval bridge/);
+    expect(formatTestRun(r)).toMatch(/play specs ran through the eval bridge; HTTP requests are off while it runs/);
   });
 
   it('maps bridge script positions in test messages back to spec lines', async () => {
@@ -117,6 +117,16 @@ describe('runTests through the eval bridge', () => {
     const { session } = studio(true);
     const r = await runTests(session, project(many), { testTimeoutSec: 10 });
     expect(r.via).toBe('bridge');
+  });
+
+  it('a failure that is not the bridge propagates instead of rerunning', async () => {
+    bridge.impl = async (code) => {
+      if (code.includes('__SPECFNS')) throw new Error('kaboom');
+      return ok(null);
+    };
+    const { session, f } = studio(true);
+    await expect(runTests(session, project(SPECS), { testTimeoutSec: 1 })).rejects.toThrow(/kaboom/);
+    expect(f.calls.some((c) => c.name === 'multi_edit')).toBe(false);
   });
 
   it('bridge off: injected hosts as before, no note', async () => {

@@ -20,13 +20,14 @@ import { fakeStudio, type FakeStudio } from './fakeStudio.js';
 const DUMP = JSON.stringify({ elapsed: 10, players: { '1': { joinedAt: 0, steps: {} } }, events: [], samples: [{ t: 1, memMb: 100, stats: {} }, { t: 9, memMb: 100, stats: {} }] });
 const ok = (v: unknown): LuauResult => ({ ok: true, values: [v], logs: [], durationMs: 1 });
 
+let serverLogs: unknown[] = [];
 function studio(evalBridge: boolean): { session: StudioSession; f: FakeStudio } {
   const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
   const f = fakeStudio({
     luau: (code, dm) => {
       if (code.includes('GetPlayers()') && dm === 'Server') return env(1);
       if (code.includes('HumanoidRootPart') && dm === 'Client') return env(true);
-      if (code.includes('GetLogHistory')) return env([]);
+      if (code.includes('GetLogHistory')) return env(dm === 'Server' ? serverLogs : []);
       if (code.includes('BloxTelemetryDump')) return env(DUMP);
       return env('ok');
     },
@@ -38,6 +39,7 @@ const run = (session: StudioSession, seconds = 10) =>
   runMetrics(session, mkdtempSync(join(tmpdir(), 'blox-mb-')), null, { mode: 'soak', seconds, bot: 'walk', sleep: async () => {} });
 
 beforeEach(() => {
+  serverLogs = [];
   bridge.calls.length = 0;
   bridge.impl = async (code) => ok(code.includes('BloxTelemetryDump') ? DUMP : true);
 });
@@ -77,6 +79,26 @@ describe('metrics bot through the eval bridge', () => {
     const r = await run(session);
     expect(f.calls.some((c) => c.name === 'multi_edit')).toBe(true);
     expect(r.notes.join(' ')).toMatch(/eval bridge failed.*no plugin picked up/);
+  });
+
+  it('HTTP-disabled errors while the bridge holds HTTP off are not the game\'s errors', async () => {
+    serverLogs = [
+      { level: 'error', message: 'Http requests are not enabled. Enable via game settings', t: 1e12 },
+      { level: 'error', message: 'Workspace.Lava: attempt to index nil', t: 1e12 },
+    ];
+    const { session } = studio(true);
+    const r = await run(session);
+    expect(r.results.find((x) => x.id === 'soak:errors')).toMatchObject({ actual: 1 });
+    expect(r.notes.join(' ')).toMatch(/1 HTTP error\(s\) ignored/);
+  });
+
+  it('a bot failure that is not the bridge propagates', async () => {
+    bridge.impl = async (code) => {
+      if (code.includes('__bot')) throw new Error('kaboom');
+      return ok(DUMP);
+    };
+    const { session } = studio(true);
+    await expect(run(session)).rejects.toThrow(/kaboom/);
   });
 
   it('bridge off: injected bot, no bridge note', async () => {
