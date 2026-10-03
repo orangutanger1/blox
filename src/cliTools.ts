@@ -136,6 +136,28 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.timeout === 'string' ? { timeout: Number(o.timeout) } : {}),
         },
       };
+    case 'animate': {
+      const action = f.rest[0] ?? 'recipes';
+      const flag = (k: string) => (o[k] === true ? { [k]: true } : {});
+      const str = (k: string) => (typeof o[k] === 'string' ? { [k]: o[k] as string } : {});
+      switch (action) {
+        case 'recipes':
+          return { tool: 'animate', args: { action, ...(f.rest[1] ? { name: f.rest[1] } : {}) } };
+        case 'check': {
+          const file = f.rest[1];
+          if (!file) throw new Error('usage: blox animate check <description.json> [--locomotion] [--grounded] [--waive id,id]');
+          return { tool: 'animate', args: { action, animation: JSON.parse(readFileSync(file, 'utf8')), ...flag('locomotion'), ...flag('grounded'), ...(typeof o.waive === 'string' ? { waive: o.waive.split(',').map((x) => x.trim()).filter(Boolean) } : {}) } };
+        }
+        case 'build':
+          return { tool: 'animate', args: { action, name: f.rest[1], ...flag('force') } };
+        case 'wire':
+          return { tool: 'animate', args: { action, slot: f.rest[1], asset: f.rest[2], ...str('replaces'), ...str('rig') } };
+        case 'verify':
+          return { tool: 'animate', args: { action, name: f.rest[1], ...str('slot'), ...str('asset') } };
+        default:
+          throw new Error(`unknown animate action ${action}`);
+      }
+    }
     case 'model': {
       const action = f.rest[0] ?? 'list';
       const id = f.rest[1];
@@ -277,6 +299,8 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
+           blox animate recipes [name] | check <desc.json> [--locomotion] [--grounded] [--waive ids]
+                        build <name> [--force] | wire <slot> <asset> [--replaces id] [--rig R15|R6] | verify <name> [--slot s] [--asset id]
            blox liveops report [--from export.json]|propose|apply <id>|push config|thumbnails [--confirm]
            blox liveops approve config|thumbnails   (human sign-off before push --confirm)
 Observe:   blox dashboard [--port 35780]
@@ -285,7 +309,7 @@ Agent:     blox "<prompt>"                built-in Claude runner (uses the same 
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'model', 'release', 'liveops', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {
