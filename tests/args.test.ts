@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseArgs } from '../src/args.js';
+import { parseArgs, strayPrompt } from '../src/args.js';
 
 describe('parseArgs', () => {
   it('joins positional words into the prompt', () => {
@@ -237,5 +237,27 @@ describe('--resume / --continue', () => {
 
   it('rejects --resume together with --continue', () => {
     expect(() => parseArgs(['--resume', 'x', '--continue'])).toThrow(/--resume.*--continue|mutually exclusive/);
+  });
+});
+
+describe('strayPrompt (blox)', () => {
+  it('passes a quoted prompt', () => {
+    expect(strayPrompt(['add a coin counter'])).toBeNull();
+    expect(strayPrompt(['add a coin counter', '--project', 'x'])).toBeNull();
+  });
+  it('refuses an unknown verb typed as if it were a command', () => {
+    const msg = strayPrompt(['build', 'obby', '--project', '/p'])!;
+    expect(msg).toMatch(/"build" is not a blox command/);
+    expect(msg).toMatch(/blox "build obby"/);
+  });
+  it('suggests the nearest command for a typo', () => {
+    expect(strayPrompt(['animte', 'rig'])).toMatch(/did you mean "animate"/);
+  });
+  it('refuses a lone word', () => {
+    expect(strayPrompt(['refactor'])).toMatch(/not a blox command/);
+  });
+  it('ignores flags and their values when finding the first word', () => {
+    expect(strayPrompt(['--project', '/p', 'fix the door'])).toBeNull();
+    expect(strayPrompt(['--model', 'opus', 'fix'])).toMatch(/"fix"/);
   });
 });
