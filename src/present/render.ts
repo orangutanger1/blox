@@ -4,6 +4,7 @@ import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import type { Presentation } from './schema.js';
 import { CLEANUP, rigProgram } from './rig.js';
+import { ICON_SIZE, squareIconFromCapture } from './square.js';
 
 export interface RenderResult {
   rendered: { id: string; file: string; avatar: string }[];
@@ -29,9 +30,20 @@ export async function renderShots(session: StudioSession, projectPath: string, d
       const r = await session.call('screen_capture', { capture_id: `present-${shot.id}`, camera_position: shot.camera.position, look_at_position: shot.camera.lookAt }, 30_000);
       const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
       if (!img?.data) throw new Error('screen_capture returned no image');
-      const ext = (img.mimeType ?? 'image/jpeg').includes('png') ? 'png' : 'jpg';
+      let bytes: Buffer = Buffer.from(img.data, 'base64');
+      let ext = (img.mimeType ?? 'image/jpeg').includes('png') ? 'png' : 'jpg';
+      // The icon is square on the store: crop the 16:9 capture's centre.
+      // An undecodable capture is kept as is; present lint then flags its shape.
+      if (shot.kind === 'icon') {
+        try {
+          bytes = squareIconFromCapture(bytes, ICON_SIZE);
+          ext = 'png';
+        } catch {
+          /* keep the raw capture */
+        }
+      }
       const rel = `.blox/artifacts/present/${shot.id}.${ext}`;
-      writeFileSync(join(projectPath, rel), Buffer.from(img.data, 'base64'));
+      writeFileSync(join(projectPath, rel), bytes);
       Object.assign(shot, { file: rel, provenance: 'render', renderedAt: new Date().toISOString() });
       out.rendered.push({ id: shot.id, file: rel, avatar: String(rig.values[0] ?? '') });
     } catch (e) {

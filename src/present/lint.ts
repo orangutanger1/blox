@@ -135,7 +135,12 @@ export function lintPresentation(doc: Presentation, projectPath: string): Presen
   if (icons.length !== 1) add('icon', 'error', 'shots', `${icons.length} icon shots (need exactly 1)`);
   else {
     const iconFile = icons[0].file ? join(projectPath, icons[0].file) : null;
-    if (iconFile && existsSync(iconFile)) pixelChecks(readFileSync(iconFile), icons[0].id, add, true);
+    if (iconFile && existsSync(iconFile)) {
+      const buf = readFileSync(iconFile);
+      const size = imageSize(buf);
+      if (size && size.w !== size.h) add('icon', 'error', icons[0].id, `${size.w}×${size.h} is not square — store icons are 512×512; present render crops the icon shot square (re-render it; keep the subject and text in the centre)`);
+      pixelChecks(buf, icons[0].id, add, true);
+    }
     const text = icons[0].overlay?.text ?? '';
     if (text.length > 12 || text.split(/\s+/).filter(Boolean).length > 2) add('icon', 'error', icons[0].id, `icon text "${text}" will not read at 64 px (<= 12 chars, <= 2 words)`);
   }

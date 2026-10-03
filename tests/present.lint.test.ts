@@ -108,8 +108,9 @@ describe('lintPresentation', () => {
     const { p, doc } = project(shots, files);
     const f = lintPresentation(doc, p);
     expect(f.map((x) => `${x.rule}:${x.severity}:${x.where}`).sort()).toEqual([
-      'icon:error:icon', 'thumb-blank:error:action', 'thumb-contrast:warn:exploration', 'thumb-similar:error:reward',
+      'icon:error:icon', 'icon:error:icon', 'thumb-blank:error:action', 'thumb-contrast:warn:exploration', 'thumb-similar:error:reward',
     ]);
+    expect(f.filter((x) => x.rule === 'icon').map((x) => x.detail).join('\n')).toMatch(/160×90 is not square/);
     expect(f.find((x) => x.rule === 'thumb-similar')!.detail).toMatch(/character/);
   });
   it('a minimalist icon (small glyph on a flat field) is not blank', () => {

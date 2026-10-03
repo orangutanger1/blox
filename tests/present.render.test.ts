@@ -11,6 +11,9 @@ import type { Presentation } from '../src/present/schema.js';
 import { luneBin, luneCheck } from './helpers/lune.js';
 import { fakeStudio } from './fakeStudio.js';
 import { readFileSync } from 'node:fs';
+import jpeg from 'jpeg-js';
+import { imageSize } from '../src/present/image.js';
+import { decodePng } from '../src/present/pixels.js';
 
 const ok = JSON.stringify({ ok: true, n: 1, values: { v1: 'r15' }, logs: [] });
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000007800000043808020000', 'hex').toString('base64');
@@ -41,6 +44,24 @@ describe('renderShots', () => {
     expect(s.log).toEqual(['rig', 'capture', 'cleanup', 'rig', 'capture', 'cleanup']);
     expect(existsSync(join(s.p, '.blox/artifacts/present/action.png'))).toBe(true);
     expect(s.doc.shots[0]).toMatchObject({ file: '.blox/artifacts/present/action.png', provenance: 'render' });
+  });
+  it('crops a JPEG icon capture to a 512×512 PNG; thumbnails stay as captured', async () => {
+    const w = 320, h = 180;
+    const data = Buffer.alloc(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const centre = x >= 70 && x < 250; // the centre square is red, the sides blue
+      data[i] = centre ? 220 : 10; data[i + 1] = 20; data[i + 2] = centre ? 20 : 220; data[i + 3] = 255;
+    }
+    const jpg = jpeg.encode({ width: w, height: h, data }, 95).data.toString('base64');
+    const s = setup(() => ({ content: [{ type: 'image', data: jpg, mimeType: 'image/jpeg' }] }));
+    const r = await renderShots(s.session, s.p, s.doc, ['action', 'icon']);
+    expect(r.rendered.map((x) => x.file)).toEqual(['.blox/artifacts/present/action.jpg', '.blox/artifacts/present/icon.png']);
+    const png = readFileSync(join(s.p, '.blox/artifacts/present/icon.png'));
+    expect(imageSize(png)).toEqual({ w: 512, h: 512 });
+    const small = decodePng(png)!;
+    const px = (fx: number, fy: number) => { const i = (Math.floor(fy * small.h) * small.w + Math.floor(fx * small.w)) * 3; return [small.rgb[i], small.rgb[i + 2]]; };
+    for (const fx of [0.02, 0.5, 0.98]) { const [red, blue] = px(fx, 0.5); expect(red).toBeGreaterThan(150); expect(blue).toBeLessThan(80); }
   });
   it('a failed capture is reported and the rig is still removed', async () => {
     const s = setup(() => 'no image');
