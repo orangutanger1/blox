@@ -43,6 +43,8 @@ data, safe receipts): follow FRAMEWORK.md. kit apply boilerplate = framework onl
 Before building a map or a UI from scratch, search the Creator Store for free map
 templates and UI packs (studio_tool search_asset), insert the best, sanitize it (Assets),
 then adapt it.
+Unsure of a Roblox API or pattern (security, data, networking, GUI, physics, monetization…)?
+skill {} lists know-how skills; skill {name} loads one before you write that code.
 
 ## Multiplayer
 Social/PvP rules (theft, trading, rounds) need real clients: tests/<name>.mp.luau
