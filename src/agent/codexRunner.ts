@@ -104,6 +104,8 @@ export async function runCodexAgent(
     let settled = false;
     let interrupted = false;
     let lastProgress = Date.now();
+    // Blox tools (soak, playtest, multiplayer) can legitimately run past stallMs.
+    let inTool = 0;
     let outcome: { stop: StopReason; detail: string } = { stop: 'error', detail: 'no result' };
     let resolveDone!: () => void;
     const done = new Promise<void>((r) => (resolveDone = r));
@@ -158,9 +160,9 @@ export async function runCodexAgent(
       }
       emit({ type: 'status', turns: toolCalls });
       log(`→ ${name}`);
+      inTool++;
       try {
         const out = await callTool(name, args);
-        lastProgress = Date.now();
         return {
           success: !out.text.startsWith('ERROR'),
           contentItems: [
@@ -174,6 +176,9 @@ export async function runCodexAgent(
           return fail(e.message);
         }
         return fail(`ERROR: ${(e as Error).message}`);
+      } finally {
+        inTool--;
+        lastProgress = Date.now();
       }
     }));
     const onAbort = () => settle('error', 'cancelled', true);
@@ -181,7 +186,7 @@ export async function runCodexAgent(
     cleanups.push(() => o.abortController?.signal.removeEventListener('abort', onAbort));
     const stallMs = o.stallMs ?? 10 * 60_000;
     const watchdog = setInterval(() => {
-      if (Date.now() - lastProgress > stallMs) settle('idle-timeout', `Codex sent nothing for ${Math.round(stallMs / 1000)}s`, true);
+      if (inTool === 0 && Date.now() - lastProgress > stallMs) settle('idle-timeout', `Codex sent nothing for ${Math.round(stallMs / 1000)}s`, true);
     }, Math.min(5_000, stallMs));
     cleanups.push(() => clearInterval(watchdog));
 

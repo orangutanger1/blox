@@ -90,7 +90,7 @@ export async function runModelPy(cmd: 'run' | 'check' | 'export', args: Record<s
   // Workbench renders need GL; headless Linux/WSLg fails with EGL_BAD_MATCH
   // unless Blender uses software GL and ignores the Wayland display.
   const env = process.platform === 'linux' ? { LIBGL_ALWAYS_SOFTWARE: '1', WAYLAND_DISPLAY: 'nonexistent' } : undefined;
-  const r = await spawn(blenderBin(), ['-b', '--factory-startup', '--python', MODEL_SCRIPT, '--', cmd, argFile], env);
+  const r = await spawn(blenderBin(), ['-b', '--factory-startup', '--disable-autoexec', '--python', MODEL_SCRIPT, '--', cmd, argFile], env);
   if (r.notFound) throw new Error(`Blender not found ("${blenderBin()}") — install Blender 3.6+ and put it on PATH, or set BLOX_BLENDER`);
   const all = `${r.stdout}\n${r.stderr}`;
   const err = /BLOX_ERROR (.*)/.exec(all)?.[1];

@@ -8,7 +8,7 @@ export const NORMALIZE_SCRIPT = fileURLToPath(new URL('../../tools/blender/norma
 export const blenderBin = () => process.env.BLOX_BLENDER || 'blender';
 
 export function blenderArgs(input: string, out: string, tris: number, height: number): string[] {
-  return ['-b', '--factory-startup', '--python', NORMALIZE_SCRIPT, '--', input, out, String(tris), String(height)];
+  return ['-b', '--factory-startup', '--disable-autoexec', '--python', NORMALIZE_SCRIPT, '--', input, out, String(tris), String(height)];
 }
 
 export interface NormalizeResult {

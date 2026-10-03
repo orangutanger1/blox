@@ -8,6 +8,7 @@ import { scaffoldProject } from './scaffold.js';
 import { AGENT_GUIDE } from './agentGuide.js';
 import { approveAsset } from './assets/manifest.js';
 import { approveRelease } from './release/publish.js';
+import { approveLiveops } from './liveops/push.js';
 
 // CLI front-end for the blox toolset. Every command maps onto the same tool
 // registry the MCP server exposes, so an agent without MCP (or a human, or CI)
@@ -277,6 +278,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
            blox liveops report [--from export.json]|propose|apply <id>|push config|thumbnails [--confirm]
+           blox liveops approve config|thumbnails   (human sign-off before push --confirm)
 Observe:   blox dashboard [--port 35780]
 Measure:   blox bench --agent <cmd> [--tasks id,id|all] [--label name]
 Agent:     blox "<prompt>"                built-in Claude runner (uses the same tools)
@@ -316,6 +318,22 @@ export async function runToolCommand(argv: string[]): Promise<boolean> {
     // Human sign-off on the current build (not an MCP action).
     try {
       console.log(`approved build ${approveRelease(projectPath).slice(0, 12)}… for publishing`);
+    } catch (e) {
+      console.error((e as Error).message);
+      process.exitCode = 1;
+    }
+    return true;
+  }
+  if (cmd === 'liveops' && f.rest[0] === 'approve') {
+    // Human sign-off on the exact config/thumbnail payload (not an MCP action).
+    const kind = f.rest[1];
+    if (kind !== 'config' && kind !== 'thumbnails') {
+      console.error('usage: blox liveops approve config|thumbnails');
+      process.exitCode = 1;
+      return true;
+    }
+    try {
+      console.log(`approved ${kind} payload ${approveLiveops(projectPath, kind).slice(0, 12)}… for liveops push`);
     } catch (e) {
       console.error((e as Error).message);
       process.exitCode = 1;

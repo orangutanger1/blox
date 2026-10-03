@@ -66,6 +66,11 @@ describe('liveops tool', () => {
     expect(readJson<{ applied?: string }>(c.projectPath, `proposals/${id}.json`)!.applied).toBeTruthy();
     expect((await call('liveops', { action: 'apply', proposal: id }, c)).text).toMatch(/already applied/);
   });
+  it('report refuses an export outside the project', async () => {
+    const r = await call('liveops', { action: 'report', from: '../../etc/passwd' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/outside the project/);
+  });
   it('report without export or key explains both routes', async () => {
     const old = process.env.ROBLOX_OPEN_CLOUD_KEY;
     delete process.env.ROBLOX_OPEN_CLOUD_KEY;
@@ -83,6 +88,33 @@ describe('liveops tool', () => {
     expect(r.text).toMatch(/DRY RUN/);
     expect(r.text).toMatch(/shieldSec/);
     expect(r.text).toMatch(/skipped \(monetization, human\): eggPriceRobux/);
+  });
+  it('push confirm needs a human `liveops approve` bound to the exact payload', async () => {
+    const c = ctx();
+    const old = process.env.ROBLOX_OPEN_CLOUD_KEY;
+    delete process.env.ROBLOX_OPEN_CLOUD_KEY;
+    try {
+      writeJson(c.projectPath, 'design.json', design());
+      writeJson(c.projectPath, 'release.json', { universeId: 1, placeId: 2 });
+      const dry = await call('liveops', { action: 'push', kind: 'config' }, c);
+      expect(dry.text).toMatch(/NOT approved — a human runs `blox liveops approve config`/);
+      const r = await call('liveops', { action: 'push', kind: 'config', confirm: true }, c);
+      expect(r.isError).toBe(true);
+      expect(r.text).toMatch(/refused: NOT approved/);
+      await runToolCommand(['liveops', 'approve', 'config', '--project', c.projectPath]);
+      const ok = await call('liveops', { action: 'push', kind: 'config', confirm: true }, c);
+      expect(ok.text).not.toMatch(/NOT approved/); // gets as far as the Open Cloud key
+      const d = design();
+      d.tunables = { ...d.tunables, shieldSec: 999 };
+      writeJson(c.projectPath, 'design.json', d);
+      const stale = await call('liveops', { action: 'push', kind: 'config', confirm: true }, c);
+      expect(stale.text).toMatch(/refused: NOT approved/);
+      const th = await call('liveops', { action: 'push', kind: 'thumbnails', confirm: true }, c);
+      expect(th.isError).toBe(true);
+      expect(th.text).toMatch(/present lint must pass first/);
+    } finally {
+      if (old) process.env.ROBLOX_OPEN_CLOUD_KEY = old;
+    }
   });
   it('cli', () => {
     expect(cliArgs('liveops', parseFlags(['report', '--from', 'a.json']))).toEqual({ tool: 'liveops', args: { action: 'report', from: 'a.json' } });

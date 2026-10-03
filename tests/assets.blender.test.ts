@@ -13,7 +13,7 @@ const input = () => {
 
 describe('normalize', () => {
   it('builds the headless command', () => {
-    expect(blenderArgs('a.glb', 'a.fbx', 8000, 6)).toEqual(['-b', '--factory-startup', '--python', NORMALIZE_SCRIPT, '--', 'a.glb', 'a.fbx', '8000', '6']);
+    expect(blenderArgs('a.glb', 'a.fbx', 8000, 6)).toEqual(['-b', '--factory-startup', '--disable-autoexec', '--python', NORMALIZE_SCRIPT, '--', 'a.glb', 'a.fbx', '8000', '6']);
   });
   it('parses the report', () => {
     expect(parseNormalize('noise\nBLOX_NORMALIZE tris_before=52000 tris_after=9990 size=2.000,3.500,6.000\n', 'o.fbx')).toEqual({ out: 'o.fbx', trisBefore: 52000, trisAfter: 9990, size: [2, 3.5, 6] });

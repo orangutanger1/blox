@@ -26,7 +26,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
       reply({ turn: { id: U, status: 'inProgress' } });
       if (scenario === 'builtin') return out({ method: 'item/started', params: { threadId: T, turnId: U, item: { type: 'commandExecution', id: 'x' } } });
       if (scenario === 'loop') { for (;;) { const r = await callTool('list_files', {}); if (!r?.success) return; } }
-      const r = await callTool('read_file', { path: 'hello.txt' });
+      const r = scenario === 'slow' ? await callTool('run_luau', { code: 'return 1' }) : await callTool('read_file', { path: 'hello.txt' });
       out({ method: 'thread/tokenUsage/updated', params: { threadId: T, tokenUsage: { total: { inputTokens: 100, cachedInputTokens: 40, outputTokens: 7, cacheWriteInputTokens: 0, totalTokens: 107, reasoningOutputTokens: 0 }, last: {} } } });
       out({ method: 'item/completed', params: { threadId: T, item: { type: 'agentMessage', text: 'file says: ' + r.contentItems[0].text } } });
       return complete('completed');

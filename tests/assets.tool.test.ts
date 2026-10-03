@@ -54,6 +54,14 @@ describe('asset tool', () => {
     expect(u.text).toMatch(/blox asset approve rock/);
     expect((await call({ action: 'approve', id: 'rock' }, c)).isError).toBe(true);
   });
+  it('normalize refuses files outside the project', async () => {
+    const c = ctx();
+    for (const args of [{ file: '../x.glb' }, { file: 'm.glb', out: '../../elsewhere/x.glb' }]) {
+      const r = await call({ action: 'normalize', ...args }, c);
+      expect(r.isError).toBe(true);
+      expect(r.text).toMatch(/outside the project/);
+    }
+  });
   it('cli: mapping and CLI-only approve', async () => {
     expect(cliArgs('asset', parseFlags(['sanitize', 'Workspace.Tree', '--id', 'tree', '--keep-scripts']))).toEqual({ tool: 'asset', args: { action: 'sanitize', path: 'Workspace.Tree', id: 'tree', keep_scripts: true } });
     expect(cliArgs('asset', parseFlags(['upload', 'rock', '--confirm']))).toEqual({ tool: 'asset', args: { action: 'upload', id: 'rock', confirm: true } });
