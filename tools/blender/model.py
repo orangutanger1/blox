@@ -115,7 +115,8 @@ def stats(budget):
     for t in textures:
         if max(t["size"]) > TEXTURE_LIMIT:
             issues.append("texture %s is %dx%d (Roblox downsizes above %d)" % (t["name"], t["size"][0], t["size"][1], TEXTURE_LIMIT))
-    if arms and not any(o.find_armature() for o in ms):
+    # rig_rigid pieces stay unskinned on purpose: Studio joins them with Motor6Ds.
+    if arms and not any(o.find_armature() for o in ms) and not any("blox_rigid" in arm.keys() for arm in arms):
         issues.append("there is an armature but no mesh is skinned to it (use bind_rigid)")
     if not ms:
         issues.append("no meshes")
@@ -329,6 +330,7 @@ def cmd_export(a):
     if rigid:
         # Pieces only: Studio joins them with Motor6Ds (animate rig joints:"blender").
         blox_model.piece_materials(meshes())
+        files["pieces"] = len(meshes())
         blox_model.export_glb(glb, meshes())
     else:
         blox_model.export_glb(glb, meshes() + arms)

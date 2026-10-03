@@ -29,8 +29,12 @@ describe.skipIf(!process.env.BLOX_LIVE_BLENDER)('model pipeline in Blender', () 
     const blend = join(d, 'model.blend');
     const code = new URL('../fixtures/model/rigid-dog.py', import.meta.url).pathname;
     await runModelPy('run', { blend, code, budget: 2000 }, d);
-    const ex = (await runModelPy('export', { blend, out: join(d, 'export') }, d)) as { pivots?: string; upload?: string };
+    const ex = (await runModelPy('export', { blend, out: join(d, 'export') }, d)) as { pivots?: string; upload?: string; pieces?: number };
     expect(ex.pivots).toBeTruthy();
+    expect(ex.pieces).toBe(7);
+    const chk = (await runModelPy('check', { blend, views: join(d, 'views') }, d)) as { issues: string[]; uploadParts: number };
+    expect(chk.issues.join('\n')).not.toMatch(/no mesh is skinned/);
+    expect(chk.uploadParts).toBe(7);
     expect(existsSync(ex.upload!)).toBe(true);
     const p = JSON.parse(readFileSync(ex.pivots!, 'utf8')) as { pieces: { name: string; center: number[]; size: number[] }[]; joints: { name: string; part: string; parent: string; pivot: number[] }[]; riders: Record<string, string[]> };
     expect(p.pieces.map((x) => x.name).sort()).toEqual(['Body', 'FrontLeft', 'FrontRight', 'Head', 'HindLeft', 'HindRight', 'Nose']);
