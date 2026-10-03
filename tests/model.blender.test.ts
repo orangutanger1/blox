@@ -135,4 +135,50 @@ assert colour_class(v) == "vertex", colour_class(v)
 `);
     expect(s.colours).toMatchObject({ Rerouted: 'vertex' });
   }, 180_000);
+
+  it('an image that is not the base colour (unconnected, or a normal map) is not a texture', async () => {
+    const s = await build(`reset()
+c = box("Rock", (1, 1, 1), (0, 0, 1), "#888888")
+img = bpy.data.images.new("bump", 4, 4)
+m = bpy.data.materials.new("Bumpy")
+m.use_nodes = True
+nt = m.node_tree
+loose = nt.nodes.new("ShaderNodeTexImage")
+loose.image = img
+tex = nt.nodes.new("ShaderNodeTexImage")
+tex.image = img
+nm = nt.nodes.new("ShaderNodeNormalMap")
+nt.links.new(tex.outputs["Color"], nm.inputs["Color"])
+nt.links.new(nm.outputs["Normal"], nt.nodes["Principled BSDF"].inputs["Normal"])
+c.data.materials.clear()
+c.data.materials.append(m)
+assert colour_class(m) == "flat", colour_class(m)
+`);
+    expect(s.colours).toMatchObject({ Bumpy: 'flat' });
+    expect(s.uploadParts).toBe(1);
+  }, 180_000);
+
+  it('a Color Attribute node with no name bakes the default (render) attribute, not the active one', async () => {
+    await build(`reset()
+c = box("Tail", (1, 1, 1), (0, 0, 1), "#0000ff")
+red = c.data.color_attributes.new("Red", "FLOAT_COLOR", "CORNER")
+for d in red.data:
+    d.color = (1.0, 0.0, 0.0, 1.0)
+green = c.data.color_attributes.new("Green", "FLOAT_COLOR", "CORNER")
+for d in green.data:
+    d.color = (0.0, 1.0, 0.0, 1.0)
+c.data.color_attributes.render_color_index = c.data.color_attributes.find("Red")
+c.data.color_attributes.active_color = green
+v = bpy.data.materials.new("Unnamed")
+v.use_nodes = True
+ca = v.node_tree.nodes.new("ShaderNodeVertexColor")
+ca.layer_name = ""
+v.node_tree.links.new(ca.outputs["Color"], v.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+c.data.materials.clear()
+c.data.materials.append(v)
+bake_vertex_colors([c])
+r, g, b, _ = c.data.color_attributes["Col"].data[0].color
+assert r > 0.98 and g < 0.02, (r, g, b)
+`);
+  }, 180_000);
 });

@@ -312,8 +312,30 @@ def rest(armature):
 VERTEX_MATERIAL = "BloxVertexColor"
 
 
+def _colour_images(mat):
+    """Image textures that reach the Principled BSDF's Base Color (through any
+    nodes). An unconnected image, or one feeding only a normal/roughness map,
+    is not the colour and does not make a textured MeshPart."""
+    if not (mat and mat.use_nodes):
+        return []
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None or not bsdf.inputs["Base Color"].is_linked:
+        return []
+    seen, out, todo = set(), [], [bsdf.inputs["Base Color"].links[0].from_node]
+    while todo:
+        node = todo.pop()
+        if node.name in seen:
+            continue
+        seen.add(node.name)
+        if node.type == "TEX_IMAGE" and node.image:
+            out.append(node.image)
+        for inp in node.inputs:
+            todo.extend(link.from_node for link in inp.links)
+    return out
+
+
 def _has_texture(mat):
-    return bool(mat and mat.use_nodes and any(n.type == "TEX_IMAGE" and n.image for n in mat.node_tree.nodes))
+    return bool(_colour_images(mat))
 
 
 def _base_link(mat):
@@ -354,7 +376,7 @@ def colour_class(mat):
     if mat.name.startswith(VERTEX_MATERIAL):
         return "vertex"
     if _has_texture(mat):
-        imgs = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image]
+        imgs = _colour_images(mat)
         return "texture" if all(_image_ok(i) for i in imgs) else "missing-image"
     src = _base_link(mat)
     if src is None:
@@ -368,12 +390,19 @@ def _vertex_source(mat, me):
     """The colour attribute a vertex-colour material reads (None → active)."""
     src = _base_link(mat)
     name = getattr(src, "layer_name", "") or getattr(src, "attribute_name", "")
-    return me.color_attributes.get(name) if name else me.color_attributes.active_color
+    if name:
+        return me.color_attributes.get(name)
+    # An empty name renders the mesh's default (render) colour attribute.
+    ca = me.color_attributes
+    default = ca.get(getattr(ca, "default_color_name", "") or "")
+    return default or ca.active_color
 
 
 def upload_parts(objs):
     """MeshParts an upload makes after the bake: per mesh, one for all its
-    flat/vertex-coloured faces plus one per textured material it uses."""
+    flat/vertex-coloured faces plus one per textured material it uses.
+    Verified live: GLB uploads make one MeshPart per material (PR #67) and a
+    rig_rigid dog of 7 single-material pieces made 7 (spec C smoke B)."""
     n = 0
     for o in objs:
         if o.type != "MESH":
