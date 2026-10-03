@@ -246,3 +246,111 @@ return { ok = true, rigType = hum.RigType.Name, length = res.length, samples = r
 export function verifyProgram(seq: KeyframeSequenceDescription | null, animationId: string | null, slot: string | null): string {
   return `local P = ${jsonToLuau({ sequence: seq, animationId, slot })}\n${SEQUENCE_LUAU}${VERIFY_LUAU}`;
 }
+
+export interface VerifyModelReply {
+  ok: boolean;
+  error?: string;
+  rigType?: string;
+  loader?: { ids: Record<string, string>; speeds: Record<string, number> };
+  length?: number;
+  samples?: { time: number; transforms: Record<string, number[]> }[];
+  observation?: { mode: 'walked'; reached: boolean; samples: unknown[] };
+  skipped?: string;
+}
+
+// Playtest server, where the loader runs: optionally play the checked
+// animation on the model and sample its joints; then, for a Humanoid, walk it
+// to a point and sample (every 0.1 s) its speed and the loader's heaviest
+// track, then stand it (port of Roqer's animationVerifyModel / observeModel).
+const VERIFY_MODEL_LUAU = `local function components(c) local o = {} for _, v in { c:GetComponents() } do table.insert(o, r6(v)) end return o end
+local function round2(v) return math.round(v * 100) / 100 end
+local model, controller, err = animatedModel(P.model)
+if not model then return { ok = false, error = err } end
+local humanoid = controller:IsA("Humanoid") and controller or nil
+local animator = controller:FindFirstChildOfClass("Animator")
+local deadline = os.clock() + 3
+while not animator and os.clock() < deadline do task.wait(0.1) animator = controller:FindFirstChildOfClass("Animator") end
+if not animator then return { ok = false, error = P.model .. " has no Animator in the playtest, and the loader made none (is it tagged BloxAnimated and is BloxModelAnimate synced?)" } end
+local loader = { ids = {}, speeds = {} }
+for _, state in { "idle", "walk", "run" } do
+	local id = model:GetAttribute("BloxAnim_" .. state)
+	if typeof(id) == "string" and id ~= "" then loader.ids[state] = id end
+	local sp = model:GetAttribute("BloxAnim_" .. state .. "Speed")
+	if typeof(sp) == "number" then loader.speeds[state] = sp end
+end
+local result = { ok = true, rigType = humanoid and humanoid.RigType.Name or nil, loader = loader }
+if P.sequence or P.animationId then
+	local js = {}
+	for _, d in model:GetDescendants() do
+		if d:IsA("AnimationConstraint") and d.Attachment1 and d.Attachment1.Parent then js[d.Attachment1.Parent.Name] = d
+		elseif d:IsA("Motor6D") and d.Part1 then js[d.Part1.Name] = d end
+	end
+	local ks, anim, track
+	local ok, res = pcall(function()
+		local id = P.animationId
+		if not id then
+			ks = buildSequence(P.sequence)
+			id = tostring(game:GetService("AnimationClipProvider"):RegisterAnimationClip(ks))
+		end
+		anim = Instance.new("Animation")
+		anim.AnimationId = id
+		track = animator:LoadAnimation(anim)
+		track.Priority = Enum.AnimationPriority.Action4
+		track:Play(0)
+		local by = os.clock() + 10
+		while track.Length == 0 and os.clock() < by do task.wait(0.05) end
+		if track.Length == 0 then error("the animation never loaded on " .. P.model .. " (not owned by this place's owner?)") end
+		local gap = math.max(track.Length, 0.2) / 11
+		local samples = {}
+		for _ = 1, 10 do
+			task.wait(gap)
+			if not track.IsPlaying then break end
+			local tr = {}
+			for part, j in js do tr[part] = components(j.Transform) end
+			table.insert(samples, { time = track.TimePosition, transforms = tr })
+		end
+		return { length = track.Length, samples = samples }
+	end)
+	if track then pcall(function() track:Stop(0) end) end
+	if anim then anim:Destroy() end
+	if ks then ks:Destroy() end
+	if not ok then return { ok = false, error = tostring(res), rigType = result.rigType, loader = loader } end
+	result.length = res.length
+	result.samples = res.samples
+end
+if not humanoid then
+	result.skipped = P.model .. " has no Humanoid, so verify does not walk it; move it from your game's code to see its walk"
+	return result
+end
+local root = humanoid.RootPart
+if not root then return { ok = false, error = P.model .. "'s Humanoid has no root part" } end
+if root.Anchored then return { ok = false, error = P.model .. "'s root part is anchored, so it cannot walk; unanchor it (its Humanoid holds it up)" } end
+local target = P.target and Vector3.new(P.target[1], P.target[2], P.target[3]) or (root.CFrame * CFrame.new(0, 0, -12)).Position
+local ids = {}
+for _, id in loader.ids do ids[id] = true end
+local samples, started, last = {}, os.clock(), root.Position
+local function sample(phase)
+	task.wait(0.1)
+	local v = root.AssemblyLinearVelocity
+	local speed = Vector3.new(v.X, 0, v.Z).Magnitude
+	local best
+	for _, t in animator:GetPlayingAnimationTracks() do
+		local id = t.Animation and t.Animation.AnimationId or ""
+		if ids[id] and (not best or t.WeightCurrent > best.WeightCurrent) then best = t end
+	end
+	local s = { t = round2(os.clock() - started), phase = phase, speed = round2(speed), playing = best and best.Animation.AnimationId or false }
+	if best then s.pace = round2(best.Speed) end
+	table.insert(samples, s)
+end
+local reached
+local connection = humanoid.MoveToFinished:Connect(function(value) reached = value end)
+humanoid:MoveTo(target)
+while reached == nil and os.clock() - started < 8 do sample("moving") end
+connection:Disconnect()
+for _ = 1, 15 do sample("standing") end
+result.observation = { mode = "walked", reached = reached == true, samples = samples }
+return result`;
+
+export function verifyModelProgram(o: { model: string; sequence: KeyframeSequenceDescription | null; animationId: string | null; target: [number, number, number] | null }): string {
+  return `local P = ${jsonToLuau(o)}\n${RESOLVE_LUAU}${SEQUENCE_LUAU}${VERIFY_MODEL_LUAU}`;
+}

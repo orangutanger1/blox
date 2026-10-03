@@ -7,7 +7,7 @@ import { loadRecipes } from './recipes.js';
 import { ANIM_NAME, clearRigReading, loadReport, loadRigReading, saveChecked, saveRigReading } from './store.js';
 import { RIGS } from './rigs.js';
 import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, planModelLoader, readWired, saveWired, wireModelProgram, writeModelLoader } from './npc.js';
-import { LOADER_PACE, MAX_GROUND_SPEED, type ModelState } from './animation-tool.js';
+import { LOADER_PACE, MAX_GROUND_SPEED, judgeMovement, type ModelState } from './animation-tool.js';
 import { relative } from 'node:path';
 import { runLuau } from '../studio/luau.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
@@ -15,17 +15,17 @@ import { previewSampleTimes, verifyPlayback } from './animation-tool.js';
 import { animDir, loadChecked } from './store.js';
 import { buildProgram, commitProgram, type BuildReply } from './studio.js';
 import { writeRbxm } from './rbxm.js';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { withPlay } from '../studio/play.js';
 import { normalizeAnimationId, verifyLivePlayback } from './animation-tool.js';
 import { readSlots } from './wire.js';
-import { verifyProgram, type VerifyReply } from './studio.js';
+import { verifyProgram, verifyModelProgram, type VerifyReply, type VerifyModelReply } from './studio.js';
 import { pushProject, formatSyncResult } from '../sync/push.js';
 import { BODY_PLANS, mergeDeclarations, planDeclarations } from './body-plans.js';
 import { MODEL_STATES, describeRig } from './animation-tool.js';
 import { rigFromModel } from './model-rig.js';
-import { readRig, declareProgram, skippedChecks, parseReply, modelPath } from './modelRig.js';
+import { readRig, declareProgram, skippedChecks, parseReply, modelPath, rigForSequence } from './modelRig.js';
 import { applyWire, planWire } from './wire.js';
 import type { AnimateSlot } from './animation-tool.js';
 
@@ -174,6 +174,7 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     return { text: lines.join('\n'), isError: !s.ok, summary: s.ok ? `wired ${a.slot}` : 'sync failed' };
   }
   if (a.action === 'verify') {
+    if (typeof a.model === 'string') return verifyModel(a, ctx);
     if (typeof a.name !== 'string' || !ANIM_NAME.test(a.name)) return err('verify needs name (the animation\'s name from check)', 'no name');
     const stored = loadChecked(P, a.name);
     if (!stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
@@ -325,3 +326,49 @@ async function wireModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<Tool
   return { text: lines.join('\n'), summary: `wired ${state}` };
 }
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+async function verifyModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<ToolOutput> {
+  const P = ctx.projectPath;
+  const path = modelPath(a.model as string);
+  const stored = typeof a.name === 'string' && ANIM_NAME.test(a.name) ? loadChecked(P, a.name) : null;
+  if (typeof a.name === 'string' && !stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
+  const loader = planModelLoader(P);
+  // The checked motion plays as a temporary clip; the wired asset ids are
+  // verified by watching the loader play them below.
+  const playId: string | null = null;
+  let reply: VerifyModelReply;
+  try {
+    reply = await withPlay(ctx.session, async () => {
+      const r = await runLuau(ctx.session, verifyModelProgram({ model: path, sequence: stored && !playId ? stored.sequence : null, animationId: playId, target: (a.target as [number, number, number] | undefined) ?? null }), 'server', { chunkName: 'animateVerifyModel', timeoutMs: 90_000 });
+      if (!r.ok) throw new Error(r.error?.message ?? 'probe failed');
+      const p = parseReply(r.values, 'verify');
+      if (!p.ok) throw new Error(p.error);
+      return p.value as unknown as VerifyModelReply;
+    });
+  } catch (e) {
+    return err(`verify failed: ${(e as Error).message}`, 'probe failed');
+  }
+  const problems: string[] = [];
+  const lines: string[] = [];
+  if (!reply.ok) problems.push(reply.error ?? 'the probe failed');
+  if (!loader.ok) problems.push(loader.error);
+  else if (loader.write) problems.push(`${MODEL_LOADER_PATH} is missing: animate wire writes it`);
+  if (stored && reply.ok) {
+    const check = verifyLivePlayback(stored.sequence, reply.samples, rigForSequence(P, stored.sequence));
+    lines.push(`${check.verified ? '✓' : '✗'} ${stored.sequence.name} on ${path}${playId ? ` (${playId})` : ' (temporary clip)'} within ${check.maxDegrees}° / ${check.maxStuds} studs over ${check.samples} samples`);
+    if (!check.verified) problems.push(check.reason ?? 'played differently from the checked motion');
+  }
+  if (reply.ok && reply.skipped) lines.push(`· ${reply.skipped}`);
+  if (reply.ok && reply.observation) {
+    const m = judgeMovement(reply.observation, { unchanged: loader.ok, ids: reply.loader?.ids ?? {}, speeds: reply.loader?.speeds ?? {} });
+    const moved = Object.entries(m.moving.played).map(([k, n]) => `${k}×${n}`).join(', ');
+    const stood = Object.entries(m.standing.played).map(([k, n]) => `${k}×${n}`).join(', ');
+    lines.push(`${m.verified ? '✓' : '✗'} ${m.pace?.state ?? 'walk'} while moving (${moved || 'no samples'}), idle while standing (${stood || 'no samples'})${m.pace ? `; pace ${m.pace.played} for ${m.pace.needed} needed` : ''}`);
+    if (!m.verified) problems.push(m.reason ?? 'the loader played the wrong state');
+  }
+  lines.push(...problems.map((p) => `  ${p}`));
+  const dir = animDir(P, stored ? stored.sequence.name : path.replace(/[^A-Za-z0-9_-]/g, '_').replace(/^[^A-Za-z]/, 'M'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'verify.json'), JSON.stringify({ at: new Date().toISOString(), model: path, reply: { ...reply, samples: reply.samples?.length }, problems }, null, 2));
+  return { text: lines.join('\n'), isError: problems.length > 0, summary: problems.length ? 'verify failed' : 'verified' };
+}
