@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { imageSize } from '../src/present/image.js';
 import { lintPresentation, presentResults, formatPresentLint } from '../src/present/lint.js';
 import type { Presentation, Shot } from '../src/present/schema.js';
+import { makePng } from './helpers/png.js';
 
 function png(w: number, h: number, salt = 0): Buffer {
   const b = Buffer.alloc(33 + salt);
@@ -41,11 +42,18 @@ function goodShots(): { shots: Partial<Shot>[]; files: Record<string, Buffer> } 
   const files: Record<string, Buffer> = {};
   const shots: Partial<Shot>[] = THEMES.map((theme, i) => {
     const file = `.blox/artifacts/present/${theme}.png`;
-    files[file] = png(1920, 1080, i);
+    files[file] = scene(i);
     return { id: theme, kind: 'thumbnail', theme, camera: cam(i * 10), file, provenance: 'render' };
   });
   shots.push({ id: 'icon', kind: 'icon', theme: 'logo', camera: cam(99), overlay: { text: 'CARVE' } });
   return { shots, files };
+}
+// A real 160×90 picture per index: a dark and a light field split at a different place.
+const DARKS = [[120, 20, 20], [20, 90, 30], [20, 30, 120], [90, 80, 10], [70, 20, 90]];
+const LIGHTS = [[250, 220, 120], [200, 240, 250], [250, 200, 220], [210, 250, 200], [240, 240, 240]];
+const split = (i: number, x: number, y: number) => x + (i % 2 ? 0.5 : -0.5) * y < 40 + i * 15;
+function scene(i: number): Buffer {
+  return makePng(160, 90, 2, (x, y) => (split(i, x, y) ? DARKS[i] : LIGHTS[i]));
 }
 const rules = (doc: Presentation, p: string) => lintPresentation(doc, p).map((f) => `${f.rule}:${f.severity}`);
 
@@ -87,7 +95,22 @@ describe('lintPresentation', () => {
     files[shots[4].file!] = files[shots[0].file!];
     shots.pop();
     const { p, doc } = project(shots, files);
-    expect(rules(doc, p).sort()).toEqual(['icon:error', 'thumb-aspect:error', 'thumb-duplicate:error', 'thumb-rendered:error', 'thumb-variety:error']);
+    // the 1000×1000 file is a header only: its pixels can't be checked (warn)
+    expect(rules(doc, p).sort()).toEqual(['icon:error', 'thumb-aspect:error', 'thumb-blank:warn', 'thumb-duplicate:error', 'thumb-rendered:error', 'thumb-variety:error']);
+  });
+  it('pixel rules: blank, contrast, near-duplicate pictures, icon file', () => {
+    const { shots, files } = goodShots();
+    files[shots[0].file!] = makePng(160, 90, 2, () => [90, 90, 90]); // one flat colour
+    files[shots[1].file!] = makePng(160, 90, 0, (x) => [110 + Math.round((36 * x) / 159)]); // murky: a gentle gradient
+    files[shots[3].file!] = makePng(160, 90, 2, (x, y) => (split(2, x - 3, y) ? DARKS[2] : [245, 205, 215])); // scene(2), shifted 3 px
+    shots[5] = { ...shots[5], file: '.blox/artifacts/present/icon.png', provenance: 'render' };
+    files['.blox/artifacts/present/icon.png'] = makePng(160, 90, 2, () => [0, 0, 0]);
+    const { p, doc } = project(shots, files);
+    const f = lintPresentation(doc, p);
+    expect(f.map((x) => `${x.rule}:${x.severity}:${x.where}`).sort()).toEqual([
+      'thumb-blank:error:action', 'thumb-blank:error:icon', 'thumb-contrast:warn:exploration', 'thumb-similar:error:reward',
+    ]);
+    expect(f.find((x) => x.rule === 'thumb-similar')!.detail).toMatch(/character/);
   });
   it('counts and missing files', () => {
     const { p, doc } = project([{ id: 'a', kind: 'thumbnail', theme: 'action', camera: cam(0) }, { id: 'icon', kind: 'icon', theme: 'logo', camera: cam(9), overlay: { text: 'TOO MANY WORDS HERE' } }]);
