@@ -12,6 +12,12 @@ import { previewSampleTimes, verifyPlayback } from './animation-tool.js';
 import { animDir, loadChecked } from './store.js';
 import { buildProgram, commitProgram, type BuildReply } from './studio.js';
 import { writeRbxm } from './rbxm.js';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { withPlay } from '../studio/play.js';
+import { normalizeAnimationId, verifyLivePlayback } from './animation-tool.js';
+import { readSlots } from './wire.js';
+import { verifyProgram, type VerifyReply } from './studio.js';
 import { pushProject, formatSyncResult } from '../sync/push.js';
 import { applyWire, planWire } from './wire.js';
 import type { AnimateSlot } from './animation-tool.js';
@@ -113,5 +119,40 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     lines.push(`Next: animate {action:"verify", name, slot:"${a.slot}"}`);
     return { text: lines.join('\n'), isError: !s.ok, summary: s.ok ? `wired ${a.slot}` : 'sync failed' };
   }
-  return err(`${String(a.action)}: not implemented yet`, 'todo');
+  if (a.action === 'verify') {
+    if (typeof a.name !== 'string' || !ANIM_NAME.test(a.name)) return err('verify needs name (the animation\'s name from check)', 'no name');
+    const stored = loadChecked(P, a.name);
+    if (!stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
+    const seq = stored.sequence;
+    const slot = typeof a.slot === 'string' ? (a.slot as AnimateSlot) : null;
+    const slots = readSlots(P);
+    const expectedId = a.asset !== undefined ? normalizeAnimationId(a.asset) : slot && slots.ok ? slots.slots[slot] : undefined;
+    if (a.asset !== undefined && !expectedId) return err(`asset must be an asset id; got ${JSON.stringify(a.asset)}`, 'bad asset');
+    let reply: VerifyReply;
+    try {
+      reply = await withPlay(ctx.session, async () => {
+        const r = await runLuau(ctx.session, verifyProgram(expectedId ? null : seq, expectedId ?? null, slot), 'client', { chunkName: 'animateVerify', timeoutMs: 90_000 });
+        if (!r.ok) throw new Error(r.error?.message ?? 'probe failed');
+        return JSON.parse(String(r.values[0])) as VerifyReply;
+      });
+    } catch (e) {
+      return err(`verify failed: ${(e as Error).message}`, 'probe failed');
+    }
+    const problems: string[] = [];
+    if (reply.rigType && reply.rigType !== seq.rig) problems.push(`the player's character is ${reply.rigType}; ${seq.name} is an ${seq.rig} animation`);
+    if (!reply.ok) problems.push(reply.error ?? 'the probe failed');
+    const check = reply.ok ? verifyLivePlayback(seq, reply.samples) : null;
+    if (check && !check.verified) problems.push(check.reason ?? 'played differently from the checked motion');
+    const lines = [`${seq.name} on the player's character${expectedId ? ` (${expectedId})` : ' (temporary clip)'}: ${check ? `${check.verified ? '✓' : '✗'} within ${check.maxDegrees}° / ${check.maxStuds} studs over ${check.samples} samples` : '✗ not played'}`];
+    if (slot) {
+      const holds = reply.wiredIds ?? [];
+      const okSlot = !!expectedId && holds.length > 0 && holds.every((x) => normalizeAnimationId(x) === expectedId);
+      lines.push(`${okSlot ? '✓' : '✗'} slot ${slot} holds ${holds.join(', ') || '(nothing)'}${okSlot ? '' : `; expected ${expectedId ?? '(nothing wired: animate wire first)'}`}`);
+      if (!okSlot) problems.push(`slot ${slot} is not wired to ${expectedId ?? 'an id'}`);
+    }
+    lines.push(...problems.map((p) => `  ${p}`));
+    writeFileSync(join(animDir(P, seq.name), 'verify.json'), JSON.stringify({ at: new Date().toISOString(), slot, expectedId, reply: { ...reply, samples: reply.samples?.length }, check, problems }, null, 2));
+    return { text: lines.join('\n'), isError: problems.length > 0, summary: problems.length ? 'verify failed' : 'verified' };
+  }
+  return err(`unknown action ${String(a.action)}: recipes, check, build, wire or verify`, 'unknown action');
 }

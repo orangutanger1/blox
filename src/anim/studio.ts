@@ -158,3 +158,71 @@ export function buildProgram(seq: KeyframeSequenceDescription, sampleTimes: numb
 export function commitProgram(seq: KeyframeSequenceDescription, force: boolean): string {
   return `local WRITE = true\nlocal FORCE = ${force}\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq }))}\n${SEQUENCE_LUAU}${COMMIT_LUAU}`;
 }
+
+export interface VerifyReply {
+  ok: boolean;
+  error?: string;
+  rigType?: string;
+  length?: number;
+  samples?: { time: number; transforms: Record<string, number[]> }[];
+  wiredIds?: string[];
+}
+
+// Playtest client: read the character's Animate slot, then play the animation
+// (an asset id, or a temporary clip from the compiled sequence) above whatever
+// else runs and sample its joints on the Animator's clock.
+const VERIFY_LUAU = `local Players = game:GetService("Players")
+local function components(c) local o = {} for _, v in { c:GetComponents() } do table.insert(o, r6(v)) end return o end
+local player = Players.LocalPlayer
+if not player then return HS:JSONEncode({ ok = false, error = "not a playtest client" }) end
+local character = player.Character or player.CharacterAdded:Wait()
+local hum = character:WaitForChild("Humanoid", 10)
+local animator = hum and hum:WaitForChild("Animator", 10)
+if not animator then return HS:JSONEncode({ ok = false, error = "the character has no Humanoid with an Animator" }) end
+local wired
+if P.slot then
+	wired = {}
+	task.wait(1) -- the loader sets the slot on CharacterAdded
+	local folder = character:FindFirstChild("Animate") and character.Animate:FindFirstChild(P.slot)
+	for _, c in folder and folder:GetChildren() or {} do if c:IsA("Animation") then table.insert(wired, c.AnimationId) end end
+end
+local js = {}
+for _, d in character:GetDescendants() do
+	if d:IsA("AnimationConstraint") and d.Attachment1 and d.Attachment1.Parent then js[d.Attachment1.Parent.Name] = d
+	elseif d:IsA("Motor6D") and d.Part1 then js[d.Part1.Name] = d end
+end
+local ks, anim, track
+local ok, res = pcall(function()
+	local id = P.animationId
+	if not id then
+		ks = buildSequence(P.sequence)
+		id = tostring(game:GetService("AnimationClipProvider"):RegisterAnimationClip(ks))
+	end
+	anim = Instance.new("Animation")
+	anim.AnimationId = id
+	track = animator:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action4
+	track:Play(0)
+	local deadline = os.clock() + 10
+	while track.Length == 0 and os.clock() < deadline do task.wait(0.05) end
+	if track.Length == 0 then error("the animation never loaded on the character (not owned by this place's owner?)") end
+	local gap = math.max(track.Length, 0.2) / 11
+	local samples = {}
+	for _ = 1, 10 do
+		task.wait(gap)
+		if not track.IsPlaying then break end
+		local tr = {}
+		for part, j in js do tr[part] = components(j.Transform) end
+		table.insert(samples, { time = track.TimePosition, transforms = tr })
+	end
+	return { length = track.Length, samples = samples }
+end)
+if track then pcall(function() track:Stop(0) end) end
+if anim then anim:Destroy() end
+if ks then ks:Destroy() end
+if not ok then return HS:JSONEncode({ ok = false, error = tostring(res), rigType = hum.RigType.Name, wiredIds = wired }) end
+return HS:JSONEncode({ ok = true, rigType = hum.RigType.Name, length = res.length, samples = res.samples, wiredIds = wired })`;
+
+export function verifyProgram(seq: KeyframeSequenceDescription | null, animationId: string | null, slot: string | null): string {
+  return `local PAYLOAD = ${longString(JSON.stringify({ sequence: seq, animationId, slot }))}\n${SEQUENCE_LUAU}${VERIFY_LUAU}`;
+}
