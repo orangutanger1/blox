@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { longString, runLuau, userLineOffset } from '../studio/luau.js';
 import { StudioError, type StudioSession } from '../studio/session.js';
+import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason, bridgeSource, isBridgeFailure, mapBridgeLines } from '../studio/evalBridge.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary } from '../studio/play.js';
 import { hostSource, installHost, newRunId, normalizeHostPositions, pollResults, removeHosts, type PlayContext } from './playHost.js';
 
@@ -44,6 +45,8 @@ export interface TestRunResult {
   tests: TestCaseResult[];
   fileErrors: { file: string; message: string }[];
   logs?: LogSummary;
+  via?: 'bridge' | 'hosts'; // how server/client specs ran (absent: edit only)
+  notes?: string[];
   durationMs: number;
   ranAt: string;
 }
@@ -95,8 +98,9 @@ export function testProgram(specs: SpecFile[], testTimeoutSec: number, opts: { e
     parts.push('end');
     line += 1;
   });
-  const files = JSON.stringify(specs.map((s) => s.file));
-  parts.push(`local FILES = game:GetService("HttpService"):JSONDecode(${longString(files)})
+  // A table literal, not JSONDecode: the eval bridge guardrail refuses any HttpService.
+  const files = specs.map((s) => longString(s.file)).join(', ');
+  parts.push(`local FILES = { ${files} }
 local TIMEOUT = ${testTimeoutSec}
 local function fmt(v)
 	if typeof(v) == "string" then return string.format("%q", v) end
@@ -253,7 +257,7 @@ async function runPlayBatches(session: StudioSession, specs: Record<PlayContext,
     if (info.players === 0) throw new StudioError('tool_error', 'playtest started but no player joined within the ready timeout');
     for (const c of ctxs) {
       const prog = programs.get(c)!;
-      const deadline = Date.now() + (timeoutSec * 1000 + 2000) * Math.max(1, specs[c].length * 5) + 30_000;
+      const deadline = Date.now() + batchTimeoutMs(timeoutSec, specs[c].length);
       const v = await pollResults(session, runId, c, deadline);
       if (v === null || typeof v !== 'object') {
         for (const s of specs[c]) fileErrors.push({ file: s.file, message: `no results from the ${c} test host (it may have errored before reporting; see logs)` });
@@ -277,6 +281,46 @@ async function runPlayBatches(session: StudioSession, specs: Record<PlayContext,
   return { tests, fileErrors, logs };
 }
 
+const batchTimeoutMs = (timeoutSec: number, n: number) => (timeoutSec * 1000 + 2000) * Math.max(1, n * 5) + 30_000;
+
+// Why a play run can't use the eval bridge (null: it can).
+export function bridgeIneligible(specs: Record<PlayContext, SpecFile[]>, timeoutSec: number): string | null {
+  for (const c of ['server', 'client'] as const) {
+    if (!specs[c].length) continue;
+    const why = bridgeDenyReason(testProgram(specs[c], timeoutSec).code);
+    if (why) return `${c} specs: ${why}`;
+  }
+  return null;
+}
+
+// Server/client specs through the plugin eval bridge (bridge.eval): one Play,
+// each context's program run directly at game-script identity, results
+// returned (no injected hosts, no log scraping). Throws if the bridge fails.
+async function runPlayViaBridge(session: StudioSession, specs: Record<PlayContext, SpecFile[]>, timeoutSec: number) {
+  const tests: TestCaseResult[] = [];
+  const fileErrors: { file: string; message: string }[] = [];
+  const st = await session.state();
+  if (st.mode !== 'Edit') await stopPlay(session);
+  await removeHosts(session);
+  try {
+    const info = await startPlay(session);
+    if (info.players === 0) throw new StudioError('tool_error', 'playtest started but no player joined within the ready timeout');
+    for (const c of ['server', 'client'] as const) {
+      const b = await runBatch(session, specs[c], c, timeoutSec, true);
+      tests.push(...b.tests);
+      fileErrors.push(...b.fileErrors);
+    }
+    const since = info.startedAt - 1;
+    const [sl, cl] = await Promise.all([
+      collectLogs(session, 'server', since).catch(() => []),
+      collectLogs(session, 'client', since).catch(() => []),
+    ]);
+    return { tests, fileErrors, logs: summarizeLogs([...sl, ...cl]) };
+  } finally {
+    await stopPlay(session).catch(() => {});
+  }
+}
+
 export interface RunTestsOptions {
   testDir?: string;
   filter?: string;
@@ -284,7 +328,9 @@ export interface RunTestsOptions {
   testTimeoutSec?: number;
 }
 
-async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestContext, timeoutSec: number) {
+// bridge: a runner failure (no plugin, lane error) throws instead of becoming
+// file errors, so the caller can fall back to injected hosts.
+async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestContext, timeoutSec: number, bridge = false) {
   if (specs.length === 0) return { tests: [] as TestCaseResult[], fileErrors: [] as { file: string; message: string }[] };
   const { code, specLines } = testProgram(specs, timeoutSec);
   const chunk = `<test-runner:${ctx}>`;
@@ -292,9 +338,17 @@ async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestCont
   const r = await runLuau(session, code, ctx, {
     chunkName: chunk,
     freshRequire: fresh,
-    timeoutMs: (timeoutSec * 1000 + 2000) * Math.max(1, specs.length * 5) + 30_000,
+    // The bridge caps a probe at BRIDGE_MAX_TIMEOUT_MS; a suite that runs
+    // longer times out there and reruns in injected hosts.
+    timeoutMs: bridge ? Math.min(batchTimeoutMs(timeoutSec, specs.length), BRIDGE_MAX_TIMEOUT_MS) : batchTimeoutMs(timeoutSec, specs.length),
   });
-  const map = (m: string) => mapSpecPositions(m, specs, specLines, userLineOffset(fresh), chunk);
+  // Through the bridge, positions inside returned values (test messages) still
+  // name the bridge script; turn them into chunk lines first.
+  const viaBridge = ctx !== 'edit' && session.evalBridge;
+  const bridgeOffset = viaBridge ? bridgeSource(code).userLineOffset : 0;
+  const lines = code.split('\n').length;
+  const map = (m: string) => mapSpecPositions(viaBridge ? mapBridgeLines(m, bridgeOffset, chunk, lines) : m, specs, specLines, userLineOffset(fresh), chunk);
+  if (bridge && !r.ok && isBridgeFailure(r.error?.message ?? '')) throw new StudioError('tool_error', r.error!.message);
   if (!r.ok) {
     return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })) };
   }
@@ -324,8 +378,28 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     tests.push(...b.tests);
     fileErrors.push(...b.fileErrors);
   }
+  let via: TestRunResult['via'];
+  const notes: string[] = [];
   if (server.length || client.length) {
-    const b = await runPlayBatches(session, { server, client }, timeoutSec);
+    const play = { server, client };
+    let b: Awaited<ReturnType<typeof runPlayBatches>> | null = null;
+    if (session.evalBridge) {
+      const why = bridgeIneligible(play, timeoutSec);
+      if (why) notes.push(`eval bridge not used (${why}); specs ran in injected hosts`);
+      else {
+        try {
+          b = await runPlayViaBridge(session, play, timeoutSec);
+          via = 'bridge';
+        } catch (e) {
+          if (!isBridgeFailure((e as Error).message)) throw e;
+          notes.push(`eval bridge failed (${(e as Error).message}); specs reran in injected hosts`);
+        }
+      }
+    }
+    if (!b) {
+      b = await runPlayBatches(session, play, timeoutSec);
+      via = 'hosts';
+    }
     tests.push(...b.tests);
     fileErrors.push(...b.fileErrors);
     logs = b.logs;
@@ -339,6 +413,8 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     tests,
     fileErrors,
     ...(logs ? { logs } : {}),
+    ...(via ? { via } : {}),
+    ...(notes.length ? { notes } : {}),
     durationMs: Date.now() - t0,
     ranAt: new Date().toISOString(),
   };
@@ -346,6 +422,8 @@ export async function runTests(session: StudioSession, projectPath: string, opts
 
 export function formatTestRun(r: TestRunResult): string {
   const lines = [`tests ${r.ok ? 'PASS' : 'FAIL'}: ${r.passed}/${r.total} passed (${r.durationMs}ms)`];
+  if (r.via === 'bridge') lines.push('  (play specs ran through the eval bridge; HTTP requests are off while it runs)');
+  for (const n of r.notes ?? []) lines.push(`  note: ${n}`);
   for (const f of r.fileErrors) lines.push(`  ERROR ${f.file}: ${f.message}`);
   // Failures in full; passes as one line of names (they repeat on every run).
   for (const t of r.tests.filter((x) => x.status !== 'pass')) {

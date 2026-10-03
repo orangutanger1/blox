@@ -34,6 +34,13 @@ const DENY: [RegExp, string][] = [
   [/\b(GetService|FindService)\s*\(\s*["'][^"']*["']\s*\.\./, 'GetService/FindService with a concatenated name'],
 ];
 
+// True for an error that is the bridge's own (lane down, no plugin, timeout,
+// guardrail, garbled reply) rather than the probe's: callers fall back to
+// injected scripts only for these.
+export function isBridgeFailure(message: string): boolean {
+  return /^(eval bridge|blocked by the eval bridge guardrail|unexpected eval bridge output)/.test(message);
+}
+
 export function bridgeDenyReason(code: string): string | null {
   for (const [re, why] of DENY) if (re.test(code)) return `blocked by the eval bridge guardrail: ${why}`;
   if (code.length > BRIDGE_MAX_SOURCE / 2) return `blocked by the eval bridge guardrail: probe longer than ${BRIDGE_MAX_SOURCE / 2} chars`;
@@ -92,7 +99,7 @@ async function runOnce(code: string, context: 'server' | 'client', o: BridgeOpti
       pickupHint: `${context} context needs a running playtest (play {action:"start"}) and the current blox dock plugin (blox panel install, then restart Studio) with HTTP requests allowed`,
     },
   ).catch((e: Error) => {
-    throw new StudioError(/pick up/.test(e.message) ? 'wrong_mode' : 'timeout', e.message);
+    throw new StudioError(/pick up/.test(e.message) ? 'wrong_mode' : 'timeout', `eval bridge: ${e.message}`);
   });
   const map = (t: string) => mapBridgeLines(t, userLineOffset, chunk, code.split('\n').length);
   if (!lane.ok) return fail(map(`eval bridge: ${lane.error ?? 'failed'}`));

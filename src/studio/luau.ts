@@ -163,6 +163,10 @@ export interface RunLuauOptions {
   // each playtest builds a fresh DataModel).
   freshRequire?: boolean;
   timeoutMs?: number;
+  // 'mcp' keeps play-context code on the MCP thread even when the eval bridge
+  // is on: for probes that need no game modules (readiness, logs), so they
+  // still work when the bridge is down.
+  via?: 'mcp';
 }
 
 export async function runLuau(
@@ -173,7 +177,7 @@ export async function runLuau(
 ): Promise<LuauResult> {
   // Opted-in projects run play probes through the dock plugin's eval bridge,
   // where require() of game modules works (execute_luau's play thread can't).
-  if (context !== 'edit' && session.evalBridge) return runLuauViaBridge(code, context, { chunkName: opts.chunkName, timeoutMs: opts.timeoutMs });
+  if (context !== 'edit' && session.evalBridge && opts.via !== 'mcp') return runLuauViaBridge(code, context, { chunkName: opts.chunkName, timeoutMs: opts.timeoutMs });
   const chunk = opts.chunkName ?? 'luau';
   const { program, userLineOffset } = wrapLuau(code, { freshRequire: opts.freshRequire ?? context === 'edit' });
   const t0 = Date.now();
