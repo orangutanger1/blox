@@ -42,6 +42,7 @@ import { applyChanges, propose, type Proposal } from '../liveops/propose.js';
 import { isApproved, pushPayload } from '../liveops/push.js';
 import { isPathContained } from '../agent/guardrail.js';
 import { animateTool, animateShape, ANIMATE_DESCRIPTION } from '../anim/tool.js';
+import { scoutTool, scoutShape, SCOUT_DESCRIPTION } from '../assets/scoutTool.js';
 import { OpenCloud, openCloudKey } from '../opencloud/client.js';
 import { formatCheck, runCheck } from '../check.js';
 import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
@@ -781,6 +782,12 @@ export const TOOLS: BloxTool[] = [
         : '';
       return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})${meshNote}`, summary: 'uploaded' };
     },
+  },
+  {
+    name: 'scout',
+    description: SCOUT_DESCRIPTION,
+    shape: scoutShape,
+    handler: scoutTool,
   },
   {
     name: 'model',

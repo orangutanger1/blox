@@ -60,6 +60,7 @@ Without MCP every tool is also a CLI command (`blox test`, `blox playtest --seco
 | `playtest` | start play → wait for player+character → wait N s → optional input → server/client Luau probes → optional screenshot → typed server+client logs → stop |
 | `run_luau` | Luau in `edit`/`server`/`client`; all return values serialized (Instances, Vector3, tables), its log lines, errors mapped to your lines; edit-context `require` loads current source |
 | `play` / `logs` / `screenshot` / `explore` | direct control and observation |
+| `scout` | free Creator Store templates/packs: search → try (quarantine + inspect + adapt-vs-build verdict) → adopt / discard, provenance in `.blox/assets.json` |
 | `studio_tool` | any raw Studio MCP tool (`studio_id` injected): assets (`search_asset`, `insert_asset`, `generate_mesh`, …), `inspect_instance`, … |
 | `task` | goal + acceptance criteria bound to tests (auto pass/fail from `run_tests`), notes, blockers needing a human — persisted in `.blox/task.json` |
 | `scaffold` | create the standard layout non-destructively |

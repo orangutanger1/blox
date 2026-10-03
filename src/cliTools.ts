@@ -215,6 +215,14 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action } };
       }
     }
+    case 'scout': {
+      const sub = f.rest[0];
+      if (sub === 'try') return { tool: 'scout', args: { action: 'try', asset_id: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
+      if (sub === 'adopt')
+        return { tool: 'scout', args: { action: 'adopt', id: f.rest[1], ...(typeof o.to === 'string' ? { to: o.to } : {}), ...(o.unpack === true ? { unpack: true } : {}), ...(o['keep-scripts'] === true ? { keep_scripts: true } : {}) } };
+      if (sub === 'discard') return { tool: 'scout', args: { action: 'discard', id: f.rest[1] } };
+      return { tool: 'scout', args: { action: 'search', need: f.rest.join(' '), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}), ...(typeof o.max === 'string' ? { max: Number(o.max) } : {}) } };
+    }
     case 'release':
       return { tool: 'release', args: { action: f.rest[0] ?? 'check', ...(o.confirm === true ? { confirm: true } : {}) } };
     case 'liveops': {
