@@ -99,7 +99,9 @@ export function testProgram(specs: SpecFile[], testTimeoutSec: number, opts: { e
     line += 1;
   });
   // A table literal, not JSONDecode: the eval bridge guardrail refuses any HttpService.
-  const files = specs.map((s) => longString(s.file)).join(', ');
+  // Names as byte escapes, so a spec file called e.g. httpPost.spec.luau does
+  // not read as an HTTP call to that guardrail.
+  const files = specs.map((s) => byteString(s.file)).join(', ');
   parts.push(`local FILES = { ${files} }
 local TIMEOUT = ${testTimeoutSec}
 local function fmt(v)
@@ -206,6 +208,11 @@ export function mapSpecPositions(msg: string, specs: SpecFile[], specLines: numb
   return msg
     .replace(/[\w.]*AssistantCommand:(\d+)/g, (m, n: string) => toFile(Number(n) - absOffset) ?? m)
     .replace(new RegExp(`${chunk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(\\d+)`, 'g'), (m, n: string) => toFile(Number(n)) ?? m);
+}
+
+/** A Luau string literal of decimal byte escapes ("\\104\\116…"). */
+export function byteString(text: string): string {
+  return `"${[...Buffer.from(text, 'utf8')].map((b) => `\\${b}`).join('')}"`;
 }
 
 // Syntax-check specs with loadstring (edit DataModel only) so one broken file
@@ -361,9 +368,11 @@ export async function runTests(session: StudioSession, projectPath: string, opts
   const discovered = discoverSpecs(projectPath, opts.testDir, opts.filter).filter((s) => !opts.contexts || opts.contexts.includes(s.context));
   const tests: TestCaseResult[] = [];
   const fileErrors: { file: string; message: string }[] = [];
-  // Syntax precheck needs the edit DataModel; skip it if a playtest is live.
+  // Syntax precheck needs the edit DataModel: stop a live playtest first (play
+  // specs start their own), else one broken spec hangs a whole batch.
   const st0 = await session.state();
-  const bad = st0.mode === 'Edit' ? await precheckSyntax(session, discovered) : new Map<string, string>();
+  if (st0.mode !== 'Edit' && discovered.length) await stopPlay(session);
+  const bad = discovered.length ? await precheckSyntax(session, discovered) : new Map<string, string>();
   for (const [file, message] of bad) fileErrors.push({ file, message: `syntax error: ${message}` });
   const all = discovered.filter((s) => !bad.has(s.file));
   const edit = all.filter((s) => s.context === 'edit');

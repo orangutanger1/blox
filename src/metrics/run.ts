@@ -138,7 +138,13 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
       info = await startPlay(session);
       await sleep(o.seconds * 1000);
     }
-    const d = await runLuau(session, DUMP_CODE, 'server', { chunkName: 'telemetry', ...(bridgeDown ? { via: 'mcp' as const } : {}) });
+    let d = await runLuau(session, DUMP_CODE, 'server', { chunkName: 'telemetry', ...(bridgeDown ? { via: 'mcp' as const } : {}) }).catch((e: Error) => {
+      if (isBridgeFailure(e.message)) return null;
+      throw e;
+    });
+    // An idle bot never touched the bridge: a missing plugin shows up only
+    // here, so read the dump on the MCP thread instead of failing the run.
+    if (!d || (!d.ok && isBridgeFailure(d.error?.message ?? ''))) d = await runLuau(session, DUMP_CODE, 'server', { chunkName: 'telemetry', via: 'mcp' });
     raw = d.ok ? d.values[0] : null;
     const since = info!.startedAt - 1; // set by one of the two branches above
     const [sl, cl] = await Promise.all([collectLogs(session, 'server', since).catch(() => []), collectLogs(session, 'client', since).catch(() => [])]);
