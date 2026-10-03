@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { longString, runLuau, userLineOffset } from '../studio/luau.js';
 import { StudioError, type StudioSession } from '../studio/session.js';
-import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason } from '../studio/evalBridge.js';
+import { BRIDGE_MAX_TIMEOUT_MS, bridgeDenyReason, bridgeSource, mapBridgeLines } from '../studio/evalBridge.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary } from '../studio/play.js';
 import { hostSource, installHost, newRunId, normalizeHostPositions, pollResults, removeHosts, type PlayContext } from './playHost.js';
 
@@ -289,7 +289,6 @@ export function bridgeIneligible(specs: Record<PlayContext, SpecFile[]>, timeout
     if (!specs[c].length) continue;
     const why = bridgeDenyReason(testProgram(specs[c], timeoutSec).code);
     if (why) return `${c} specs: ${why}`;
-    if (batchTimeoutMs(timeoutSec, specs[c].length) > BRIDGE_MAX_TIMEOUT_MS) return `${c} specs could run longer than the bridge's ${BRIDGE_MAX_TIMEOUT_MS / 1000}s limit`;
   }
   return null;
 }
@@ -339,9 +338,16 @@ async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestCont
   const r = await runLuau(session, code, ctx, {
     chunkName: chunk,
     freshRequire: fresh,
-    timeoutMs: batchTimeoutMs(timeoutSec, specs.length),
+    // The bridge caps a probe at BRIDGE_MAX_TIMEOUT_MS; a suite that runs
+    // longer times out there and reruns in injected hosts.
+    timeoutMs: bridge ? Math.min(batchTimeoutMs(timeoutSec, specs.length), BRIDGE_MAX_TIMEOUT_MS) : batchTimeoutMs(timeoutSec, specs.length),
   });
-  const map = (m: string) => mapSpecPositions(m, specs, specLines, userLineOffset(fresh), chunk);
+  // Through the bridge, positions inside returned values (test messages) still
+  // name the bridge script; turn them into chunk lines first.
+  const viaBridge = ctx !== 'edit' && session.evalBridge;
+  const bridgeOffset = viaBridge ? bridgeSource(code).userLineOffset : 0;
+  const lines = code.split('\n').length;
+  const map = (m: string) => mapSpecPositions(viaBridge ? mapBridgeLines(m, bridgeOffset, chunk, lines) : m, specs, specLines, userLineOffset(fresh), chunk);
   if (bridge && !r.ok && /^eval bridge: |guardrail/.test(r.error?.message ?? '')) throw new StudioError('tool_error', r.error!.message);
   if (!r.ok) {
     return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })) };

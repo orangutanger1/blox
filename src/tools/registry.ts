@@ -176,7 +176,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_tests',
     description:
-      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you). Returns failures with file:line, playtest runtime errors, criteria status.',
+      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you: through the eval bridge when bridge.eval is on, else injected host scripts). Returns failures with file:line, playtest runtime errors, criteria status.',
     shape: {
       filter: z.string().optional().describe('only spec files whose path contains this'),
       contexts: z.array(context).optional().describe('limit to these spec contexts'),

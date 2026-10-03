@@ -25,9 +25,15 @@ play batch is *eligible*, the run goes through the bridge:
 - Run each context's `testProgram` with `runLuau(…, ctx)`. This reuses `runBatch`, so the bridge returns results and maps error lines to spec files.
 - Collect the logs as before, then stop play.
 
-A batch is eligible when two things hold:
-- `bridgeDenyReason(program)` is null. The bridge refuses HTTP, DataStores, loadstring and similar.
-- Its timeout is at most `BRIDGE_MAX_TIMEOUT_MS`.
+A batch is eligible when `bridgeDenyReason(program)` is null. The bridge
+refuses HTTP, DataStores, loadstring and similar. Each bridge call is capped
+at `BRIDGE_MAX_TIMEOUT_MS` (120 s); a suite that runs longer times out there
+and reruns in hosts.
+
+Ruling made during the live run: the first design also required the
+worst-case deadline to fit in 120 s. That deadline is
+`(timeout + 2 s) × 5 × specs + 30 s`, so any suite with two or more specs
+missed it, and the bridge was never used.
 
 **Fallback.** blox injects host scripts with `multi_edit`, exactly as today, in
 two cases:

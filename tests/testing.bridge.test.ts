@@ -68,6 +68,21 @@ describe('runTests through the eval bridge', () => {
     expect(formatTestRun(r)).toMatch(/play specs ran through the eval bridge/);
   });
 
+  it('maps bridge script positions in test messages back to spec lines', async () => {
+    const { bridgeSource } = await import('../src/studio/evalBridge.js');
+    const { testProgram } = await import('../src/testing/runner.js');
+    const { specLines } = testProgram([{ file: 'tests/a.spec.luau', context: 'server', source: SPECS['a.spec.luau'] }], 1);
+    const line = bridgeSource('x').userLineOffset + specLines[0] + 1; // spec line 2
+    bridge.impl = async (code, ctx) => {
+      if (!code.includes('__SPECFNS')) return ok(null);
+      if (ctx === 'client') return ok(results('tests/b.spec.luau', 'client'));
+      return ok({ results: [{ file: 'tests/a.spec.luau', name: 'boom', status: 'fail', ms: 1, message: `ServerScriptService.__BloxBridge.BloxEval:${line}: boom` }], fileErrors: [] });
+    };
+    const { session } = studio(true);
+    const r = await runTests(session, project(SPECS), { testTimeoutSec: 1 });
+    expect(r.tests.find((t) => t.name === 'boom')!.message).toBe('tests/a.spec.luau:2: boom');
+  });
+
   it('readiness and logs use the MCP thread, never the bridge', async () => {
     const { session } = studio(true);
     await runTests(session, project(SPECS), { testTimeoutSec: 1 });
@@ -94,6 +109,14 @@ describe('runTests through the eval bridge', () => {
     expect(r.notes?.join(' ')).toMatch(/no plugin picked up/);
     expect(f.calls.some((c) => c.name === 'multi_edit')).toBe(true);
     expect(r.passed).toBe(2);
+  });
+
+  it('a many-spec suite still uses the bridge (worst-case deadlines exceed its 120s cap)', async () => {
+    const many: Record<string, string> = {};
+    for (let i = 0; i < 6; i++) many[`s${i}.spec.luau`] = `-- @context server\ntest("t${i}", function() end)\n`;
+    const { session } = studio(true);
+    const r = await runTests(session, project(many), { testTimeoutSec: 10 });
+    expect(r.via).toBe('bridge');
   });
 
   it('bridge off: injected hosts as before, no note', async () => {
