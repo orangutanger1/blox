@@ -104,7 +104,16 @@ local ok, res = pcall(function()
 		rig = source:Clone()
 		if not rig then error(P.model.path .. " could not be copied") end
 		for _, tag in rig:GetTags() do rig:RemoveTag(tag) end
-		root = rig:FindFirstChild(P.model.rootPart, true)
+		-- The root is a jointed rig part; a welded part may share its name.
+		for _, d in rig:GetDescendants() do
+			local a, b
+			if d:IsA("Motor6D") then a, b = d.Part0, d.Part1
+			elseif d:IsA("AnimationConstraint") then a, b = d.Attachment0 and d.Attachment0.Parent, d.Attachment1 and d.Attachment1.Parent end
+			for _, p in { a, b } do
+				if p and p:IsA("BasePart") and p.Name == P.model.rootPart and p:IsDescendantOf(rig) then root = p end
+			end
+			if root then break end
+		end
 		if not root then error("the copy has no " .. P.model.rootPart) end
 	else
 		rig = Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), P.sequence.rig == "R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15)

@@ -277,7 +277,7 @@ approve and upload, and wire each:
 The loader paces a gait at speed ÷ ground speed, between 0.5× and 2×; outside
 that, set the Humanoid's `WalkSpeed` (wire warns). Prove it with
 `animate {action:"verify", model:"Workspace.Guard", name:"Walk"}` (a playtest
-walks it 12 studs and watches). Clones of the NPC keep the tag and attributes.
+walks it max(12, 3 × WalkSpeed) studs and watches). Clones of the NPC keep the tag and attributes.
 An attack or other one-shot: play it from game code,
 `humanoid.Animator:LoadAnimation(anim):Play()`.
 

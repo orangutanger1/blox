@@ -44,6 +44,14 @@ function vec(s: string | boolean | undefined): [number, number, number] | undefi
 }
 
 // Translate friendly CLI flags into tool args.
+function readJson(file: string, flag: string): unknown {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new Error(`${flag} ${file} is not valid JSON: ${(e as Error).message}`);
+  }
+}
+
 export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<string, unknown> } | null {
   const o = f.opts;
   switch (cmd) {
@@ -157,7 +165,7 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
         case 'rig':
           return { tool: 'animate', args: { action, model: f.rest[1] } };
         case 'declare':
-          return { tool: 'animate', args: { action, model: f.rest[1], ...str('plan'), ...(typeof o.declarations === 'string' ? { declarations: JSON.parse(readFileSync(o.declarations, 'utf8')) } : {}) } };
+          return { tool: 'animate', args: { action, model: f.rest[1], ...str('plan'), ...(typeof o.declarations === 'string' ? { declarations: readJson(o.declarations, '--declarations') } : {}) } };
         case 'npc':
           return { tool: 'animate', args: { action, name: f.rest[1], ...str('rig'), ...(typeof o.at === 'string' ? { at: o.at.split(',').map(Number) } : {}), ...str('parent') } };
         default:
