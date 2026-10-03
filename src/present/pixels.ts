@@ -12,6 +12,8 @@ export interface SmallImage {
 }
 
 const SCALE = 8;
+// Store art is at most 1920×1080; anything far bigger is a malformed or hostile header.
+const MAX_SIDE = 8192;
 
 function fromRgb(w: number, h: number, rgb: Float32Array): SmallImage {
   const luma = new Float32Array(w * h);
@@ -22,6 +24,14 @@ function fromRgb(w: number, h: number, rgb: Float32Array): SmallImage {
 // ---- PNG ----------------------------------------------------------------
 
 export function decodePng(b: Buffer): SmallImage | null {
+  try {
+    return png(b);
+  } catch {
+    return null;
+  }
+}
+
+function png(b: Buffer): SmallImage | null {
   if (b.length < 33 || b.readUInt32BE(0) !== 0x89504e47) return null;
   let i = 8;
   let w = 0, h = 0, depth = 0, type = -1, interlace = 0;
@@ -32,6 +42,7 @@ export function decodePng(b: Buffer): SmallImage | null {
     const kind = b.toString('ascii', i + 4, i + 8);
     const data = b.subarray(i + 8, i + 8 + len);
     if (kind === 'IHDR') {
+      if (data.length < 13) return null;
       w = data.readUInt32BE(0);
       h = data.readUInt32BE(4);
       depth = data[8];
@@ -43,14 +54,10 @@ export function decodePng(b: Buffer): SmallImage | null {
     i += 12 + len;
   }
   const ch = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
-  if (!ch || depth !== 8 || interlace !== 0 || !w || !h || (type === 3 && !palette)) return null;
-  let raw: Buffer;
-  try {
-    raw = inflateSync(Buffer.concat(idat));
-  } catch {
-    return null;
-  }
+  if (!ch || depth !== 8 || interlace !== 0 || !w || !h || w > MAX_SIDE || h > MAX_SIDE || (type === 3 && !palette)) return null;
   const stride = w * ch;
+  // Bounded: a tiny IDAT must not inflate past what the header declares.
+  const raw = inflateSync(Buffer.concat(idat), { maxOutputLength: h * (stride + 1) });
   if (raw.length < h * (stride + 1)) return null;
   const sw = Math.ceil(w / SCALE), sh = Math.ceil(h / SCALE);
   const sum = new Float64Array(sw * sh * 3);
@@ -81,6 +88,7 @@ export function decodePng(b: Buffer): SmallImage | null {
       let r: number, g: number, bl: number;
       if (type === 3) {
         const p = row[o] * 3;
+        if (p + 2 >= palette!.length) return null;
         [r, g, bl] = [palette![p], palette![p + 1], palette![p + 2]];
       } else if (ch <= 2) r = g = bl = row[o];
       else [r, g, bl] = [row[o], row[o + 1], row[o + 2]];
@@ -157,9 +165,12 @@ function jpegDc(b: Buffer): SmallImage | null {
     } else if (m === 0xc0 || m === 0xc1) {
       if (seg[0] !== 8) return null;
       const n = seg[5];
+      if (n !== 1 && n !== 3) return null; // grey or YCbCr; CMYK is not handled
       const comps = [];
       for (let k = 0; k < n; k++) comps.push({ id: seg[6 + 3 * k], h: seg[7 + 3 * k] >> 4, v: seg[7 + 3 * k] & 15, tq: seg[8 + 3 * k] });
+      if (comps.some((c) => c.h < 1 || c.h > 4 || c.v < 1 || c.v > 4)) return null;
       frame = { h: seg.readUInt16BE(1), w: seg.readUInt16BE(3), comps };
+      if (!frame.w || !frame.h || frame.w > MAX_SIDE || frame.h > MAX_SIDE) return null;
     } else if (m >= 0xc2 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
       return null; // progressive, lossless, arithmetic: not supported
     } else if (m === 0xdd) {
@@ -195,7 +206,8 @@ function decodeScan(
   let pos = start, bitBuf = 0, bitCnt = 0, marker = false;
   const readBit = (): number => {
     if (bitCnt === 0) {
-      if (marker || pos >= b.length) return 0;
+      // Needing bits past a marker or the end of the file means the data is broken.
+      if (marker || pos >= b.length) throw new Error('truncated scan');
       let x = b[pos++];
       if (x === 0xff) {
         const nx = b[pos];
@@ -240,12 +252,13 @@ function decodeScan(
   for (let my = 0; my < mcuY; my++) {
     for (let mx = 0; mx < mcuX; mx++) {
       if (restart && mcus > 0 && mcus % restart === 0) {
-        // Byte-align, step over RSTn, reset predictors.
+        // Byte-align (the rest of the byte is padding), step over the RSTn
+        // marker (fill bytes may precede it), reset the predictors.
         bitCnt = 0;
-        if (marker && b[pos] === 0xff && b[pos + 1] >= 0xd0 && b[pos + 1] <= 0xd7) {
-          pos += 2;
-          marker = false;
-        }
+        while (pos + 1 < b.length && !(b[pos] === 0xff && b[pos + 1] >= 0xd0 && b[pos + 1] <= 0xd7)) pos++;
+        if (pos + 1 >= b.length) throw new Error('missing restart marker');
+        pos += 2;
+        marker = false;
         pred.fill(0);
       }
       for (const s of scan) {

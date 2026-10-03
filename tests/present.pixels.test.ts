@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makePng } from './helpers/png.js';
+import { deflateSync } from 'node:zlib';
 import { colourGrid, decodeJpegDc, decodePng, decodeSmall, gridDiff, pixelStats } from '../src/present/pixels.js';
 
 const fx = (n: string) => readFileSync(new URL(`./fixtures/present/${n}`, import.meta.url));
@@ -36,6 +37,58 @@ describe('decodeJpegDc (baseline, 4:2:0 fixtures made by Blender)', () => {
     b[i + 1] = 0xc2;
     expect(decodeJpegDc(b)).toBeNull();
     expect(decodeJpegDc(Buffer.from([0xff, 0xd8, 0x00]))).toBeNull();
+  });
+});
+
+describe('decoder robustness (review 2026-10-03)', () => {
+  const close = (a: Float32Array, b: Float32Array) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  it('restart markers: same picture as without them', () => {
+    const a = decodeJpegDc(fx('rst.jpg'))!;
+    const b = decodeJpegDc(fx('norst.jpg'))!;
+    expect([a.w, a.h]).toEqual([b.w, b.h]);
+    expect(close(a.luma, b.luma)).toBeLessThan(4);
+  });
+  it('4:4:4 odd size and grayscale decode', () => {
+    const c = decodeJpegDc(fx('odd444.jpg'))!;
+    expect([c.w, c.h]).toEqual([5, 4]);
+    expect(c.rgb[0]).toBeLessThan(40); // top-left dark red/green
+    const g = decodeJpegDc(fx('gray.jpg'))!;
+    expect([g.w, g.h]).toEqual([5, 4]);
+    expect(g.luma[g.w - 1]).toBeGreaterThan(g.luma[0]);
+  });
+  const patchSof = (mut: (b: Buffer, sof: number) => void) => {
+    const b = Buffer.from(fx('flat.jpg'));
+    mut(b, b.indexOf(Buffer.from([0xff, 0xc0])));
+    return b;
+  };
+  it('sampling factor 0 → null, quickly', () => {
+    const t0 = Date.now();
+    expect(decodeJpegDc(patchSof((b, i) => (b[i + 11] = 0x00)))).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+  it('huge declared size → null, quickly', () => {
+    const t0 = Date.now();
+    expect(decodeJpegDc(patchSof((b, i) => (b.writeUInt16BE(30000, i + 5), b.writeUInt16BE(30000, i + 7))))).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+  it('truncated scan → null', () => {
+    const b = fx('gradient.jpg');
+    expect(decodeJpegDc(b.subarray(0, b.indexOf(Buffer.from([0xff, 0xda])) + 40))).toBeNull();
+  });
+  it('malformed PNGs return null instead of throwing; inflate is bounded', () => {
+    const good = makePng(16, 16, 0, () => [9]);
+    const shortIhdr = Buffer.from(good);
+    shortIhdr.writeUInt32BE(2, 8);
+    expect(() => decodePng(shortIhdr)).not.toThrow();
+    expect(decodePng(shortIhdr)).toBeNull();
+    // 16×16 header, but the IDAT inflates to 50 MB
+    const bomb = makePng(16, 16, 0, () => [9]);
+    const i = bomb.indexOf('IDAT');
+    const z = deflateSync(Buffer.alloc(50 * 1024 * 1024));
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(z.length);
+    const bad = Buffer.concat([bomb.subarray(0, i - 4), len, Buffer.from('IDAT'), z, Buffer.alloc(4), bomb.subarray(bomb.indexOf('IEND') - 4)]);
+    expect(decodePng(bad)).toBeNull();
   });
 });
 
