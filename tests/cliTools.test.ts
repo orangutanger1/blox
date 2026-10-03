@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseFlags, cliArgs, setupAgent, mcpServerEntry } from '../src/cliTools.js';
 import { scaffoldProject } from '../src/scaffold.js';
+import { AGENT_GUIDE } from '../src/agentGuide.js';
 
 describe('parseFlags / cliArgs', () => {
   it('maps animate rig flags', () => {
@@ -43,6 +44,18 @@ describe('setupAgent', () => {
     expect(cfg.mcpServers.blox.args).toContain('mcp');
     expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n');
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+  });
+  it('refreshes an AGENTS.md an older blox wrote, and leaves the user\'s own alone', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-setup-'));
+    writeFileSync(join(dir, 'AGENTS.md'), '# Building Roblox games with blox\n\nold guide\n');
+    const out = setupAgent('codex', dir).join('\n');
+    expect(out).toMatch(/refreshed .*AGENTS\.md/);
+    expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toBe(AGENT_GUIDE);
+    expect(readFileSync(join(dir, '.blox', 'AGENTS.md.prev'), 'utf8')).toContain('old guide');
+    const mine = mkdtempSync(join(tmpdir(), 'blox-setup-'));
+    writeFileSync(join(mine, 'AGENTS.md'), '# My rules\n');
+    setupAgent('codex', mine);
+    expect(readFileSync(join(mine, 'AGENTS.md'), 'utf8')).toBe('# My rules\n');
   });
   it('refuses to clobber an invalid .mcp.json', () => {
     const dir = mkdtempSync(join(tmpdir(), 'blox-setup-'));

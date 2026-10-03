@@ -6,11 +6,11 @@
 export const AGENT_GUIDE = `# Building Roblox games with blox
 
 blox drives a running Roblox Studio. Files on disk are the source of truth; blox syncs
-them to Studio and returns structured feedback.
+them to Studio and returns feedback.
 
 ## Project layout (Rojo)
 - src/ServerScriptService/*.server.luau Script · src/StarterPlayerScripts/*.client.luau
-  LocalScript · src/StarterGui/*.client.luau UI built in code · src/ReplicatedStorage/*.luau
+  LocalScript · src/StarterGui/*.client.luau LocalScript UI built in code · src/ReplicatedStorage/*.luau
   shared ModuleScript · src/ServerStorage/*.luau server-only modules. Suffix sets the class;
   files outside folders mapped in default.project.json never reach Studio.
 - world/<Name>.luau → \`return function(model) ... end\` builds Model <Name> in Workspace
@@ -26,18 +26,17 @@ each bound to the tests that prove it. 3. Write code, world builders, tests; che
 luau-lsp, rojo build) until clean. 4. run_tests: syncs, runs every spec, returns failures at
 file:line + runtime errors. 5. playtest: runs the game, probes server/client Luau, optional
 inputs + screenshot. A UI flow is one call: inputs [{kind:"luau",args:{context:"server",
-code}}, {kind:"click",args:{target:"PlayerGui.HUD.Button"}}] then server_code/client_code.
+code}}, {kind:"click",args:{target:"PlayerGui.HUD.Button"}}] then server_code/client_code to check.
 6. Repeat until every criterion passes. Only passing tests/playtest results are proof, not a
 successful tool call.
 
 ## Start from a kit, template or pack
 kit {action:"list"} / kit {action:"apply", name}: a tested loop (modules, world, specs,
 design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, ProfileStore, safe
-receipts) — follow FRAMEWORK.md; "boilerplate" = framework only. Before building a map, UI
+receipts) — follow FRAMEWORK.md; kit apply boilerplate = framework only. Before building a map, UI
 or big prop: scout {action:"search", need, kind} finds free Creator Store templates/packs;
 try (quarantined, verdict) → adopt (scripts stripped, provenance recorded) and adapt, or
-discard and build. Unsure of a
-Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
+discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
 
 ## Multiplayer
 PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multiplayer",
@@ -45,8 +44,8 @@ PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multipl
 "ReplicatedStorage.Remotes.X", ...).
 
 ## Assets, models, animation
-Prefer code-built geometry. Record every other asset: asset {action:"sanitize", path, id}
-after inserting a Creator Store model, asset {action:"add"} for generated/external ones,
+Prefer code-built geometry; record every other asset: asset {action:"sanitize", path, id}
+after inserting a Creator Store model (strips scripts, flags backdoors), asset {action:"add"} for generated/external ones,
 asset {action:"lint"}. Approvals and uploads are human steps.
 Custom models: model {action:"brief"} → run (Blender Python: voxels/box/rig/bind_rigid/
 animate) → check (compare views to refs) → export → preview → import. After
@@ -54,7 +53,7 @@ inserting an uploaded model set its MeshParts' Color to white; rigged: model ani
 upload → BloxAnimate.
 Characters (R15/R6): animate recipes → check (read the sheet) → build → human approves →
 asset upload → animate wire {slot, asset, name} → verify (skill character-animation). NPCs/models: animate
-npc or rig → declare → check {rig} → build → human approves → asset upload → wire {model,
+npc or rig → declare → check {rig:<model path>} → build → human approves → asset upload → wire {model,
 state} → verify.
 
 ## Ship
@@ -73,8 +72,8 @@ design {action:"set"} .blox/design.json (economy, archetypes, assertions like "f
 Bind tests:["design:<assertionId>"]. Measure the real game: metrics {action:"ftue"} and
 metrics {action:"soak", bot, archetype}; bind tests:["ftue:<id>"|"soak:<check>"].
 
-Other tools: explore (filtered tree search), logs, play (keep a playtest
-running across calls), sync (push without testing), run_luau, studio_tool (last resort:
+Other tools: explore (filtered tree search, not a full dump), logs, play (start/stop/state;
+keeps a playtest running), sync (push without testing), run_luau, studio_tool (last resort:
 raw Studio tools, big output).
 
 ## Working efficiently
@@ -85,13 +84,13 @@ run_luau returning only what you need). Fix every visible failure before the nex
 
 ## Rules
 - Prefer tests over one-off probes: a test keeps checking forever.
-- run_luau edit changes not captured in files or world/ builders are lost on reload.
+- run_luau context edit changes not captured in files or world/ builders are lost on reload.
 - Server state in play: context server; client/UI state: context client.
 - Never edit scripts in Studio; edit files.
-- Screenshots only for visual judgments (they are large).
+- Screenshots only for visual judgments (large).
 - run_luau must not yield: WaitForChild(x, 5) with a timeout; waits, events, DataStore and
   HttpService belong in real scripts.
 - Never Destroy/ClearAllChildren broadly; delete exactly what the task names.
-- "No Studio"/disconnect errors are often momentary: retry once first.
+- "No Studio"/disconnects are often momentary: retry once.
 - Record anything you cannot do or verify with task {action:"block"}; never claim it works.
 `;
