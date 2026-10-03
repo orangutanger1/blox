@@ -1,3 +1,5 @@
+import { cliArgs, parseFlags } from '../src/cliTools.js';
+import { writeFileSync as wf } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -73,5 +75,19 @@ describe('animate wire (tool)', () => {
     const bad = await call({ action: 'wire', slot: 'walk', asset: 1, rig: 'R6' }, c);
     expect(bad.isError).toBe(true);
     expect(bad.text).toMatch(/R15/);
+  });
+});
+
+describe('animate cli', () => {
+  it('maps subcommands', () => {
+    expect(cliArgs('animate', parseFlags(['recipes', 'Walk']))).toEqual({ tool: 'animate', args: { action: 'recipes', name: 'Walk' } });
+    expect(cliArgs('animate', parseFlags(['build', 'Walk', '--force']))).toEqual({ tool: 'animate', args: { action: 'build', name: 'Walk', force: true } });
+    expect(cliArgs('animate', parseFlags(['wire', 'walk', '123', '--replaces', '9']))).toEqual({ tool: 'animate', args: { action: 'wire', slot: 'walk', asset: '123', replaces: '9' } });
+    expect(cliArgs('animate', parseFlags(['verify', 'Walk', '--slot', 'walk']))).toEqual({ tool: 'animate', args: { action: 'verify', name: 'Walk', slot: 'walk' } });
+  });
+  it('check reads the description from a JSON file', () => {
+    const f = join(mkdtempSync(join(tmpdir(), 'blox-animcli-')), 'walk.json');
+    wf(f, JSON.stringify({ name: 'Walk', rig: 'R15' }));
+    expect(cliArgs('animate', parseFlags(['check', f, '--locomotion', '--waive', 'groundContact,footSliding']))).toEqual({ tool: 'animate', args: { action: 'check', animation: { name: 'Walk', rig: 'R15' }, locomotion: true, waive: ['groundContact', 'footSliding'] } });
   });
 });

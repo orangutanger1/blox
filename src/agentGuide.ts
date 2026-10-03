@@ -59,6 +59,8 @@ Custom models (creatures, props, rigged pets): model {action:"brief"} → run (B
 voxels/box/rig/bind_rigid/animate) → check (open the views, compare with references) → export →
 preview (EditableMesh in Studio) → import. After inserting an uploaded model, set its MeshParts'
 Color to white (vertex colours are multiplied by it); rigged ones: model animate → upload → BloxAnimate.
+Player-character animation (R15/R6): animate recipes → check (look at the sheet) → build →
+human approves → asset upload → animate wire {slot, asset} → verify. Guide: skill character-animation.
 
 ## Release and live-ops
 release {action:"check"} lists every gate. Publishing, live config and monetization are human
