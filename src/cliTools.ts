@@ -151,9 +151,15 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
         case 'build':
           return { tool: 'animate', args: { action, name: f.rest[1], ...flag('force') } };
         case 'wire':
-          return { tool: 'animate', args: { action, slot: f.rest[1], asset: f.rest[2], ...str('replaces'), ...str('rig') } };
+          return { tool: 'animate', args: typeof o.model === 'string' ? { action, model: o.model, ...str('state'), name: f.rest[1], asset: f.rest[2], ...flag('force') } : { action, slot: f.rest[1], asset: f.rest[2], ...str('replaces'), ...str('rig') } };
         case 'verify':
-          return { tool: 'animate', args: { action, name: f.rest[1], ...str('slot'), ...str('asset') } };
+          return { tool: 'animate', args: { action, ...(f.rest[1] ? { name: f.rest[1] } : {}), ...str('slot'), ...str('asset'), ...str('model') } };
+        case 'rig':
+          return { tool: 'animate', args: { action, model: f.rest[1] } };
+        case 'declare':
+          return { tool: 'animate', args: { action, model: f.rest[1], ...str('plan'), ...(typeof o.declarations === 'string' ? { declarations: JSON.parse(readFileSync(o.declarations, 'utf8')) } : {}) } };
+        case 'npc':
+          return { tool: 'animate', args: { action, name: f.rest[1], ...str('rig'), ...(typeof o.at === 'string' ? { at: o.at.split(',').map(Number) } : {}), ...str('parent') } };
         default:
           throw new Error(`unknown animate action ${action}`);
       }
@@ -301,6 +307,7 @@ Develop:   blox status                    Studio/sync/tests/task report
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
            blox animate recipes [name] | check <desc.json> [--locomotion] [--grounded] [--waive ids]
                         build <name> [--force] | wire <slot> <asset> [--replaces id] [--rig R15|R6] | verify <name> [--slot s] [--asset id]
+           blox animate rig <model> | declare <model> [--plan quadruped] | npc <name> --rig R15 --at x,y,z | wire --model <path> --state walk <name> <asset> | verify --model <path> [name]
            blox liveops report [--from export.json]|propose|apply <id>|push config|thumbnails [--confirm]
            blox liveops approve config|thumbnails   (human sign-off before push --confirm)
 Observe:   blox dashboard [--port 35780]

@@ -61,6 +61,7 @@ preview (EditableMesh in Studio) → import. After inserting an uploaded model, 
 Color to white (vertex colours are multiplied by it); rigged ones: model animate → upload → BloxAnimate.
 Player-character animation (R15/R6): animate recipes → check (look at the sheet) → build →
 human approves → asset upload → animate wire {slot, asset, name} → verify. Guide: skill character-animation.
+NPCs / models: animate npc or rig → declare → check {rig:<model path>} → build → approve → upload → wire {model, state} → verify {model}.
 
 ## Release and live-ops
 release {action:"check"} lists every gate. Publishing, live config and monetization are human
