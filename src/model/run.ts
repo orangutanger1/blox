@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { blenderBin, defaultSpawn, type Spawner } from '../assets/blender.js';
 import { longString } from '../studio/luau.js';
@@ -72,7 +72,7 @@ export function briefText(b: ModelBrief): string {
       : '   (static: no rig needed)',
     '   Separate body parts that move into their own objects so each binds to one bone.',
     `2. model {action:"run", id:"${b.id}", code} — rebuilds the .blend from your code (keep the whole build in one script; rerun after edits).`,
-    `3. model {action:"check", id:"${b.id}"} — stats vs Roblox limits + front/right/back/¾ renders: open them and compare with the references; fix and rerun.`,
+    `3. model {action:"check", id:"${b.id}"} — budget, colour survival, Roblox limits + front/right/back/¾ renders returned next to the references: compare them; fix and rerun.`,
     `4. model {action:"export", id:"${b.id}"} — model.glb (upload), model.fbx, anim_<name>.fbx + .json, preview.json.`,
     `5. model {action:"preview", id:"${b.id}"} — coloured mesh in Studio (no upload) to judge scale in the real place.`,
     `6. model {action:"import", id:"${b.id}"} — records it in .blox/assets.json; a human approves (blox asset approve ${b.id}) before upload.`,
@@ -128,6 +128,37 @@ export function formatStats(s: ModelStats, projectPath: string, budget = 0): str
   if (!s.issues.length) lines.push('  ✓ within Roblox limits');
   if (s.views?.length) lines.push(`views (open and compare with the references): ${s.views.map((v) => relative(projectPath, v)).join(', ')}`);
   return lines.join('\n');
+}
+
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_REFS = 4;
+const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+
+// check hands the renders and the brief's references back as images, so any
+// MCP client sees them side by side (not every agent can open image files).
+export function checkImages(views: string[], refs: string[], projectPath: string): { images: { data: string; mimeType: string }[]; labels: string[]; notes: string[] } {
+  const images: { data: string; mimeType: string }[] = [];
+  const labels: string[] = [];
+  const notes: string[] = [];
+  const add = (file: string, label: string, shown: string): boolean => {
+    const mimeType = MIME[extname(file).toLowerCase()];
+    if (!mimeType) return notes.push(`${shown}: not attached (PNG or JPEG only)`), false;
+    if (!existsSync(file)) return notes.push(`${shown}: missing`), false;
+    if (statSync(file).size > MAX_IMAGE_BYTES) return notes.push(`${shown}: not attached (over 2 MB)`), false;
+    images.push({ data: readFileSync(file).toString('base64'), mimeType });
+    labels.push(label);
+    return true;
+  };
+  for (const v of views) add(v, `view ${basename(v).replace(/\.[^.]+$/, '')}`, relative(projectPath, v));
+  let n = 0;
+  for (const r of refs) {
+    if (n >= MAX_REFS) {
+      notes.push(`${r}: not attached (only ${MAX_REFS} references are)`);
+      continue;
+    }
+    if (add(isAbsolute(r) ? r : join(projectPath, r), `reference ${r}`, r)) n++;
+  }
+  return { images, labels, notes };
 }
 
 // Edit-context Luau that builds a coloured MeshPart from preview.json via

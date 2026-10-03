@@ -31,7 +31,7 @@ import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
 import { runSanitize, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
-import { briefText, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
+import { briefText, checkImages, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
 import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, type AnimJson, type BuildResult } from '../model/anim.js';
 import { realSpawn, rojoBin } from '../sync/rojo.js';
 import { uploadAsset } from '../assets/upload.js';
@@ -795,10 +795,11 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'model',
     description:
-      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id} (triangles/bones/influences/textures vs Roblox limits + front/right/back/three-quarter renders to compare with references) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | animate {id, target, name?} (after the uploaded model is inserted at target, e.g. "Workspace.Dog": turns each exported Blender action into a Roblox KeyframeSequence on its Bones, checks the motion, plays it on the rig in edit mode and compares bone positions, writes anim_<name>.rbxm and records it as an animation candidate for upload) | list.',
+      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id, images?} (budget: triangles vs target, MeshParts the upload makes, bones, textures; colour survival — procedural or missing-image colours arrive white; front/right/back/three-quarter renders + the brief reference images, returned as images to compare) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | animate {id, target, name?} (after the uploaded model is inserted at target, e.g. "Workspace.Dog": turns each exported Blender action into a Roblox KeyframeSequence on its Bones, checks the motion, plays it on the rig in edit mode and compares bone positions, writes anim_<name>.rbxm and records it as an animation candidate for upload) | list.',
     shape: {
       action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'animate', 'list']),
       id: z.string().optional(),
+      images: z.boolean().optional().describe('check: attach the views and reference images (default true)'),
       prompt: z.string().optional(),
       style: z.string().optional(),
       tris: z.number().int().positive().optional(),
@@ -845,7 +846,9 @@ export const TOOLS: BloxTool[] = [
       if (a.action === 'check') {
         const s = (await runModelPy('check', { blend, views: join(dir, 'views'), budget }, dir)) as unknown as ModelStats;
         writeFileSync(join(dir, 'check.json'), JSON.stringify(s, null, 2));
-        return { text: formatStats(s, P, budget), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
+        const att = a.images === false ? null : checkImages(s.views ?? [], brief?.refs ?? [], P);
+        const text = [formatStats(s, P, budget), ...(att?.labels.length ? [`images: ${att.labels.join(', ')}`] : []), ...(att?.notes ?? [])].join('\n');
+        return { text, ...(att?.images.length ? { images: att.images } : {}), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
       }
       if (a.action === 'export') {
         const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };
