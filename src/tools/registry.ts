@@ -131,8 +131,10 @@ export const TOOLS: BloxTool[] = [
         if (st.mode === 'Edit') {
           const drift = await syncDrift(ctx.session, ctx.projectPath, { worldDir: ctx.config.worldDir });
           const n = drift.pending.length + drift.builders.length + drift.deletes.length;
-          lines.push(n ? `sync: ${n} change(s) not in Studio yet (${[...drift.pending, ...drift.builders.map((b) => `world:${b}`), ...drift.deletes.map((d) => `-${d}`)].slice(0, 12).join(', ')}) — run sync or run_tests` : 'sync: Studio matches files');
+          if (n || !drift.conflicts.length) lines.push(n ? `sync: ${n} change(s) not in Studio yet (${[...drift.pending, ...drift.builders.map((b) => `world:${b}`), ...drift.deletes.map((d) => `-${d}`)].slice(0, 12).join(', ')}) — run sync or run_tests` : 'sync: Studio matches files');
           if (drift.skipped.length) lines.push(`sync skipped: ${drift.skipped.map((s) => s.file).join(', ')}`);
+          if (drift.conflicts.length) lines.push(`sync CONFLICT (edited in Studio and in files): ${drift.conflicts.join(', ')} — merge, then sync {force:true}`);
+          if (drift.studioEdits.length) lines.push(`edited in Studio only (files lack these edits; the next change to those files will CONFLICT): ${drift.studioEdits.join(', ')}`);
         } else {
           lines.push('sync: (playtest running — stop it to sync)');
         }
@@ -159,7 +161,7 @@ export const TOOLS: BloxTool[] = [
     name: 'sync',
     description:
       'Push files into Studio (scripts + world/ builders), incremental. Edit mode only; run_tests/playtest already sync.',
-    shape: { force: z.boolean().optional().describe('re-push all scripts and rebuild every world builder') },
+    shape: { force: z.boolean().optional().describe('re-push all scripts and rebuild every world builder; also overwrites scripts edited in Studio since the last sync (otherwise refused as CONFLICT)') },
     async handler(a, ctx) {
       const r = await pushProject(ctx.session, ctx.projectPath, { force: a.force === true, worldDir: ctx.config.worldDir });
       writeJson(ctx.projectPath, 'last-sync.json', { ...r, at: new Date().toISOString() });
