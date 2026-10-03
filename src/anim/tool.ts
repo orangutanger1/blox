@@ -287,7 +287,12 @@ async function wireModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<Tool
   let speed: number | null = null;
   if (state !== 'idle') {
     const gs = loadReport(P, seq.name)?.groundSpeed;
-    if (typeof gs !== 'number' || gs <= 0) return err(`${seq.name} has no ground speed: check it with locomotion:true so the loader can pace its feet`, 'no ground speed');
+    if (typeof gs !== 'number' || gs <= 0) {
+      // Ground speed is measured from planted feet: a model rig needs them declared.
+      const noFeet = !RIGS.has(seq.rig) && (loadRigReading(P, seq.name) ? (() => { try { return rigForSequence(P, seq).feet.length === 0; } catch { return false; } })() : false);
+      if (noFeet) return err(`${seq.name} has no ground speed: ${seq.rig} has no feet declared, so none can be measured; animate {action:"declare", model:"${seq.rig}", plan:"quadruped"} (or declarations.feet), then check it again with locomotion:true`, 'no ground speed');
+      return err(`${seq.name} has no ground speed: check it with locomotion:true so the loader can pace its feet`, 'no ground speed');
+    }
     if (gs > MAX_GROUND_SPEED) return err(`${seq.name}'s ground speed ${gs} is above ${MAX_GROUND_SPEED} studs/s`, 'too fast');
     speed = gs;
   }

@@ -72,6 +72,12 @@ describe('rigForSequence', () => {
   });
 });
 
+describe('final review fixes', () => {
+  it('a bare read (declare) ignores a non-string BloxRig so declare can repair it', () => {
+    expect(readRigProgram('Workspace.Dog', true)).toMatch(/if declared ~= nil and typeof\(declared\) ~= "string" and not bare then/);
+  });
+});
+
 describe('rig read Luau compiles', () => {
   it.skipIf(!luneBin())('read program', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-mrigluau-'));

@@ -191,7 +191,7 @@ local function readModelRig(path, bare)
 		seen[p.Name] = true
 	end
 	local declared = model:GetAttribute("BloxRig")
-	if declared ~= nil and typeof(declared) ~= "string" then return { ok = false, code = "invalid_declarations", error = path .. "'s BloxRig attribute is a " .. typeof(declared) .. "; it must be JSON text" } end
+	if declared ~= nil and typeof(declared) ~= "string" and not bare then return { ok = false, code = "invalid_declarations", error = path .. "'s BloxRig attribute is a " .. typeof(declared) .. "; it must be JSON text" } end
 	local refusal = copyRefusal(model)
 	if refusal then return { ok = false, code = "not_copyable", error = refusal } end
 	local parts = {}

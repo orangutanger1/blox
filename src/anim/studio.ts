@@ -336,7 +336,13 @@ if humanoid.Health <= 0 or humanoid:GetState() == Enum.HumanoidStateType.Dead th
 end
 local root = humanoid.RootPart
 if not root then return { ok = false, error = P.model .. "'s Humanoid has no root part" } end
-if root.Anchored then return { ok = false, error = P.model .. "'s root part is anchored, so it cannot walk; unanchor it (its Humanoid holds it up)" } end
+for _, p in model:GetDescendants() do
+	-- One anchored part holds its whole assembly, the root's included.
+	if p:IsA("BasePart") and p.Anchored and (p == root or p.AssemblyRootPart == root.AssemblyRootPart) then
+		local which = p == root and (P.model .. "'s root part") or p:GetFullName()
+		return { ok = false, error = which .. " is anchored, so it cannot walk; unanchor it (its Humanoid holds it up)" }
+	end
+end
 local target = P.target and Vector3.new(P.target[1], P.target[2], P.target[3]) or (root.CFrame * CFrame.new(0, 0, -math.max(12, humanoid.WalkSpeed * 3))).Position
 local ids = {}
 for _, id in loader.ids do ids[id] = true end

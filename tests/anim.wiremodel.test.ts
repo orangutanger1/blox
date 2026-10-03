@@ -86,4 +86,13 @@ describe('wire a model state', () => {
     const r = await call({ action: 'wire', model: 'Workspace.Guard', slot: 'walk', state: 'walk', name: 'Walk', asset: 1 }, ctx(() => ({})));
     expect(r.isError).toBe(true);
   });
+  it('a model rig with no feet is told to declare them, not to use locomotion:true', async () => {
+    const { revision: _r, ...bare } = partsDog({ knees: true });
+    const c = ctx(() => ({ ok: true, reading: { ...bare, path: 'Workspace.Dog' } }));
+    await call({ action: 'check', animation: { name: 'Sway', rig: 'Workspace.Dog', loop: true, priority: 'Movement', duration: 1, waves: [{ joints: ['Tail'], axis: 'Y', amplitude: 20, cycles: 1 }] }, locomotion: true }, c);
+    const r = await call({ action: 'wire', model: 'Workspace.Dog', state: 'walk', name: 'Sway', asset: 1 }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/no feet declared/);
+    expect(r.text).toMatch(/plan:"quadruped"/);
+  });
 });

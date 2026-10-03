@@ -127,7 +127,7 @@ RunService.Heartbeat:Connect(function(dt)
 		if not model:FindFirstChildOfClass("Humanoid") then
 			-- Anything without a Humanoid is timed from frame to frame.
 			local root = model.PrimaryPart
-			local position = root and root.Position
+			local position = if root then root.Position else model:GetPivot().Position
 			if position and state.last and dt > 0 then
 				local moved = (position - state.last) * Vector3.new(1, 0, 1)
 				state.measured += (moved.Magnitude / dt - state.measured) * math.min(1, dt * 5)

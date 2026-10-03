@@ -78,3 +78,11 @@ describe('verify a model', () => {
     expect(code).toMatch(/^local P = \{/);
   });
 });
+
+describe('final review fixes', () => {
+  it('an anchored part anywhere in the root assembly is named', () => {
+    const code = verifyModelProgram({ model: 'Workspace.Guard', sequence: null, animationId: null, target: null });
+    expect(code).toMatch(/p.AssemblyRootPart == root.AssemblyRootPart/);
+    expect(code).toMatch(/is anchored, so it cannot walk/);
+  });
+});
