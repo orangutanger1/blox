@@ -35,6 +35,8 @@ export interface ModelStats {
   size: [number, number, number];
   issues: string[];
   views?: string[];
+  colours?: Record<string, string>; // material → flat | vertex | texture | procedural | missing-image
+  uploadParts?: number; // MeshParts an upload makes after the export bake
 }
 
 export function modelDir(projectPath: string, id: string): string {

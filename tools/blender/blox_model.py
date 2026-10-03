@@ -232,6 +232,63 @@ def _has_texture(mat):
     return bool(mat and mat.use_nodes and any(n.type == "TEX_IMAGE" and n.image for n in mat.node_tree.nodes))
 
 
+def _base_link(mat):
+    """The node feeding the Principled BSDF's Base Color, or None."""
+    if not (mat and mat.use_nodes):
+        return None
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None or not bsdf.inputs["Base Color"].is_linked:
+        return None
+    return bsdf.inputs["Base Color"].links[0].from_node
+
+
+def _image_ok(img):
+    if img is None:
+        return False
+    if img.packed_file or img.source == "GENERATED":
+        return True
+    import os
+    return bool(img.filepath) and os.path.exists(bpy.path.abspath(img.filepath))
+
+
+def colour_class(mat):
+    """How a material's colour fares on a Roblox upload:
+    flat (baked into vertex colours on export), vertex (Color Attribute, kept),
+    texture (image, embedded), procedural / missing-image (arrive white)."""
+    if mat is None or mat.name == VERTEX_MATERIAL:
+        return "vertex" if mat is not None else "flat"
+    if _has_texture(mat):
+        imgs = [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image]
+        return "texture" if all(_image_ok(i) for i in imgs) else "missing-image"
+    src = _base_link(mat)
+    if src is None:
+        return "flat"
+    if src.type in ("VERTEX_COLOR", "ATTRIBUTE"):
+        return "vertex"
+    return "procedural"
+
+
+def _vertex_source(mat, me):
+    """The colour attribute a vertex-colour material reads (None → active)."""
+    src = _base_link(mat)
+    name = getattr(src, "layer_name", "") or getattr(src, "attribute_name", "")
+    return me.color_attributes.get(name) if name else me.color_attributes.active_color
+
+
+def upload_parts(objs):
+    """MeshParts an upload makes after the bake: per mesh, one for all its
+    flat/vertex-coloured faces plus one per textured material it uses."""
+    n = 0
+    for o in objs:
+        if o.type != "MESH":
+            continue
+        mats = [s.material for s in o.material_slots]
+        used = {p.material_index for p in o.data.polygons} or {0}
+        textured = {i for i in used if i < len(mats) and _has_texture(mats[i])}
+        n += len(textured) + (1 if used - textured else 0)
+    return n
+
+
 def _flat_color(mat):
     if mat is None:
         return (0.8, 0.8, 0.8)
@@ -280,11 +337,26 @@ def bake_vertex_colors(objs):
             if _has_texture(m):
                 keep[i] = len(new_mats)
                 new_mats.append(m)
+        # Painted materials keep their colours: read them before "Col" is overwritten.
+        painted = {}
+        for i, m in enumerate(mats):
+            if i not in keep and m is not None and colour_class(m) == "vertex":
+                attr = _vertex_source(m, me)
+                if attr is not None and attr.name != col.name:
+                    painted[i] = attr
         for poly in me.polygons:
             m = mats[poly.material_index] if poly.material_index < len(mats) else None
             if poly.material_index in keep:
                 textured += 1
                 rgb = (1.0, 1.0, 1.0)
+            elif poly.material_index in painted:
+                attr = painted[poly.material_index]
+                for li, vi in zip(poly.loop_indices, poly.vertices):
+                    # "Col" holds sRGB values (as the flat bake writes them).
+                    c = attr.data[li if attr.domain == "CORNER" else vi].color_srgb
+                    col.data[li].color = (c[0], c[1], c[2], 1.0)
+                baked += 1
+                continue
             else:
                 rgb = tuple(to_srgb(c) for c in _flat_color(m))
                 baked += 1

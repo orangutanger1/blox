@@ -1,0 +1,90 @@
+import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runModelPy, type ModelStats } from '../src/model/run.js';
+import { blenderBin } from '../src/assets/blender.js';
+
+// Real headless Blender; skipped where it is not installed.
+function hasBlender(): boolean {
+  try {
+    execFileSync(blenderBin(), ['--version'], { stdio: 'ignore', timeout: 60_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function build(code: string): Promise<ModelStats> {
+  const dir = mkdtempSync(join(tmpdir(), 'blox-mblend-'));
+  const file = join(dir, 'build.py');
+  writeFileSync(file, code);
+  return (await runModelPy('run', { blend: join(dir, 'model.blend'), code: file, budget: 1000, name: 'build.py' }, dir)) as unknown as ModelStats;
+}
+
+describe.skipIf(!hasBlender())('model stats in Blender', () => {
+  it('flags a procedural base colour and counts upload MeshParts', async () => {
+    const s = await build(`reset()
+a = box("Body", (2, 2, 2), (0, 0, 1), "#ff0000")
+b = box("Head", (1, 1, 1), (0, 0, 3), "#00ff00")
+m = bpy.data.materials.new("Noisy")
+m.use_nodes = True
+nt = m.node_tree
+noise = nt.nodes.new("ShaderNodeTexNoise")
+nt.links.new(noise.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+b.data.materials.clear()
+b.data.materials.append(m)
+`);
+    expect(s.colours).toMatchObject({ Noisy: 'procedural' });
+    expect(Object.values(s.colours!).filter((c) => c === 'flat').length).toBe(1);
+    expect(s.issues.join('\n')).toMatch(/Noisy.*lost on upload/);
+    expect(s.uploadParts).toBe(2);
+  }, 180_000);
+
+  it('flat and Color Attribute materials survive; a textured + flat mesh makes 2 MeshParts', async () => {
+    const s = await build(`reset()
+a = box("Body", (2, 2, 2), (0, 0, 1), "#ff0000")
+v = bpy.data.materials.new("Painted")
+v.use_nodes = True
+ca = v.node_tree.nodes.new("ShaderNodeVertexColor")
+v.node_tree.links.new(ca.outputs["Color"], v.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+t = bpy.data.materials.new("Skin")
+t.use_nodes = True
+img = bpy.data.images.new("skin", 8, 8)
+tex = t.node_tree.nodes.new("ShaderNodeTexImage")
+tex.image = img
+t.node_tree.links.new(tex.outputs["Color"], t.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+a.data.materials.append(t)
+a.data.polygons[0].material_index = 1
+c = box("Tail", (1, 1, 1), (0, 0, 3), "#0000ff")
+c.data.materials.clear()
+c.data.materials.append(v)
+`);
+    expect(s.colours).toMatchObject({ Painted: 'vertex', Skin: 'texture' });
+    expect(s.issues.filter((i) => /upload/.test(i))).toEqual([]);
+    expect(s.uploadParts).toBe(3);
+  }, 180_000);
+
+  it('export bake keeps painted vertex colours instead of flattening them', async () => {
+    // An assertion failure inside the build script fails the run (BLOX_ERROR).
+    await build(`reset()
+c = box("Tail", (1, 1, 1), (0, 0, 1), "#0000ff")
+attr = c.data.color_attributes.new("Paint", "BYTE_COLOR", "CORNER")
+for d in attr.data:
+    d.color = (1.0, 0.5, 0.0, 1.0)
+v = bpy.data.materials.new("Painted")
+v.use_nodes = True
+ca = v.node_tree.nodes.new("ShaderNodeVertexColor")
+ca.layer_name = "Paint"
+v.node_tree.links.new(ca.outputs["Color"], v.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+c.data.materials.clear()
+c.data.materials.append(v)
+bake_vertex_colors([c])
+col = c.data.color_attributes["Col"]
+r, g, b, _ = col.data[0].color
+# Paint set in linear 0.5 reads as sRGB ~0.735; "Col" stores sRGB.
+assert abs(r - 1.0) < 0.02 and abs(g - 0.735) < 0.03 and b < 0.02, (r, g, b)
+`);
+  }, 180_000);
+});
