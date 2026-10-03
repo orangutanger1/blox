@@ -1,22 +1,24 @@
-import { mkdirSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { unzipTo } from './unzip.js';
+import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
 import { z } from 'zod';
 import { resultText } from '../studio/session.js';
 import { longString, runLuau } from '../studio/luau.js';
 import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
-import { addAsset, loadManifest, saveManifest } from './manifest.js';
+import { addAsset, loadManifest, saveManifest, type AssetEntry } from './manifest.js';
 import { runSanitize } from './scan.js';
 import {
   adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
 } from './scout.js';
+import { assetDetails, assetTypeName, devforumSearch, kindAllows, type FetchLike, type OffsiteLead } from './scoutWeb.js';
 
 export const SCOUT_DESCRIPTION =
-  'Find free Creator Store templates/packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8} (free only, ranked, saved) | try {asset_id, id} (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | discard {id}. Nothing is bought or uploaded.';
+  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | discard {id}. Nothing is bought or uploaded.';
 
 export const scoutShape = {
-  action: z.enum(['search', 'try', 'adopt', 'discard']),
+  action: z.enum(['search', 'try', 'adopt', 'discard', 'import']),
   need: z.string().optional(),
   kind: z.enum(SCOUT_KINDS as [ScoutKind, ...ScoutKind[]]).optional(),
   max: z.number().int().positive().max(20).optional(),
@@ -25,6 +27,13 @@ export const scoutShape = {
   to: z.string().optional(),
   keep_scripts: z.boolean().optional(),
   unpack: z.boolean().optional(),
+  sources: z.array(z.enum(['store', 'devforum'])).optional(),
+  url: z.string().optional(),
+  file: z.string().optional(),
+  licence: z.enum(['cc0', 'cc-by', 'owned', 'unknown']).optional(),
+  source_url: z.string().optional(),
+  attribution: z.string().optional(),
+  pick: z.string().optional(),
 };
 
 const ADOPT_ROOTS = ['Workspace', 'StarterGui', 'ReplicatedStorage', 'ServerStorage', 'Lighting'];
@@ -35,7 +44,8 @@ interface ScoutSave {
   at: string;
   queries: string[];
   errors: string[];
-  results: Ranked[];
+  results: (Ranked & { sourceUrl?: string; licenceNote?: string })[];
+  offsite?: OffsiteLead[];
 }
 interface TryRecord {
   need: string;
@@ -125,7 +135,138 @@ function ensureScoutDirs(P: string) {
   mkdirSync(join(bloxDir(P), 'scout', 'tried'), { recursive: true });
 }
 
-function findSaved(P: string, assetId: string): { save: ScoutSave; hit: Ranked } | null {
+type Found = { save: Pick<ScoutSave, 'need' | 'kind'>; hit: SearchHit; imported?: { source: 'external'; licence: AssetEntry['licence']; attribution?: string } };
+
+const fetchOf = (ctx: ToolCtx): FetchLike => ctx.fetch ?? (globalThis.fetch as unknown as FetchLike);
+
+// An id found outside a saved search (a forum post, a web page, the user): try
+// it when it is one of this project's uploaded imports, or when the economy API
+// says it is free and of a type this kind can use.
+async function directHit(P: string, assetId: string, a: Record<string, unknown>, fetch: FetchLike): Promise<Found | { error: string; summary: string }> {
+  const kind = (typeof a.kind === 'string' ? a.kind : undefined) as ScoutKind | undefined;
+  const need = typeof a.need === 'string' && a.need.trim() ? a.need : `asset ${assetId}`;
+  const imp = loadManifest(P).assets.find((x) => x.uploaded?.assetId === Number(assetId) && x.source === 'external');
+  if (imp) {
+    const k: ScoutKind = kind ?? (imp.kind === 'image' ? 'image' : imp.kind === 'audio' ? 'audio' : 'model');
+    return {
+      save: { need: imp.provenance.prompt ?? need, kind: k },
+      hit: { assetId, name: imp.id, assetType: imp.kind === 'image' ? 'Image' : imp.kind === 'audio' ? 'Audio' : 'Model', isFree: true, priceCents: 0, ...(imp.provenance.url ? { creatorStoreUrl: imp.provenance.url } : {}) },
+      imported: { source: 'external', licence: imp.licence, ...(imp.attribution ? { attribution: imp.attribution } : {}) },
+    };
+  }
+  let d;
+  try {
+    d = await assetDetails(assetId, fetch);
+  } catch (e) {
+    return { error: `could not look up asset ${assetId}: ${(e as Error).message}`, summary: 'lookup failed' };
+  }
+  if (!d) return { error: `asset ${assetId} was not found on Roblox`, summary: 'unknown asset' };
+  if (!d.free) return { error: `asset ${assetId} (${d.name}) is not free — scout never buys`, summary: 'not free' };
+  const k: ScoutKind = kind ?? (d.assetTypeId === 3 ? 'audio' : d.assetTypeId === 1 || d.assetTypeId === 13 ? 'image' : 'model');
+  if (!kindAllows(k, d.assetTypeId)) return { error: `asset ${assetId} (${d.name}) is a ${assetTypeName(d.assetTypeId)} (type ${d.assetTypeId}), not usable as ${k} — plugins and other types are not packs`, summary: 'wrong type' };
+  return {
+    save: { need, kind: k },
+    hit: { assetId, name: d.name, creatorName: d.creatorName, assetType: assetTypeName(d.assetTypeId), isFree: true, priceCents: 0, creatorStoreUrl: `https://create.roblox.com/store/asset/${assetId}` },
+  };
+}
+
+const IMPORT_EXT: Record<string, AssetEntry['kind']> = {
+  '.rbxm': 'model', '.fbx': 'mesh', '.glb': 'mesh', '.gltf': 'mesh', '.obj': 'mesh',
+  '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.tga': 'image', '.bmp': 'image',
+  '.mp3': 'audio', '.ogg': 'audio', '.wav': 'audio', '.flac': 'audio',
+};
+const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
+
+function listFiles(dir: string, root = dir): string[] {
+  const out: string[] = [];
+  for (const n of readdirSync(dir)) {
+    const f = join(dir, n);
+    if (statSync(f).isDirectory()) out.push(...listFiles(f, root));
+    else out.push(relative(root, f));
+  }
+  return out;
+}
+
+// Bring a free pack file from the web (or disk) into the project: assets/vendor/<id>.
+// A zip is unpacked and listed; pick names the file to record. Nothing is
+// uploaded here — the entry is a candidate a human approves and uploads.
+async function importPack(a: Record<string, unknown>, P: string, fetch: FetchLike): Promise<ToolOutput> {
+  const id = a.id;
+  if (typeof id !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) return err('import needs id (letters, digits, _ or -, starting with a letter)', 'bad id');
+  if (typeof a.url !== 'string' && typeof a.file !== 'string') return err('import needs url (a direct file link) or file (a path in the project)', 'no source');
+  if (typeof a.licence !== 'string') return err('import needs licence: cc0 | cc-by | owned | unknown — read it on the pack page first; unknown cannot be approved for release', 'no licence');
+  if (typeof a.source_url !== 'string' && typeof a.url !== 'string') return err('import needs source_url (the page that states the licence)', 'no source_url');
+  if (loadManifest(P).assets.some((x) => x.id === id)) return err(`asset id "${id}" is already in .blox/assets.json — pick another id`, 'id taken');
+  const dir = join(P, 'assets', 'vendor', id);
+  mkdirSync(dir, { recursive: true });
+  let got: string;
+  if (typeof a.url === 'string') {
+    if (!/^https:\/\//.test(a.url)) return err('import url must be https://', 'bad url');
+    let r: Awaited<ReturnType<FetchLike>> & { arrayBuffer?: () => Promise<ArrayBuffer>; headers?: { get(n: string): string | null } };
+    try {
+      r = await fetch(a.url, { headers: { 'User-Agent': 'blox-scout' } });
+    } catch (e) {
+      return err(`download failed: ${(e as Error).message}`, 'download failed');
+    }
+    if (!r.ok || !r.arrayBuffer) return err(`download failed: HTTP ${r.status} — use a direct file link (pages behind a login or a download button, like itch.io, need a human to download; then import {file})`, 'download failed');
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > MAX_IMPORT_BYTES) return err(`download is ${Math.round(buf.length / 1e6)} MB (cap ${MAX_IMPORT_BYTES / 1e6} MB)`, 'too big');
+    if (buf.subarray(0, 64).toString('utf8').toLowerCase().includes('<!doctype html') || buf.subarray(0, 64).toString('utf8').toLowerCase().includes('<html')) return err('that url returned a web page, not a file — find the direct download link', 'not a file');
+    const name = basename(new URL(a.url).pathname) || `${id}.bin`;
+    got = join(dir, name);
+    writeFileSync(got, buf);
+  } else {
+    const src = resolvePath(P, a.file as string);
+    if (!existsSync(src)) return err(`no file ${a.file}`, 'no file');
+    got = src;
+  }
+  let files: string[];
+  if (extname(got).toLowerCase() === '.zip') {
+    const out = join(dir, 'unzipped');
+    try {
+      unzipTo(readFileSync(got), out);
+    } catch (e) {
+      return err(`could not unzip ${basename(got)}: ${(e as Error).message}`, 'unzip failed');
+    }
+    files = listFiles(out).filter((f) => IMPORT_EXT[extname(f).toLowerCase()]).map((f) => relative(P, join(out, f)));
+  } else files = [relative(P, got)];
+  const usable = files.filter((f) => IMPORT_EXT[extname(f).toLowerCase()]);
+  const pick = typeof a.pick === 'string' ? usable.find((f) => f === a.pick || f.endsWith(`/${a.pick}`)) : usable.length === 1 ? usable[0] : undefined;
+  if (!pick) {
+    return {
+      text: [
+        `${usable.length} usable file(s) in ${relative(P, dir)}${usable.length ? '' : ' — none with a known extension (.rbxm .fbx .glb .gltf .obj .png .jpg .mp3 .ogg …)'}:`,
+        ...usable.slice(0, 60).map((f) => `  ${f}`),
+        ...(usable.length > 60 ? [`  … ${usable.length - 60} more`] : []),
+        usable.length ? `Next: scout {action:"import", file:"<one of these>", id:"<new id>", licence, source_url} for each file you want (pick:<name> also works on the zip).` : '',
+      ].filter(Boolean).join('\n'),
+      summary: `${usable.length} files`,
+    };
+  }
+  const kind = IMPORT_EXT[extname(pick).toLowerCase()];
+  const added = addAsset(P, {
+    id, kind, source: 'external', licence: a.licence,
+    ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}),
+    ref: { file: pick },
+    provenance: { tool: 'scout', prompt: `import ${a.url ?? a.file}`, ...(typeof a.source_url === 'string' ? { url: a.source_url } : typeof a.url === 'string' ? { url: a.url } : {}), createdAt: new Date().toISOString() },
+  });
+  if (!added.ok) return err(`could not record ${id}: ${added.errors.join('; ')}`, 'invalid');
+  const next = kind === 'mesh'
+    ? `A mesh: run asset {action:"normalize", file:"${pick}"} (scale/axis/colours) before upload, or open it in the model tool.`
+    : kind === 'image'
+      ? 'An image: after upload use its asset id in ImageLabel.Image / Decal.Texture.'
+      : `A model: after upload, scout {action:"try", asset_id:<uploaded id>, id:"${id}Try"} quarantines and sanitizes it like any pack.`;
+  return {
+    text: [
+      `imported ${pick} as "${id}" (${kind}, licence ${a.licence}${typeof a.attribution === 'string' ? `, by ${a.attribution}` : ''}) — candidate in .blox/assets.json`,
+      `A human must approve it (\`blox asset approve ${id}\`) before asset {action:"upload", id:"${id}", confirm:true}.`,
+      next,
+    ].join('\n'),
+    summary: 'imported',
+  };
+}
+
+function findSaved(P: string, assetId: string): Found | null {
   const dir = join(bloxDir(P), 'scout');
   let files: string[] = [];
   try {
@@ -148,7 +289,8 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     if (typeof a.need !== 'string' || !a.need.trim()) return err('search needs need (e.g. "obby") and kind (map|ui|model|audio|image)', 'no need');
     if (typeof a.kind !== 'string') return err('search needs kind: map | ui | model | audio | image', 'no kind');
     const kind = a.kind as ScoutKind;
-    const queries = scoutQueries(a.need, kind);
+    const sources = (a.sources as string[] | undefined) ?? ['store', 'devforum'];
+    const queries = sources.includes('store') ? scoutQueries(a.need, kind) : [];
     const per: SearchHit[][] = [];
     const errors: string[] = [];
     for (const q of queries) {
@@ -162,17 +304,33 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
         errors.push(`${q.query}: ${(e as Error).message}`);
       }
     }
-    if (errors.length === queries.length) return err(`search failed:\n  ${errors.join('\n  ')}`, 'failed');
+    let offsite: OffsiteLead[] = [];
+    let forumOk = false;
+    if (sources.includes('devforum')) {
+      try {
+        const w = await devforumSearch(a.need, kind, fetchOf(ctx));
+        per.push(w.hits);
+        offsite = w.offsite;
+        errors.push(...w.errors);
+        forumOk = true;
+      } catch (e) {
+        errors.push(`devforum: ${(e as Error).message}`);
+      }
+    }
+    if (!forumOk && per.length === 0) return err(`search failed:\n  ${errors.join('\n  ')}`, 'failed');
     const ranked = mergeResults(per, a.need, kind);
     ensureScoutDirs(P);
     const file = scoutFile(a.need, kind);
-    writeJson(P, file, { need: a.need, kind, at: new Date().toISOString(), queries: queries.map((q) => q.query), errors, results: ranked } satisfies ScoutSave);
+    writeJson(P, file, { need: a.need, kind, at: new Date().toISOString(), queries: queries.map((q) => q.query), errors, results: ranked, offsite } satisfies ScoutSave);
     const max = (a.max as number | undefined) ?? 8;
-    const lines = ranked.slice(0, max).map((r, i) => `${i + 1}. ${r.assetId} ${r.name} — ${r.creatorName ?? '?'} (score ${r.score}) ${r.creatorStoreUrl ?? ''}`);
+    const lines = (ranked as ScoutSave['results']).slice(0, max).map((r, i) =>
+      `${i + 1}. ${r.assetId} ${r.name} — ${r.creatorName ?? '?'} (score ${r.score}) ${r.sourceUrl ? `[devforum ${r.sourceUrl}]${r.licenceNote ? ` terms: "${r.licenceNote}"` : ''}` : r.creatorStoreUrl ?? ''}`);
+    const off = offsite.slice(0, 5).map((o) => `  - ${o.title} ${o.links.join(' ')} [${o.sourceUrl}]${o.licenceNote ? ` terms: "${o.licenceNote}"` : ''}`);
     return {
       text: [
-        `${ranked.length} free result(s) for "${a.need}" (${kind}); saved .blox/${file}`,
+        `${ranked.length} free result(s) for "${a.need}" (${kind}) from ${sources.join(' + ')}; saved .blox/${file}`,
         ...lines,
+        ...(off.length ? ['off-site packs (not Creator Store assets; check the licence on the page, then scout {action:"import", url, ...} a direct file link):', ...off] : []),
         ...(errors.length ? [`query errors: ${errors.join('; ')}`] : []),
         ranked.length ? 'Next: scout {action:"try", asset_id, id} to look inside one (quarantined in ServerStorage).' : 'Nothing free found: build it, or search with other words.',
       ].join('\n'),
@@ -180,13 +338,19 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     };
   }
 
+  if (a.action === 'import') return importPack(a, P, fetchOf(ctx));
+
   if (a.action === 'try') {
     if (a.asset_id === undefined || typeof a.id !== 'string') return err('try needs asset_id (from a search) and id (manifest id, e.g. "obbyMap")', 'missing args');
     const assetId = String(a.asset_id);
     const id = a.id;
     if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) return err(`id "${id}" must start with a letter and use letters, digits, _ or -`, 'bad id');
-    const found = findSaved(P, assetId);
-    if (!found) return err(`asset ${assetId} is not in a saved scout search — run scout {action:"search"} first (only free results can be tried)`, 'unknown asset');
+    let found = findSaved(P, assetId);
+    if (!found) {
+      const direct = await directHit(P, assetId, a, fetchOf(ctx));
+      if ('error' in direct) return err(direct.error, direct.summary);
+      found = direct;
+    }
     if (!isFreeHit(found.hit)) return err(`asset ${assetId} is not free — scout never buys`, 'not free');
     if (loadManifest(P).assets.some((x) => x.id === id)) return err(`asset id "${id}" is already in .blox/assets.json — pick another id`, 'id taken');
     const q = await runLuau(ctx.session, quarantineLuau(id), 'edit', { chunkName: 'scoutQuarantine' });
@@ -214,10 +378,10 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     const v = adaptVerdict(kind, g.stats, g.findings);
     const manifestKind = kind === 'audio' ? 'audio' : kind === 'image' ? 'image' : 'model';
     const added = addAsset(P, {
-      id, kind: manifestKind, source: 'creator-store', licence: 'roblox-creator-store',
-      ...(found.hit.creatorName ? { attribution: found.hit.creatorName } : {}),
+      id, kind: manifestKind, source: found.imported?.source ?? 'creator-store', licence: found.imported?.licence ?? 'roblox-creator-store',
+      ...(found.imported?.attribution ?? found.hit.creatorName ? { attribution: found.imported?.attribution ?? found.hit.creatorName } : {}),
       ref: { assetId: Number(assetId), path },
-      provenance: { tool: 'scout', prompt: found.save.need, ...(found.hit.creatorStoreUrl ? { url: found.hit.creatorStoreUrl } : {}), createdAt: new Date().toISOString() },
+      provenance: { tool: 'scout', prompt: found.save.need, ...((found.hit as { sourceUrl?: string }).sourceUrl ?? found.hit.creatorStoreUrl ? { url: (found.hit as { sourceUrl?: string }).sourceUrl ?? found.hit.creatorStoreUrl } : {}), createdAt: new Date().toISOString() },
       budget: { parts: g.stats.parts },
     });
     if (!added.ok) return err(`could not record ${id}: ${added.errors.join('; ')}`, 'invalid');
@@ -230,7 +394,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
         `${s.parts} parts (${s.meshParts} MeshParts), ${s.guis} GUI objects in ${s.screenGuis} GUI container(s), ${s.sounds} sound(s), ${s.scripts} script(s), size ${s.size.map((x) => Math.round(x)).join(' × ')} studs`,
         ...g.findings.map((f) => `  RISK ${f}`),
         `verdict: ${v.verdict} — ${v.reasons.join('; ')}`,
-        `recorded "${id}" in .blox/assets.json (candidate, creator-store licence, by ${found.hit.creatorName ?? '?'})`,
+        `recorded "${id}" in .blox/assets.json (candidate, ${found.imported?.licence ?? 'creator-store'} licence, by ${found.imported?.attribution ?? found.hit.creatorName ?? '?'})`,
         v.verdict === 'build'
           ? `Next: scout {action:"discard", id:"${id}"} and build it, or try another result.`
           : `Next: scout {action:"adopt", id:"${id}", to:"${kind === 'ui' ? 'StarterGui' : 'Workspace'}"${kind === 'ui' ? ', unpack:true' : ''}} to use it, or discard.`,

@@ -226,11 +226,17 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
     }
     case 'scout': {
       const sub = f.rest[0];
-      if (sub === 'try') return { tool: 'scout', args: { action: 'try', asset_id: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
+      if (sub === 'try') return { tool: 'scout', args: { action: 'try', asset_id: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}) } };
+      if (sub === 'import') {
+        const src = f.rest[1] ?? '';
+        const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : undefined);
+        const opt = { id: str('id'), licence: str('licence'), source_url: str('source-url'), attribution: str('attribution'), pick: str('pick') };
+        return { tool: 'scout', args: { action: 'import', ...(/^https?:\/\//.test(src) ? { url: src } : { file: src }), ...Object.fromEntries(Object.entries(opt).filter(([, v]) => v !== undefined)) } };
+      }
       if (sub === 'adopt')
         return { tool: 'scout', args: { action: 'adopt', id: f.rest[1], ...(typeof o.to === 'string' ? { to: o.to } : {}), ...(o.unpack === true ? { unpack: true } : {}), ...(o['keep-scripts'] === true ? { keep_scripts: true } : {}) } };
       if (sub === 'discard') return { tool: 'scout', args: { action: 'discard', id: f.rest[1] } };
-      return { tool: 'scout', args: { action: 'search', need: f.rest.join(' '), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}), ...(typeof o.max === 'string' ? { max: Number(o.max) } : {}) } };
+      return { tool: 'scout', args: { action: 'search', need: f.rest.join(' '), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}), ...(typeof o.max === 'string' ? { max: Number(o.max) } : {}), ...(typeof o.sources === 'string' ? { sources: o.sources.split(',') } : {}) } };
     }
     case 'release':
       return { tool: 'release', args: { action: f.rest[0] ?? 'check', ...(o.confirm === true ? { confirm: true } : {}) } };
@@ -338,7 +344,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
-           blox scout <need> --kind map|ui|model|audio|image [--max N] | try <assetId> --id x | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
+           blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)

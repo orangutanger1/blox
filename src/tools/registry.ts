@@ -52,11 +52,14 @@ import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
 // and in-process to the built-in runner. Every call is logged to
 // .blox/events.jsonl — the same record the dashboard and `blox status` read.
 
+import type { FetchLike } from '../assets/scoutWeb.js';
+
 export interface ToolCtx {
   session: StudioSession;
   projectPath: string;
   config: BloxConfig;
   agent?: string; // who is calling (for the event log)
+  fetch?: FetchLike; // HTTP for tools that read public web APIs (tests inject one)
 }
 
 export interface ToolOutput {
