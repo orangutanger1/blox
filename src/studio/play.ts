@@ -46,11 +46,11 @@ export async function startPlay(session: StudioSession, opts: PlayOptions = {}):
   let character = false;
   while (Date.now() < deadline) {
     try {
-      const s = await runLuau(session, 'return #game:GetService("Players"):GetPlayers()', 'server', { timeoutMs: 10_000 });
+      const s = await runLuau(session, 'return #game:GetService("Players"):GetPlayers()', 'server', { timeoutMs: 10_000, via: 'mcp' });
       players = Number(s.values[0] ?? 0);
       if (players > 0) {
         if (opts.waitForCharacter === false) break;
-        const c = await runLuau(session, 'local p = game:GetService("Players").LocalPlayer return p ~= nil and p.Character ~= nil and p.Character:FindFirstChild("HumanoidRootPart") ~= nil', 'client', { timeoutMs: 10_000 });
+        const c = await runLuau(session, 'local p = game:GetService("Players").LocalPlayer return p ~= nil and p.Character ~= nil and p.Character:FindFirstChild("HumanoidRootPart") ~= nil', 'client', { timeoutMs: 10_000, via: 'mcp' });
         character = c.values[0] === true;
         if (character) break;
       }
@@ -147,7 +147,7 @@ export function foldLogs(entries: LogEntry[], context: CollectedLog['context']):
 }
 
 export async function collectLogs(session: StudioSession, context: CollectedLog['context'], sinceUnix: number, limit = 300): Promise<CollectedLog[]> {
-  const r = await runLuau(session, logLuau(sinceUnix, limit), context, { timeoutMs: 15_000, freshRequire: false });
+  const r = await runLuau(session, logLuau(sinceUnix, limit), context, { timeoutMs: 15_000, freshRequire: false, via: 'mcp' });
   const raw = (r.ok && Array.isArray(r.values[0]) ? r.values[0] : []) as LogEntry[];
   return foldLogs(raw, context);
 }
