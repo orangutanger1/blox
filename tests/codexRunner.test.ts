@@ -49,6 +49,16 @@ describe('codex runner', () => {
     expect(start).toMatchObject({ sandbox: 'read-only', approval: 'never' });
     expect(start.tools).toEqual(expect.arrayContaining(['read_file', 'write_file', 'run_luau', 'sync']));
   });
+  it('does not stall out a blox tool call that runs longer than stallMs', async () => {
+    const { config, ctx, digest } = setup();
+    const slow = async () => {
+      await new Promise((r) => setTimeout(r, 400));
+      return { content: [{ type: 'text', text: '1' }] };
+    };
+    ctx.session = new Proxy({}, { get: (_t, k) => (k === 'then' ? undefined : slow) }) as unknown as StudioSession;
+    const r = await runCodexAgent('x', config, ctx, digest, { appServer: fakeServer('slow'), stallMs: 100 });
+    expect(r.stopReason).toBe('completed');
+  });
   it('stops a turn that uses a built-in Codex tool', async () => {
     const { config, ctx, digest } = setup();
     const r = await runCodexAgent('x', config, ctx, digest, { appServer: fakeServer('builtin') });

@@ -276,4 +276,23 @@ describe('pushProject deferral (module scripts with children)', () => {
     expect(r.errors.join('\n')).toMatch(/Packet\/Task: not synced, its parent script could not be created/);
     expect(applies).toBeLessThanOrEqual(2);
   });
+
+  it('stops when multi_edit succeeds but the re-apply still asks for the same script', async () => {
+    const { dir, spawn } = setup();
+    let applies = 0;
+    let edits = 0;
+    const session = {
+      call: async (name: string, args: Record<string, unknown>) => {
+        if (name === 'multi_edit') { edits++; return { content: [{ type: 'text', text: 'Edited' }] }; }
+        if (!String(args.code).includes('PAYLOAD')) return { content: [{ type: 'text', text: '{}' }] };
+        applies++;
+        if (applies > 10) throw new Error('sync looped');
+        return ok({ needCreate: [{ key: 'ReplicatedStorage/Packet', path: ['ReplicatedStorage', 'Packet'], className: 'ModuleScript' }] });
+      },
+    } as unknown as StudioSession;
+    const r = await pushProject(session, dir, { spawn });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join('\n')).toMatch(/Packet: multi_edit did not produce a ModuleScript/);
+    expect(edits).toBe(1);
+  });
 });

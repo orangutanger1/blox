@@ -269,6 +269,43 @@ for _, inst in CS:GetTagged("BloxManaged") do
 	local k = inst:GetAttribute("BloxKey")
 	if typeof(k) == "string" then byKey[k] = inst end
 end
+-- Children of an instance that is turning into a different script class wait
+-- here (scripts do not run in ServerStorage) until multi_edit has made the new
+-- script; the pass that adopts it moves them back.
+local holds = {}
+local holdRoot = game:GetService("ServerStorage"):FindFirstChild("__BloxHold")
+if holdRoot then
+	for _, h in holdRoot:GetChildren() do
+		local k = h:GetAttribute("BloxHold")
+		if typeof(k) == "string" then holds[k] = h end
+	end
+end
+local function holdChildren(inst, key)
+	local kids = inst:GetChildren()
+	if #kids == 0 then return end
+	if not holdRoot then
+		holdRoot = Instance.new("Folder")
+		holdRoot.Name = "__BloxHold"
+		holdRoot.Parent = game:GetService("ServerStorage")
+	end
+	local h = holds[key]
+	if not h then
+		h = Instance.new("Folder")
+		h.Name = key
+		h:SetAttribute("BloxHold", key)
+		h.Parent = holdRoot
+		holds[key] = h
+	end
+	for _, ch in kids do ch.Parent = h end
+end
+local function restoreChildren(inst, key)
+	local h = holds[key]
+	if not h then return end
+	for _, ch in h:GetChildren() do ch.Parent = inst end
+	h:Destroy()
+	holds[key] = nil
+	if #holdRoot:GetChildren() == 0 then holdRoot:Destroy() holdRoot = nil end
+end
 local function mark(inst, key, hash)
 	inst:SetAttribute("BloxKey", key)
 	inst:SetAttribute("BloxHash", hash)
@@ -323,10 +360,16 @@ for _, d in P.upserts do
 		if SCRIPT_CLASS[d.className] and (not inst or inst.ClassName ~= d.className) then
 			-- This thread may not parent a script it creates (Studio capability
 			-- sandbox); the caller creates it with multi_edit and re-applies.
-			if inst then inst:Destroy() byKey[d.key] = nil end
+			if inst then
+				holdChildren(inst, d.key)
+				inst:Destroy()
+				byKey[d.key] = nil
+			end
+			-- A same-class instance there was adopted above, so anything left is
+			-- in the way (multi_edit would edit it, not make a new script).
 			local clash = parent:FindFirstChild(name)
-			if clash and not SCRIPT_CLASS[clash.ClassName] then
-				error("a " .. clash.ClassName .. " named " .. name .. " is where this script goes; delete or rename " .. clash:GetFullName(), 0)
+			if clash then
+				error("a " .. clash.ClassName .. " named " .. name .. " is where this " .. d.className .. " goes; delete or rename " .. clash:GetFullName(), 0)
 			end
 			pending[d.key] = true
 			table.insert(res.needCreate, { key = d.key, path = d.path, className = d.className })
@@ -346,6 +389,7 @@ for _, d in P.upserts do
 		if d.source ~= nil then setSource(inst, d.source) end
 		if d.value ~= nil then inst.Value = d.value end
 		if inst.Parent ~= parent then inst.Parent = parent end
+		restoreChildren(inst, d.key)
 		mark(inst, d.key, d.hash)
 		table.insert(created and res.created or res.updated, d.key .. ((adopted and not d.fresh) and " (adopted)" or ""))
 	end)
@@ -517,6 +561,9 @@ export async function pushProject(session: StudioSession, projectPath: string, o
   }
   // A script with children (folder + init.luau) defers its descendants until
   // multi_edit has made it, so each pass goes one script level deeper.
+  // A key is created at most once: if multi_edit reported success but the
+  // re-apply still wants it, retrying would loop forever.
+  const attempted = new Set<string>();
   for (const batch of batches) {
     let todo: (DesiredInstance & { fresh?: boolean })[] = batch;
     while (todo.length) {
@@ -525,6 +572,11 @@ export async function pushProject(session: StudioSession, projectPath: string, o
       for (const n of need) {
         const u = batch.find((x) => x.key === n.key);
         if (!u) continue;
+        if (attempted.has(n.key)) {
+          result.errors.push(`${n.key}: multi_edit did not produce a ${n.className} at ${n.path.join('/')}`);
+          continue;
+        }
+        attempted.add(n.key);
         const err = await createScript(session, n.path, n.className);
         if (err) result.errors.push(`${n.key}: ${err}`);
         else made.push({ ...u, fresh: true });

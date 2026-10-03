@@ -39,6 +39,8 @@ import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
 import { applyChanges, propose, type Proposal } from '../liveops/propose.js';
+import { isApproved, pushPayload } from '../liveops/push.js';
+import { isPathContained } from '../agent/guardrail.js';
 import { OpenCloud, openCloudKey } from '../opencloud/client.js';
 import { formatCheck, runCheck } from '../check.js';
 import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
@@ -747,6 +749,8 @@ export const TOOLS: BloxTool[] = [
       if (a.action === 'normalize') {
         if (typeof a.file !== 'string') return { text: 'normalize needs file', isError: true, summary: 'no file' };
         const out = typeof a.out === 'string' ? a.out : a.file.replace(/\.[^.\/]+$/, '') + '.normalized.glb';
+        const bad = [a.file, out].find((f) => !isPathContained(P, f));
+        if (bad) return { text: `${bad} is outside the project`, isError: true, summary: 'outside project' };
         const r = await runNormalize({ input: join(P, a.file), out: join(P, out), tris: (a.tris as number | undefined) ?? 10_000, height: (a.height as number | undefined) ?? 0 });
         let note = '';
         if (typeof a.id === 'string') {
@@ -980,7 +984,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'liveops',
     description:
-      'Post-launch loop. report {from?} (analytics from a Creator Hub export JSON — {retention:{d1,d7,d30}, sessionLengthMin, payerConversion, funnel:[{step,name,users}]} — or the Analytics Query API; graded vs GameAnalytics benchmarks → findings) | propose {finding?} (design changes for the worst finding, each validated by the simulator; never monetization) | apply {proposal} (writes design.json + Tunables locally; ships with the next human-approved release) | push {kind: config|thumbnails, confirm} (live Configs from design tunables / rendered thumbnails to Thumbnail Personalization; dry run unless confirm + key; monetization keys refused).',
+      'Post-launch loop. report {from?} (analytics from a Creator Hub export JSON — {retention:{d1,d7,d30}, sessionLengthMin, payerConversion, funnel:[{step,name,users}]} — or the Analytics Query API; graded vs GameAnalytics benchmarks → findings) | propose {finding?} (design changes for the worst finding, each validated by the simulator; never monetization) | apply {proposal} (writes design.json + Tunables locally; ships with the next human-approved release) | push {kind: config|thumbnails, confirm} (live Configs from design tunables / rendered thumbnails to Thumbnail Personalization; dry run unless confirm + key + a human ran `blox liveops approve <kind>` on this exact payload; monetization keys refused).',
     shape: {
       action: z.enum(['report', 'propose', 'apply', 'push']),
       from: z.string().optional(),
@@ -995,6 +999,7 @@ export const TOOLS: BloxTool[] = [
         let analytics;
         let source: string;
         if (typeof a.from === 'string') {
+          if (!isPathContained(P, a.from)) return { text: `${a.from} is outside the project`, isError: true, summary: 'outside project' };
           const file = join(P, a.from);
           if (!existsSync(file)) return { text: `no file ${a.from}`, isError: true, summary: 'no file' };
           const v = AnalyticsSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
@@ -1049,29 +1054,27 @@ export const TOOLS: BloxTool[] = [
       } catch (e) {
         if (a.confirm) throw e;
       }
-      if (a.kind === 'thumbnails') {
-        const pres = readJson<{ shots?: { id: string; kind: string; file?: string; provenance?: string }[] }>(P, 'presentation.json');
-        const lint = readJson<{ results: { ok: boolean }[] }>(P, 'present-report.json');
-        if (!lint || lint.results.some((r) => !r.ok)) return { text: 'present lint must pass first (present {action:"lint"})', isError: true, summary: 'not ready' };
-        const shots = (pres?.shots ?? []).filter((s) => s.kind === 'thumbnail' && s.file && (s.provenance === 'render' || s.provenance === 'human'));
-        if (!a.confirm) return { text: `DRY RUN — would upload ${shots.length} thumbnail(s) to universe ${target.universeId}: ${shots.map((s) => s.file).join(', ')}\n(endpoint unverified: ${UNVERIFIED_ENDPOINTS.join(', ')}). confirm:true only if the human asked.`, summary: 'dry run' };
+      const kind = a.kind === 'thumbnails' ? 'thumbnails' : 'config';
+      let payload;
+      try {
+        payload = pushPayload(P, kind);
+      } catch (e) {
+        return { text: (e as Error).message, isError: true, summary: 'not ready' };
+      }
+      const approved = isApproved(P, payload);
+      const gate = approved ? 'approved by a human for this exact payload' : `NOT approved — a human runs \`blox liveops approve ${kind}\` after reviewing this dry run`;
+      if (payload.kind === 'thumbnails') {
+        if (!a.confirm) return { text: `DRY RUN — would upload ${payload.files.length} thumbnail(s) to universe ${target.universeId}: ${payload.files.join(', ')}\n(endpoint unverified: ${UNVERIFIED_ENDPOINTS.join(', ')}). ${gate}.`, summary: 'dry run' };
+        if (!approved) return { text: `refused: ${gate}`, isError: true, summary: 'not approved' };
         const client = new OpenCloud();
-        for (const s of shots) await client.uploadThumbnail(target.universeId as number, readFileSync(join(P, s.file!)), s.file!.split('/').pop()!, s.file!.endsWith('.png') ? 'image/png' : 'image/jpeg');
-        return { text: `uploaded ${shots.length} thumbnail(s)`, summary: 'uploaded' };
+        for (const f of payload.files) await client.uploadThumbnail(target.universeId as number, readFileSync(join(P, f)), f.split('/').pop()!, f.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        return { text: `uploaded ${payload.files.length} thumbnail(s)`, summary: 'uploaded' };
       }
-      const dv = validateDesign(readJson<unknown>(P, 'design.json'));
-      if (!dv.ok) return { text: 'push config needs a valid .blox/design.json', isError: true, summary: 'no design' };
-      const monetized = new Set(dv.doc.monetization.map((m) => m.id));
-      const entries: Record<string, unknown> = {};
-      const skipped: string[] = [];
-      for (const [k, v] of Object.entries(dv.doc.tunables)) {
-        if (/price|robux|cost.*robux|product|pass/i.test(k) || monetized.has(k)) skipped.push(k);
-        else entries[k] = v;
-      }
-      const tail = skipped.length ? `\nskipped (monetization, human): ${skipped.join(', ')}` : '';
-      if (!a.confirm) return { text: `DRY RUN — would set live config on universe ${target.universeId}:\n${JSON.stringify(entries, null, 2)}${tail}\n(endpoint unverified; the game must read these via ConfigService to take effect). confirm:true only if the human asked.`, summary: 'dry run' };
-      await new OpenCloud().putConfigs(target.universeId as number, entries);
-      return { text: `pushed ${Object.keys(entries).length} config value(s)${tail}`, summary: 'pushed' };
+      const tail = payload.skipped.length ? `\nskipped (monetization, human): ${payload.skipped.join(', ')}` : '';
+      if (!a.confirm) return { text: `DRY RUN — would set live config on universe ${target.universeId}:\n${JSON.stringify(payload.entries, null, 2)}${tail}\n(endpoint unverified; the game must read these via ConfigService to take effect). ${gate}.`, summary: 'dry run' };
+      if (!approved) return { text: `refused: ${gate}`, isError: true, summary: 'not approved' };
+      await new OpenCloud().putConfigs(target.universeId as number, payload.entries);
+      return { text: `pushed ${Object.keys(payload.entries).length} config value(s)${tail}`, summary: 'pushed' };
     },
   },
   {
