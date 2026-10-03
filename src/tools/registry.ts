@@ -6,6 +6,7 @@ import { StudioError, contextToDataModel, resultText, type DataModelContext, typ
 import { runLuau, type LuauResult } from '../studio/luau.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs } from '../studio/play.js';
 import { formatSyncResult, pushProject, syncDrift } from '../sync/push.js';
+import { formatSkillList, listSkills, loadSkill } from '../skills.js';
 import { formatTestRun, runTests, type TestContext, type TestRunResult } from '../testing/runner.js';
 import { captureScreenshot, formatPlaytest, playtest, type InputStep, type PlaytestResult } from '../testing/playtest.js';
 import {
@@ -468,6 +469,20 @@ export const TOOLS: BloxTool[] = [
       if (typeof a.name !== 'string') return { text: 'kit apply needs name (see kit {action:"list"})', isError: true, summary: 'no name' };
       const r = applyKit(ctx.projectPath, a.name);
       return { text: formatApply(r), isError: r.tunables !== null, artifacts: r.created, summary: `${r.created.length} created` };
+    },
+  },
+  {
+    name: 'skill',
+    description:
+      'Roblox know-how on demand (29 skills: Luau, architecture, networking, security, data, performance, GUI, physics, NPCs, camera, building, game design, monetization, Open Cloud, publishing…). No args: list. {name}: the skill\'s guidance. {name, section}: a section of its deep reference ("toc" lists sections). Load the relevant skill before domain work.',
+    shape: {
+      name: z.string().optional().describe('skill name, e.g. roblox-security'),
+      section: z.string().optional().describe('reference section heading (substring) or "toc"'),
+    },
+    async handler(a) {
+      if (typeof a.name !== 'string' || !a.name) return { text: formatSkillList(listSkills()), summary: 'list' };
+      const r = loadSkill(a.name, typeof a.section === 'string' ? a.section : undefined);
+      return { text: r.text, isError: !r.ok, summary: r.ok ? String(a.name) : 'not found' };
     },
   },
   {
