@@ -10,7 +10,7 @@ const MUST_KEEP = [
   '.server.luau', '.client.luau', 'src/StarterGui', 'src/ServerStorage', 'world/<Name>.luau', '-- @parent', 'default.project.json',
   '-- @context edit|server|client', 'toBeCloseTo', 'toThrow', 'waitFor',
   // loop + proof
-  'task {action:"set"}', 'acceptance criteria', 'stylua', 'luau-lsp', 'file:line', '{kind:"click"', 'server_code', 'proof',
+  'task {action:"set"}', 'acceptance criteria', 'stylua', 'luau-lsp', 'file:line', '{kind:"click"', 'server_code',
   // starting points
   'kit {action:"apply"', 'FRAMEWORK.md', 'scout {action:"search"', 'skill {name}',
   // multiplayer
@@ -20,8 +20,10 @@ const MUST_KEEP = [
   // release, ui, store, design, metrics
   'release {action:"check"}', 'never confirm unless asked', 'liveops report', 'ui {action:"lint"}', '44px', 'present {action:"render"}', '16:9',
   'design {action:"simulate"}', 'Tunables', 'design:<assertionId>', 'metrics {action:"soak"', 'ftue:<id>',
-  // other tools
-  'explore', 'logs', 'play', 'sync', 'studio_tool',
+  // human gates and proof (safety wording: keep exact)
+  'human approves', 'Approvals and uploads are human steps', 'human decisions', 'prepare and dry-run', 'apply (local)',
+  'final title/art and upload are human', 'not a successful tool call', 'delete exactly what the task names', 'never claim it works',
+  'try (quarantined, verdict)', 'no extra confirmation runs',
   // efficiency + rules
   'same turn', "Don't re-read", 'Stop when every criterion passes',
   'Prefer tests over one-off probes', 'lost on reload', 'context server', 'context client', 'Never edit scripts in Studio',
@@ -39,6 +41,6 @@ describe('AGENT_GUIDE', () => {
     expect(missing).toEqual([]);
   });
   it('stays under its context budget', () => {
-    expect(AGENT_GUIDE.length).toBeLessThanOrEqual(5600);
+    expect(AGENT_GUIDE.length).toBeLessThanOrEqual(5800);
   });
 });

@@ -27,14 +27,16 @@ luau-lsp, rojo build) until clean. 4. run_tests: syncs, runs every spec, returns
 file:line + runtime errors. 5. playtest: runs the game, probes server/client Luau, optional
 inputs + screenshot. A UI flow is one call: inputs [{kind:"luau",args:{context:"server",
 code}}, {kind:"click",args:{target:"PlayerGui.HUD.Button"}}] then server_code/client_code.
-6. Repeat until every criterion passes; only passing tests/playtest results are proof.
+6. Repeat until every criterion passes. Only passing tests/playtest results are proof, not a
+successful tool call.
 
 ## Start from a kit, template or pack
 kit {action:"list"} / kit {action:"apply", name}: a tested loop (modules, world, specs,
 design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, ProfileStore, safe
 receipts) — follow FRAMEWORK.md; "boilerplate" = framework only. Before building a map, UI
-or big prop: scout {action:"search", need, kind} finds free Creator Store packs; try →
-adopt (scripts stripped, provenance recorded) and adapt, or discard and build. Unsure of a
+or big prop: scout {action:"search", need, kind} finds free Creator Store templates/packs;
+try (quarantined, verdict) → adopt (scripts stripped, provenance recorded) and adapt, or
+discard and build. Unsure of a
 Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
 
 ## Multiplayer
@@ -50,18 +52,19 @@ Custom models: model {action:"brief"} → run (Blender Python: voxels/box/rig/bi
 animate) → check (compare views to refs) → export → preview → import. After
 inserting an uploaded model set its MeshParts' Color to white; rigged: model animate →
 upload → BloxAnimate.
-Characters (R15/R6): animate recipes → check (read the sheet) → build → approve → upload →
-animate wire {slot, asset, name} → verify (skill character-animation). NPCs/models: animate
-npc or rig → declare → check {rig} → build → approve → upload → wire {model, state} → verify.
+Characters (R15/R6): animate recipes → check (read the sheet) → build → human approves →
+asset upload → animate wire {slot, asset, name} → verify (skill character-animation). NPCs/models: animate
+npc or rig → declare → check {rig} → build → human approves → asset upload → wire {model,
+state} → verify.
 
 ## Ship
 release {action:"check"} lists every gate; publishing, live config and monetization are
 human decisions: prepare and dry-run, never confirm unless asked. After launch: liveops
-report → propose → apply, then a new release.
+report → propose → apply (local), then a new release.
 UI: BloxUI (ui {action:"install"}): scale-sized, 44px touch targets, safe area; then
 ui {action:"lint"} on every device size, fix all errors.
 Store page: present {action:"generate"} → fix shot cameras → present {action:"render"}
-(16:9 viewport) → present {action:"lint"}; final art and upload are human.
+(16:9 viewport) → present {action:"lint"}; final title/art and upload are human.
 
 ## Design first (economy games)
 design {action:"set"} .blox/design.json (economy, archetypes, assertions like "first egg
@@ -78,7 +81,7 @@ raw Studio tools, big output).
 Each turn resends the conversation, so turns cost most. Make independent calls in
 the same turn (read/write every file a step needs at once), then run_tests once. Don't
 re-read files you just wrote or re-run unchanged checks. Probe narrowly (filtered explore,
-run_luau returning only what you need). Fix every visible failure before the next run. Stop when every criterion passes.
+run_luau returning only what you need). Fix every visible failure before the next run. Stop when every criterion passes; no extra confirmation runs.
 
 ## Rules
 - Prefer tests over one-off probes: a test keeps checking forever.
