@@ -61,20 +61,33 @@ describe('animate recipes/check', () => {
 });
 
 describe('animate wire (tool)', () => {
-  it('refuses an R6 animation for an R15-only place, and syncs after writing', async () => {
+  it('needs rig or a checked name, without a Studio round-trip', async () => {
     const calls: string[] = [];
-    const session = {
-      call: async (name: string, args: Record<string, unknown>) => {
-        calls.push(name);
-        const code = String(args.code ?? '');
-        const v = code.includes('GameSettingsAvatar') ? 'R15' : '{}';
-        return { content: [{ type: 'text', text: JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] }) }] };
-      },
-    } as unknown as StudioSession;
+    const session = { call: async (name: string) => { calls.push(name); return { content: [{ type: 'text', text: '{}' }] }; } } as unknown as StudioSession;
     const c = ctx(session);
-    const bad = await call({ action: 'wire', slot: 'walk', asset: 1, rig: 'R6' }, c);
+    const r = await call({ action: 'wire', slot: 'walk', asset: 1 }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/rig:"R15".*or name/);
+    expect(calls).toEqual([]);
+  });
+  it('refuses a rig that contradicts the checked animation', async () => {
+    const c = ctx({ call: async () => ({ content: [{ type: 'text', text: '{}' }] }) } as unknown as StudioSession);
+    await call({ action: 'check', animation: walk(), locomotion: true, grounded: true }, c);
+    const r = await call({ action: 'wire', slot: 'walk', asset: 1, rig: 'R6', name: 'Walk' }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/Walk is an R15 animation/);
+  });
+});
+
+describe('animate check', () => {
+  it('a check that does not compile leaves nothing buildable from an earlier check', async () => {
+    const c = ctx();
+    await call({ action: 'check', animation: walk(), locomotion: true, grounded: true }, c);
+    const bad = await call({ action: 'check', animation: { ...walk(), keyframes: [{ time: 0, joints: { NoSuchJoint: {} } }] } }, c);
     expect(bad.isError).toBe(true);
-    expect(bad.text).toMatch(/R15/);
+    const b = await call({ action: 'build', name: 'Walk' }, c);
+    expect(b.isError).toBe(true);
+    expect(b.text).toMatch(/animate check first/);
   });
 });
 

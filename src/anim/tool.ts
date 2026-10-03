@@ -12,7 +12,7 @@ import { previewSampleTimes, verifyPlayback } from './animation-tool.js';
 import { animDir, loadChecked } from './store.js';
 import { buildProgram, commitProgram, type BuildReply } from './studio.js';
 import { writeRbxm } from './rbxm.js';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { withPlay } from '../studio/play.js';
 import { normalizeAnimationId, verifyLivePlayback } from './animation-tool.js';
@@ -23,7 +23,7 @@ import { applyWire, planWire } from './wire.js';
 import type { AnimateSlot } from './animation-tool.js';
 
 export const ANIMATE_DESCRIPTION =
-  'R15/R6 player-character animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, replaces?, rig?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot).';
+  'R15/R6 player-character animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, rig | name, replaces?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs; rig, or the checked animation name, says which rig the slot is for) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot).';
 
 export const animateShape = {
   action: z.enum(['recipes', 'check', 'build', 'wire', 'verify']),
@@ -54,7 +54,10 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     if (!spec) return err('check needs animation (start from animate {action:"recipes"})', 'no animation');
     if (typeof spec.name !== 'string' || !ANIM_NAME.test(spec.name)) return err(`animation.name must be letters, digits, _ and -, starting with a letter (max 64); got ${JSON.stringify(spec.name)}`, 'bad name');
     const p = prepareAnimation(spec, { locomotion: a.locomotion, grounded: a.grounded, waive: a.waive });
-    if (!p.ok) return err(`does not compile:\n${p.errors.map((e) => `  ${e}`).join('\n')}`, `${p.errors.length} errors`);
+    if (!p.ok) {
+      rmSync(join(animDir(P, spec.name), 'sequence.json'), { force: true }); // build only what the last check accepted
+      return err(`does not compile:\n${p.errors.map((e) => `  ${e}`).join('\n')}`, `${p.errors.length} errors`);
+    }
     const { sequence, report, failing, waived } = p.value;
     const options = { locomotion: a.locomotion === true, grounded: a.grounded === true };
     const sheet = renderContactSheet(sequence, undefined, { locomotion: options.locomotion, rig: rigFor(sequence.rig) });
@@ -82,6 +85,8 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     if (!commit.ok) return err(`write failed in Studio: ${commit.error?.message}`, 'studio error');
     const c = JSON.parse(String(commit.values[0])) as BuildReply;
     if (!c.ok) return err(`${c.error}; rebuild with force:true to replace it${c.code === 'edited' ? ' (discards the Studio edits)' : ''}`, c.code ?? 'refused');
+    const taken = loadManifest(P).assets.find((x) => x.id === seq.name && x.kind !== 'animation');
+    if (taken) return err(`asset id ${seq.name} is already a ${taken.kind} in .blox/assets.json; rename the animation (its name is the asset id)`, 'id taken');
     const dir = animDir(P, seq.name);
     const rb = await writeRbxm(dir, seq);
     if ('error' in rb) return err(`built in Studio (ServerStorage.BloxAnimations.${seq.name}) but ${rb.error}`, 'rbxm failed');
@@ -103,17 +108,18 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
   }
   if (a.action === 'wire') {
     if (typeof a.slot !== 'string') return err(`wire needs slot: ${ANIMATE_SLOTS.join(', ')}`, 'no slot');
-    // Which rig the place's players use (Game Settings → Avatar).
-    const avatar = await runLuau(ctx.session, 'local ok, v = pcall(function() return game:GetService("StarterPlayer").GameSettingsAvatar.Name end) return ok and v or ""', 'edit', { chunkName: 'avatarType' });
-    const placeRig = avatar.ok ? String(avatar.values[0] ?? '') : '';
-    const rig = typeof a.rig === 'string' ? a.rig : typeof a.name === 'string' && ANIM_NAME.test(a.name) ? loadChecked(P, a.name)?.sequence.rig : undefined;
-    if (!placeRig && !rig) return err('could not read the place\'s avatar type; pass rig:"R15" or rig:"R6" (the rig the animation was made for)', 'rig unknown');
-    if (rig && (placeRig === 'R15' || placeRig === 'R6') && rig !== placeRig) return err(`this place's players are ${placeRig}; an ${rig} animation does not play on them`, 'rig mismatch');
+    // The place's avatar type (StarterPlayer.GameSettingsAvatar) is not readable
+    // from Studio's edit thread, so the rig comes from the caller or the checked
+    // animation; a character on the other rig shows up at verify.
+    const checkedRig = typeof a.name === 'string' && ANIM_NAME.test(a.name) ? loadChecked(P, a.name)?.sequence.rig : undefined;
+    const rig = typeof a.rig === 'string' ? a.rig : checkedRig;
+    if (!rig) return err('wire needs rig:"R15" or rig:"R6", or name (a checked animation) to know which rig the slot is for', 'rig unknown');
+    if (checkedRig && rig !== checkedRig) return err(`${String(a.name)} is an ${checkedRig} animation, not ${rig}`, 'rig mismatch');
     const plan = planWire(P, { slot: a.slot as AnimateSlot, asset: a.asset, replaces: a.replaces });
     if (!plan.ok) return err(plan.error, 'refused');
     applyWire(P, plan.slots, plan.writeLoader);
     const lines = [`wired ${a.slot} = ${plan.slots[a.slot as AnimateSlot]}${plan.writeLoader ? ' (loader created)' : ''}`];
-    if (placeRig === 'PlayerChoice') lines.push(`note: players choose R6 or R15 here; this animation plays only on ${rig ?? 'the rig it was made for'}`);
+    lines.push(`note: an ${rig} animation plays only on ${rig} characters (Game Settings → Avatar)`);
     const s = await pushProject(ctx.session, P);
     lines.push(formatSyncResult(s));
     lines.push(`Next: animate {action:"verify", name, slot:"${a.slot}"}`);

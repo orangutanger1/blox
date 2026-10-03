@@ -16,8 +16,9 @@ the floor.
 recipes → check {animation, locomotion?, grounded?, waive?} (look at the sheet;
 fix, or waive a failure you mean, e.g. groundContact on a jump) → build {name}
 → a human runs `blox asset approve <name>` → asset {action:"upload",
-id:"<name>", confirm:true} → wire {slot, asset} (idle, walk, run, jump, fall,
-climb, swim, swimidle or sit) → verify {name, slot}.
+id:"<name>", confirm:true} → wire {slot, asset, name} (idle, walk, run, jump,
+fall, climb, swim, swimidle or sit; `name` gives the rig, or pass `rig`) →
+verify {name, slot}.
 
 Animations play only in places owned by the user or group that uploaded them.
 
@@ -207,9 +208,10 @@ Many places, combat games especially, give players R6 characters: six blocks
 with no elbows, wrists, knees, ankles or waist. An R15 animation does not play
 on them, so find which rig the players use before animating:
 
-- Game Settings → Avatar (`StarterPlayer.GameSettingsAvatar`) says R6, R15 or
-  player choice; `animate wire` reads it. A `StarterCharacter` in
-  `StarterPlayer` decides it too. If players choose, make one animation per rig.
+- Game Settings → Avatar says R6, R15 or player choice, and a
+  `StarterCharacter` in `StarterPlayer` decides it too. blox cannot read that
+  setting, so ask or check; `verify` reports the character's actual rig. If
+  players choose, make one animation per rig.
 - `verify` refuses when the playtest character's rig is not the animation's.
 
 Set `rig: "R6"`. Its joints are `Root`, `Neck`, `LeftShoulder`,

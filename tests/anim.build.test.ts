@@ -9,7 +9,7 @@ import { loadChecked } from '../src/anim/store.js';
 import { buildTracks, sampleTrack } from '../src/anim/motion.js';
 import { previewSampleTimes } from '../src/anim/animation-tool.js';
 import { rigFor } from '../src/anim/rigs.js';
-import { loadManifest } from '../src/assets/manifest.js';
+import { addAsset, loadManifest } from '../src/assets/manifest.js';
 import type { StudioSession } from '../src/studio/session.js';
 
 const envelope = (v: unknown) => ({ content: [{ type: 'text', text: JSON.stringify({ ok: true, n: 1, values: { v1: JSON.stringify(v) }, logs: [] }) }] });
@@ -87,5 +87,16 @@ describe('animate build', () => {
     const r = await call({ action: 'build', name: 'Wave' }, c);
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/edited in Studio.*force:true/s);
+  });
+  it('refuses to take over an asset id recorded as another kind', async () => {
+    let c!: ToolCtx;
+    c = ctx(fakeSession((code) => (code.includes('local WRITE = true') ? { ok: true, written: true } : { ok: true, length: 1, samples: faithful(c, 'Wave') })));
+    const added = addAsset(c.projectPath, { id: 'Wave', kind: 'model', source: 'generated', licence: 'owned', ref: { file: 'models/wave.glb' }, provenance: { tool: 'test', createdAt: new Date().toISOString() } });
+    expect(added.ok).toBe(true);
+    await call({ action: 'check', animation: structuredClone(loadRecipes().get('Wave')!) }, c);
+    const r = await call({ action: 'build', name: 'Wave' }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/Wave is already a model/);
+    expect(loadManifest(c.projectPath).assets.find((x) => x.id === 'Wave')).toMatchObject({ kind: 'model', ref: { file: 'models/wave.glb' } });
   });
 });

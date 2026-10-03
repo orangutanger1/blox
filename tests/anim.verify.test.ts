@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { luneBin, luneCheck } from './helpers/lune.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
@@ -80,5 +81,32 @@ describe('verify probe', () => {
     const walk = compilePoseAnimation(loadRecipes().get('Run'));
     if (!walk.ok) throw new Error(walk.errors.join());
     expect(bridgeDenyReason(verifyProgram(walk.sequence, null, 'run'))).toBeNull(); // within the bridge's size cap
+  });
+});
+
+describe('verify slot readback', () => {
+  it('waits for the avatar appearance before reading the slot', async () => {
+    const { verifyProgram } = await import('../src/anim/studio.js');
+    expect(verifyProgram(null, 'rbxassetid://1', 'walk')).toMatch(/HasAppearanceLoaded\(\)/);
+  });
+});
+
+describe('animate Luau compiles', () => {
+  it.skipIf(!luneBin())('build, commit and verify programs and the loader', async () => {
+    const { buildProgram, commitProgram, verifyProgram } = await import('../src/anim/studio.js');
+    const { LOADER_SOURCE } = await import('../src/anim/wire.js');
+    const { compilePoseAnimation } = await import('../src/anim/pose-compiler.js');
+    const c = compilePoseAnimation(loadRecipes().get('Wave'));
+    if (!c.ok) throw new Error(c.errors.join());
+    const d = mkdtempSync(join(tmpdir(), 'blox-animluau-'));
+    const files = {
+      'build.luau': buildProgram(c.sequence, [0.1]),
+      'commit.luau': commitProgram(c.sequence, false),
+      'verify.luau': verifyProgram(c.sequence, null, 'walk'),
+      'verify_id.luau': verifyProgram(null, 'rbxassetid://1', 'walk'),
+      'loader.luau': LOADER_SOURCE,
+    };
+    for (const [f, src] of Object.entries(files)) writeFileSync(join(d, f), src);
+    expect(luneCheck(Object.keys(files).map((f) => join(d, f)))).toEqual([]);
   });
 });

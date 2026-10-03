@@ -54,3 +54,13 @@ describe('loader', () => {
     expect(LOADER_SOURCE).toMatch(/player\.CharacterAdded:Connect\(apply\)/);
   });
 });
+
+describe('line endings', () => {
+  it('accepts its own files after a CRLF checkout (Git for Windows autocrlf)', () => {
+    const P = project();
+    applyWire(P, { walk: 'rbxassetid://1' }, true);
+    for (const rel of [LOADER_PATH, SLOTS_PATH]) writeFileSync(join(P, rel), readFileSync(join(P, rel), 'utf8').replace(/\n/g, '\r\n'));
+    expect(readSlots(P)).toEqual({ ok: true, slots: { walk: 'rbxassetid://1' } });
+    expect(planWire(P, { slot: 'idle', asset: 2 })).toMatchObject({ ok: true, writeLoader: false });
+  });
+});

@@ -185,7 +185,11 @@ if not animator then return { ok = false, error = "the character has no Humanoid
 local wired
 if P.slot then
 	wired = {}
-	task.wait(1) -- the loader sets the slot on CharacterAdded
+	-- The loader re-applies once the avatar appearance (which replaces the slot
+	-- Animations) has loaded; wait for that, then a moment for the loader.
+	local appearanceBy = os.clock() + 15
+	while not player:HasAppearanceLoaded() and os.clock() < appearanceBy do task.wait(0.1) end
+	task.wait(0.5)
 	local folder = character:FindFirstChild("Animate") and character.Animate:FindFirstChild(P.slot)
 	for _, c in folder and folder:GetChildren() or {} do if c:IsA("Animation") then table.insert(wired, c.AnimationId) end end
 end
