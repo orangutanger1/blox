@@ -53,6 +53,9 @@ export const animateShape = {
   target: z.array(z.number()).length(3).optional(),
 };
 
+// A model's path in the DataModel (a leading game. is allowed).
+const MODEL_PATH = /^(game\.)?[A-Za-z_][\w ]*(\.[\w ]+)+$/;
+
 const err = (text: string, summary: string): ToolOutput => ({ text, isError: true, summary });
 
 export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Promise<ToolOutput> {
@@ -70,6 +73,7 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     let rig = RIGS.get(String(spec.rig));
     let notes: string[] = [];
     let animation = spec;
+    if (!rig && (typeof spec.rig !== 'string' || !MODEL_PATH.test(spec.rig))) return err(`animation.rig must be R15, R6, or a model path such as Workspace.Dog; got ${JSON.stringify(spec.rig)}`, 'bad rig');
     if (!rig && typeof spec.rig === 'string') {
       const read = await readRig(ctx.session, spec.rig);
       if (!read.ok) return err(read.error, read.code ?? 'refused');
@@ -308,7 +312,7 @@ async function wireModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<Tool
   const path = modelPath(a.model as string);
   const wired = readWired(P);
   const prior = wired[path]?.[state];
-  const r = await runLuau(ctx.session, wireModelProgram({ path, state, id, speed, allowed: prior ? [prior] : [], force: a.force === true, rigType: stock }), 'edit', { chunkName: 'animateWireModel', timeoutMs: 60_000 });
+  const r = await runLuau(ctx.session, wireModelProgram({ path, state, id, speed, allowed: [...new Set([prior, ...Object.values(wired).map((w) => w[state])].filter((x): x is string => typeof x === 'string'))], force: a.force === true, rigType: stock }), 'edit', { chunkName: 'animateWireModel', timeoutMs: 60_000 });
   if (!r.ok) return err(`wire failed in Studio: ${r.error?.message}`, 'studio error');
   const p = parseReply(r.values, 'wire');
   if (!p.ok) return err(p.error, 'studio error');
@@ -337,10 +341,30 @@ async function verifyModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<To
   const path = modelPath(a.model as string);
   const stored = typeof a.name === 'string' && ANIM_NAME.test(a.name) ? loadChecked(P, a.name) : null;
   if (typeof a.name === 'string' && !stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
-  const loader = planModelLoader(P);
-  // The checked motion plays as a temporary clip; the wired asset ids are
+  if (a.slot !== undefined) return err('slot is for the player\'s character (verify {name, slot}); a model\'s states are its wired attributes', 'ambiguous');
+  // asset: play the uploaded id against the checked motion; otherwise the
+  // checked motion plays as a temporary clip. Either way the wired ids are
   // verified by watching the loader play them below.
-  const playId: string | null = null;
+  const playId = a.asset !== undefined ? normalizeAnimationId(a.asset) ?? null : null;
+  if (a.asset !== undefined && !playId) return err(`asset must be an asset id; got ${JSON.stringify(a.asset)}`, 'bad asset');
+  if (playId && !stored) return err('verify with asset needs name (the checked animation to compare it with)', 'no name');
+  // The rig the checked motion is compared on, and (for a model rig) that this
+  // model is still that rig: both settled before a playtest starts.
+  let rig: ReturnType<typeof rigForSequence> | null = null;
+  if (stored) {
+    try {
+      rig = rigForSequence(P, stored.sequence);
+    } catch (e) {
+      return err((e as Error).message, 'not checked');
+    }
+    if (!RIGS.has(stored.sequence.rig)) {
+      const saved = loadRigReading(P, stored.sequence.name);
+      const now = await readRig(ctx.session, path);
+      if (!now.ok) return err(now.error, now.code ?? 'refused');
+      if (now.reading.revision !== saved?.revision) return err(`${now.reading.path} is not the rig ${stored.sequence.name} was checked on (${stored.sequence.rig}); check the animation on this model`, 'rig mismatch');
+    }
+  }
+  const loader = planModelLoader(P);
   let reply: VerifyModelReply;
   try {
     reply = await withPlay(ctx.session, async () => {
@@ -358,8 +382,9 @@ async function verifyModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<To
   if (!reply.ok) problems.push(reply.error ?? 'the probe failed');
   if (!loader.ok) problems.push(loader.error);
   else if (loader.write) problems.push(`${MODEL_LOADER_PATH} is missing: animate wire writes it`);
-  if (stored && reply.ok) {
-    const check = verifyLivePlayback(stored.sequence, reply.samples, rigForSequence(P, stored.sequence));
+  if (stored && reply.rigType && RIGS.has(stored.sequence.rig) && reply.rigType !== stored.sequence.rig) problems.push(`${path} is ${reply.rigType}; ${stored.sequence.name} is an ${stored.sequence.rig} animation`);
+  if (stored && rig && reply.ok) {
+    const check = verifyLivePlayback(stored.sequence, reply.samples, rig);
     lines.push(`${check.verified ? '✓' : '✗'} ${stored.sequence.name} on ${path}${playId ? ` (${playId})` : ' (temporary clip)'} within ${check.maxDegrees}° / ${check.maxStuds} studs over ${check.samples} samples`);
     if (!check.verified) problems.push(check.reason ?? 'played differently from the checked motion');
   }

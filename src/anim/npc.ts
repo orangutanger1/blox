@@ -107,6 +107,7 @@ local function detach(model)
 	end
 	for _, track in state.tracks do
 		track:Stop(0)
+		track:Destroy()
 	end
 end
 
