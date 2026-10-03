@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ModelRigReading } from './model-rig.js';
 import type { KeyframeSequenceDescription } from './pose-compiler.js';
 import type { MotionCheckId, MotionReport } from './motion-checks.js';
 
@@ -35,4 +36,26 @@ export function loadChecked(projectPath: string, name: string): StoredAnim | nul
   if (!existsSync(f)) return null;
   const s = JSON.parse(readFileSync(f, 'utf8')) as Omit<StoredAnim, 'spec'>;
   return { ...s, spec: JSON.parse(readFileSync(join(dir, 'spec.json'), 'utf8')) as Record<string, unknown> };
+}
+
+
+// A model rig's reading as check saw it: build and wire compare its revision.
+export function saveRigReading(projectPath: string, name: string, reading: ModelRigReading): void {
+  const dir = animDir(projectPath, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'rig.json'), JSON.stringify(reading, null, 2));
+}
+
+export function loadRigReading(projectPath: string, name: string): ModelRigReading | null {
+  const f = join(animDir(projectPath, name), 'rig.json');
+  return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as ModelRigReading) : null;
+}
+
+export function clearRigReading(projectPath: string, name: string): void {
+  rmSync(join(animDir(projectPath, name), 'rig.json'), { force: true });
+}
+
+export function loadReport(projectPath: string, name: string): { groundSpeed?: number } | null {
+  const f = join(animDir(projectPath, name), 'report.json');
+  return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as { groundSpeed?: number }) : null;
 }
