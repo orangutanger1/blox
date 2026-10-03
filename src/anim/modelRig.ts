@@ -165,13 +165,13 @@ local function readModelRig(path, bare)
 			end
 		end
 	end
-	if #joints == 0 then return { ok = false, code = "not_rigged", error = path .. " has no Motor6D or AnimationConstraint joints between its parts. Rig building is not supported yet; rig it in Studio (Rig Builder / RigEdit) or Blender" } end
+	if #joints == 0 then return { ok = false, code = "not_rigged", error = path .. " has no Motor6D or AnimationConstraint joints between its parts. Join its pieces into a rig: animate {action:\\"rig\\", model:\\"" .. path .. "\\", suggest:true}" } end
 	if #joints > 64 then return { ok = false, code = "rig_too_large", error = path .. " has " .. #joints .. " joints; blox animates a rig of at most 64" } end
 	local humanoid = controller:IsA("Humanoid") and controller or nil
 	local root
 	if humanoid then
-		root = humanoid.RootPart
-		if not root then return { ok = false, code = "rig_root", error = path .. "'s Humanoid has no root part; give it a HumanoidRootPart" } end
+		root = humanoid.RootPart or model:FindFirstChild("HumanoidRootPart")
+		if not root or not root:IsA("BasePart") then return { ok = false, code = "rig_root", error = path .. "'s Humanoid has no root part; give it a HumanoidRootPart" } end
 	else
 		local moved, roots = {}, {}
 		for _, j in joints do moved[j.part1] = true end
