@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { riskFindings, runSanitize, sanitizeProgram, gradeSanitize, SCAN_LUAU, untrackedFromScan } from '../src/assets/scan.js';
 import { StudioSession } from '../src/studio/session.js';
 import { fakeStudio } from './fakeStudio.js';
-import { luneBin, luneCheck } from './helpers/lune.js';
+import { luneBin, luneCheck, runLune } from './helpers/lune.js';
 
 describe('riskFindings', () => {
   it('flags classic free-model backdoors', () => {
@@ -50,7 +50,7 @@ describe('runSanitize', () => {
     const session = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
     const r = await runSanitize(session, 'W.T', true);
     expect(r.scripts[0].findings).toEqual([expect.stringMatching(/longer than 20000 characters: only the start was scanned/)]);
-    expect(sanitizeProgram('W.T', true)).toMatch(/cut = #src > BUDGET/);
+    expect(sanitizeProgram('W.T', true)).toMatch(/cut = cost > BUDGET/);
   });
   it('program removes scripts only when no source is left unread', () => {
     const p = sanitizeProgram('W.T', false, 3);
@@ -76,6 +76,45 @@ describe('gradeSanitize + untracked', () => {
     const scan = JSON.stringify([{ id: 7, where: 'Workspace.Crate.Model.Boards.MeshId', count: 1 }, { id: 8, where: 'Workspace.CrateOther.MeshId', count: 1 }]);
     const m = { version: 1 as const, assets: [{ id: 'c', kind: 'model' as const, source: 'creator-store' as const, licence: 'roblox-creator-store' as const, ref: { assetId: 5, path: 'Workspace.Crate' }, provenance: { tool: 'x', createdAt: 'y' }, status: 'candidate' as const }] };
     expect(untrackedFromScan(scan, m)).toEqual([{ id: 'rbxassetid://8', where: 'Workspace.CrateOther.MeshId' }]);
+  });
+  it.skipIf(!luneBin())('sanitize chunks by JSON-escaped size in a real DataModel (Lune)', () => {
+    const d = mkdtempSync(join(tmpdir(), 'blox-san-run-'));
+    const budget = 100;
+    const programs = [0, 1, 2, 3].map((skip) => sanitizeProgram('Workspace.Tree', false, skip, budget).replace('local HttpService = game:GetService("HttpService")', 'local HttpService = __HS'));
+    programs.forEach((p, i) => writeFileSync(join(d, `p${i}.luau`), p));
+    writeFileSync(join(d, 'run.luau'), `
+local roblox = require("@lune/roblox")
+local luau = require("@lune/luau")
+local fs = require("@lune/fs")
+local serde = require("@lune/serde")
+local process = require("@lune/process")
+local game = roblox.Instance.new("DataModel")
+local m = roblox.Instance.new("Model") m.Name = "Tree" m.Parent = game:GetService("Workspace")
+local function script(name, src) local s = roblox.Instance.new("Script") s.Name = name s.Source = src s.Parent = m end
+script("Ctl", string.rep("\\1", 15)) -- 15 bytes, 90 once escaped
+script("Plain", string.rep("a", 30))
+script("Long", string.rep("b", 150))
+local HS = { JSONEncode = function(_, v) return serde.encode("json", v) end }
+local skip = tonumber(process.args[1])
+local fn = luau.load(fs.readFile(process.args[2]), { environment = setmetatable({ game = game, __HS = HS }, { __index = getfenv() }) })
+print(fn())
+`);
+    let skip = 0;
+    const chunks: { scripts: { path: string; source: string; cut: boolean }[]; next: number | null; removed: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const out = runLune(join(d, 'run.luau'), [String(skip), join(d, `p${skip}.luau`)]).trim();
+      const c = JSON.parse(out);
+      chunks.push(c);
+      const escaped = (Array.isArray(c.scripts) ? c.scripts : []).reduce((n: number, x: { source: string }) => n + JSON.stringify(x.source).length - 2, 0);
+      expect(escaped).toBeLessThanOrEqual(budget);
+      if (c.next === null || c.next === undefined) break;
+      skip = c.next;
+    }
+    const names = chunks.flatMap((c) => (Array.isArray(c.scripts) ? c.scripts : []).map((x) => x.path.split('.').pop()));
+    expect(names).toEqual(['Ctl', 'Plain', 'Long']);
+    const long = chunks.flatMap((c) => (Array.isArray(c.scripts) ? c.scripts : [])).find((x) => x.path.endsWith('Long'))!;
+    expect(long.cut).toBe(true);
+    expect(chunks[chunks.length - 1].removed).toBe(3);
   });
   it.skipIf(!luneBin())('Luau programs compile', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-scan-'));

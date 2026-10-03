@@ -91,17 +91,31 @@ end
 for _, c in items do
 	if dst:FindFirstChild(c.Name) then error(dst:GetFullName() .. " already has " .. c.Name, 0) end
 end
-for _, c in items do c.Parent = dst end
-${unpack ? 'src:Destroy()' : ''}
-return HttpService:JSONEncode({ path = ${unpack ? 'dst:GetFullName()' : 'src:GetFullName()'}, moved = #items })`;
+local paths = {}
+for _, c in items do
+	c.Parent = dst
+	table.insert(paths, c:GetFullName())
+end
+-- Unpacking leaves what it did not move (non-GUI parts of a GUI pack) in the
+-- quarantine rather than destroying it unseen.
+local left = 0
+if ${unpack ? 'true' : 'false'} then
+	left = #src:GetDescendants()
+	if left == 0 then src:Destroy() end
+end
+return HttpService:JSONEncode({ paths = paths, moved = #items, left = left })`;
 }
 
 function discardLuau(path: string): string {
+  // Walk the path below the quarantine folder; anything else is refused.
+  const rel = path.startsWith(`${QUARANTINE}.`) ? path.slice(QUARANTINE.length + 1) : '';
   return `-- BLOX_SCOUT_DISCARD
-local p = ${longString(path)}
-local f = game:GetService("ServerStorage"):FindFirstChild("BloxScout")
-local name = string.match(p, "[^%.]+$")
-local x = f and f:FindFirstChild(name)
+local x = game:GetService("ServerStorage"):FindFirstChild("BloxScout")
+local rel = ${longString(rel)}
+if rel == "" then return "gone" end
+for name in string.gmatch(rel, "[^%.]+") do
+	x = x and x:FindFirstChild(name)
+end
 if x then x:Destroy() return "destroyed" end
 return "gone"`;
 }
@@ -250,7 +264,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
       return { text: `discarded ${id}: quarantine copy removed, manifest entry marked rejected`, summary: 'discarded' };
     }
     if (typeof a.to !== 'string') return err(`adopt needs to (one of ${ADOPT_ROOTS.join(', ')}, or a path under one)`, 'no to');
-    const to = a.to.replace(/^game\./, '');
+    const to = a.to.replace(/^game\./, '').split('.').map((x) => x.trim()).filter(Boolean).join('.');
     if (!ADOPT_ROOTS.includes(to.split('.')[0]) || to.startsWith(QUARANTINE)) return err(`adopt to must be under ${ADOPT_ROOTS.join(', ')} (not the quarantine)`, 'bad to');
     const keep = a.keep_scripts === true;
     if (keep && rec.findings.length) return err(`keep_scripts refused: ${rec.findings.length} risk finding(s):\n  ${rec.findings.join('\n  ')}\nAdopt without keep_scripts (scripts are stripped) or discard.`, 'risky');
@@ -260,17 +274,34 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     } catch (e) {
       return err(`sanitize failed: ${(e as Error).message}`, 'failed');
     }
+    // Record the sanitize before moving: a failed move leaves the copy
+    // stripped, and a retry would otherwise record 0 scripts removed.
+    const m1 = loadManifest(P);
+    const e1 = m1.assets.find((x) => x.id === id)!;
+    const removedBefore = e1.sanitized && e1.ref.path === from ? e1.sanitized.scriptsRemoved : 0;
+    const removed = removedBefore + g.removed;
+    e1.sanitized = { at: new Date().toISOString(), scriptsRemoved: removed, findings: [...new Set([...(e1.ref.path === from ? e1.sanitized?.findings ?? [] : []), ...findingsOf(g)])] };
+    e1.budget = { ...(e1.budget ?? {}), parts: g.parts };
+    saveManifest(P, m1);
     const mv = await runLuau(ctx.session, moveLuau(from, to, a.unpack === true), 'edit', { chunkName: 'scoutMove' });
-    if (!mv.ok) return err(`move failed: ${mv.error?.message} (scripts ${keep ? 'kept' : `stripped: ${g.removed}`}; the copy is still in ${QUARANTINE})`, 'failed');
-    const moved = JSON.parse(String(mv.values[0])) as { path: string; moved: number };
+    if (!mv.ok) return err(`move failed: ${mv.error?.message} (scripts ${keep ? 'kept' : `stripped: ${removed}`}; the copy is still in ${QUARANTINE})`, 'failed');
+    let moved: { paths: string[]; moved: number; left: number };
+    try {
+      moved = JSON.parse(String(mv.values[0])) as typeof moved;
+    } catch {
+      return err(`move reply was not JSON: ${String(mv.values[0]).slice(0, 200)}`, 'failed');
+    }
     const m2 = loadManifest(P);
     const e2 = m2.assets.find((x) => x.id === id)!;
-    e2.ref.path = moved.path;
-    e2.sanitized = { at: new Date().toISOString(), scriptsRemoved: g.removed, findings: findingsOf(g) };
-    e2.budget = { ...(e2.budget ?? {}), parts: g.parts };
+    if (moved.left > 0) e2.ref.path = from;
+    else e2.ref.path = moved.paths.length === 1 ? moved.paths[0].replace(/^game\./, '') : to;
     saveManifest(P, m2);
+    const where = moved.paths.map((x) => x.replace(/^game\./, '')).join(', ');
     return {
-      text: `adopted ${id} → ${moved.path} (${moved.moved} instance(s) moved; ${keep ? 'scripts kept' : `${g.removed} script(s) stripped`}). Now adapt it: rename, recolour, wire it to your game's code.`,
+      text: [
+        `adopted ${id} → ${where} (${moved.moved} instance(s) moved; ${keep ? 'scripts kept' : `${removed} script(s) stripped`}). Now adapt it: rename, recolour, wire it to your game's code.`,
+        ...(moved.left > 0 ? [`${moved.left} instance(s) that were not GUI stayed in ${from}: look at them, then scout {action:"discard", id:"${id}"} when done`] : []),
+      ].join('\n'),
       summary: 'adopted',
     };
   }
