@@ -162,8 +162,17 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'animate', args: typeof o.model === 'string' ? { action, model: o.model, ...str('state'), name: f.rest[1], asset: f.rest[2], ...flag('force') } : { action, slot: f.rest[1], asset: f.rest[2], ...str('replaces'), ...str('rig') } };
         case 'verify':
           return { tool: 'animate', args: { action, ...(f.rest[1] ? { name: f.rest[1] } : {}), ...str('slot'), ...str('asset'), ...str('model') } };
-        case 'rig':
-          return { tool: 'animate', args: { action, model: f.rest[1] } };
+        case 'rig': {
+          const joints = typeof o.joints === 'string' ? { joints: o.joints === 'suggested' || o.joints === 'blender' ? o.joints : readJson(o.joints, '--joints') } : {};
+          return {
+            tool: 'animate',
+            args: {
+              action, model: f.rest[1], ...flag('suggest'), ...joints, ...str('controller'), ...str('plan'),
+              ...(typeof o.revision === 'string' ? { expected_revision: o.revision } : {}),
+              ...(typeof o.blender === 'string' ? { blender_id: o.blender } : {}),
+            },
+          };
+        }
         case 'declare':
           return { tool: 'animate', args: { action, model: f.rest[1], ...str('plan'), ...(typeof o.declarations === 'string' ? { declarations: readJson(o.declarations, '--declarations') } : {}) } };
         case 'npc':

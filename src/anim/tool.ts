@@ -28,9 +28,10 @@ import { rigFromModel } from './model-rig.js';
 import { readRig, declareProgram, skippedChecks, parseReply, modelPath, rigForSequence } from './modelRig.js';
 import { applyWire, planWire } from './wire.js';
 import type { AnimateSlot } from './animation-tool.js';
+import { rigBuildAction, rigSuggestAction } from './rigTool.js';
 
 export const ANIMATE_DESCRIPTION =
-  'Character, NPC and model animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, rig | name, replaces?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs; rig, or the checked animation name, says which rig the slot is for) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot) | rig {model} (read a Part+Motor6D model\'s rig: joints, what checks cannot judge) | declare {model, plan:"quadruped" | declarations} (write its BloxRig: feet, knees, ranges) | npc {name, rig:R15|R6, at:[x,y,z], parent?} (stock NPC body + the BloxModelAnimate loader) | wire {model, state:idle|walk|run, name, asset, force?} (sets the model\'s loader attributes) | verify {model, name?, target?} (playtest server: playback + walks it and checks idle/walk and pace). check takes animation.rig = a model path for a model\'s own rig.';
+  'Character, NPC and model animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, rig | name, replaces?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs; rig, or the checked animation name, says which rig the slot is for) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot) | rig {model} (read a Part+Motor6D model\'s rig) | rig {model, suggest:true, plan?} (propose joints for loose pieces) | rig {model, joints:[…]|"suggested"|"blender", controller:Humanoid|AnimationController, plan?, declarations?, blender_id?, expected_revision?} (build the rig in one undo step; read-back + range sheet image) | declare {model, plan:"quadruped" | declarations} (write its BloxRig: feet, knees, ranges) | npc {name, rig:R15|R6, at:[x,y,z], parent?} (stock NPC body + the BloxModelAnimate loader) | wire {model, state:idle|walk|run, name, asset, force?} (sets the model\'s loader attributes) | verify {model, name?, target?} (playtest server: playback + walks it and checks idle/walk and pace). check takes animation.rig = a model path for a model\'s own rig.';
 
 export const animateShape = {
   action: z.enum(['recipes', 'check', 'build', 'wire', 'verify', 'rig', 'declare', 'npc']),
@@ -47,6 +48,13 @@ export const animateShape = {
   model: z.string().optional().describe('a model path, e.g. Workspace.Dog'),
   plan: z.enum(BODY_PLANS as unknown as [string, ...string[]]).optional(),
   declarations: z.record(z.string(), z.unknown()).optional(),
+  suggest: z.boolean().optional().describe('rig: propose joints for loose pieces (writes nothing in Studio)'),
+  joints: z.union([z.array(z.record(z.string(), z.unknown())), z.enum(['suggested', 'blender'])]).optional().describe('rig: [{part, parent, pivot:[x,y,z], name?, with?}] | "suggested" | "blender"'),
+  controller: z.enum(['Humanoid', 'AnimationController']).optional(),
+  expected_revision: z.string().optional().describe('rig: the revision rig returned, to rebuild'),
+  blender_id: z.string().optional().describe('rig joints:"blender": the blox model id'),
+  replace: z.string().optional(),
+  pivot_space: z.string().optional(),
   state: z.enum(MODEL_STATES as unknown as [string, ...string[]]).optional(),
   at: z.array(z.number()).length(3).optional(),
   parent: z.string().optional(),
@@ -216,6 +224,8 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
   }
   if (a.action === 'rig') {
     if (typeof a.model !== 'string') return err('rig needs model (a model path, e.g. Workspace.Dog)', 'no model');
+    if (a.suggest === true) return rigSuggestAction(a, ctx);
+    if (a.joints !== undefined || a.controller !== undefined || a.replace !== undefined || a.pivot_space !== undefined) return rigBuildAction(a, ctx);
     const r = await readRig(ctx.session, a.model);
     if (!r.ok) return err(r.error, r.code ?? 'refused');
     const lines = [JSON.stringify(describeRig(r.rig, r.notes), null, 2), ...skippedChecks(r.rig)];
