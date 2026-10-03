@@ -6,6 +6,7 @@ import { rigFor } from './rigs.js';
 import { loadRecipes } from './recipes.js';
 import { ANIM_NAME, clearRigReading, loadRigReading, saveChecked, saveRigReading } from './store.js';
 import { RIGS } from './rigs.js';
+import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, planModelLoader, writeModelLoader } from './npc.js';
 import { relative } from 'node:path';
 import { runLuau } from '../studio/luau.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
@@ -228,6 +229,35 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     if (p.value.ok !== true) return err(String(p.value.error ?? 'declare refused'), String(p.value.code ?? 'refused'));
     const lines = [`wrote BloxRig on ${bare.reading.path}:`, JSON.stringify(describeRig(trial.rig, trial.notes), null, 2), ...skippedChecks(trial.rig)];
     return { text: lines.join('\n'), summary: 'declared' };
+  }
+  if (a.action === 'npc') {
+    if (typeof a.name !== 'string' || !NPC_NAME.test(a.name)) return err('npc needs name: letters, digits, space, _ and -, starting with a letter (max 64)', 'bad name');
+    if (a.rig !== 'R15' && a.rig !== 'R6') return err('npc needs rig:"R15" or rig:"R6" (the stock body); a model of your own is animated with animate rig/check', 'bad rig');
+    const at = a.at as number[] | undefined;
+    if (!at || at.length !== 3 || !at.every(Number.isFinite)) return err('npc needs at:[x, y, z], where its feet stand', 'no position');
+    const loader = planModelLoader(P);
+    if (!loader.ok) return err(loader.error, 'refused');
+    const r = await runLuau(ctx.session, npcProgram({ name: a.name, rig: a.rig, at: at as [number, number, number], parent: modelPath(typeof a.parent === 'string' ? a.parent : 'Workspace') }), 'edit', { chunkName: 'animateNpc', timeoutMs: 60_000 });
+    if (!r.ok) return err(`npc failed in Studio: ${r.error?.message}`, 'studio error');
+    const p = parseReply(r.values, 'npc');
+    if (!p.ok) return err(p.error, 'studio error');
+    if (p.value.ok !== true) return err(String(p.value.error ?? 'npc refused'), String(p.value.code ?? 'refused'));
+    const lines = [`made ${String(p.value.path)} (stock ${a.rig} body, tagged ${MODEL_TAG}, no Animate script)`];
+    if (loader.write) {
+      writeModelLoader(P);
+      lines.push(`wrote ${MODEL_LOADER_PATH}`);
+      // The body exists either way: a failed sync is reported, not thrown.
+      try {
+        const s = await pushProject(ctx.session, P);
+        lines.push(formatSyncResult(s));
+        if (!s.ok) return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
+      } catch (e) {
+        lines.push(`sync failed: ${(e as Error).message}; run blox sync to push the loader`);
+        return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
+      }
+    }
+    lines.push(`Next: wire its idle and walk: animate {action:"wire", model:"${String(p.value.path)}", state:"walk", name, asset} (an ${a.rig} animation, checked with locomotion:true)`);
+    return { text: lines.join('\n'), summary: 'npc made' };
   }
   return err(`unknown action ${String(a.action)}: recipes, check, build, wire, verify, rig, declare or npc`, 'unknown action');
 }
