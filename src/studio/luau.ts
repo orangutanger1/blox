@@ -1,3 +1,4 @@
+import { runLuauViaBridge } from './evalBridge.js';
 import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from './session.js';
 
 // Structured Luau execution on top of Studio's execute_luau.
@@ -170,6 +171,9 @@ export async function runLuau(
   context: DataModelContext = 'edit',
   opts: RunLuauOptions = {},
 ): Promise<LuauResult> {
+  // Opted-in projects run play probes through the dock plugin's eval bridge,
+  // where require() of game modules works (execute_luau's play thread can't).
+  if (context !== 'edit' && session.evalBridge) return runLuauViaBridge(code, context, { chunkName: opts.chunkName, timeoutMs: opts.timeoutMs });
   const chunk = opts.chunkName ?? 'luau';
   const { program, userLineOffset } = wrapLuau(code, { freshRequire: opts.freshRequire ?? context === 'edit' });
   const t0 = Date.now();

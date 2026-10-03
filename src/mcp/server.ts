@@ -17,7 +17,7 @@ export function toCallToolResult(out: ToolOutput): { content: McpContent[]; isEr
 }
 
 export function studioSessionFor(config: BloxConfig): StudioSession {
-  return new StudioSession({ match: process.env.BLOX_STUDIO || config.studio?.match });
+  return new StudioSession({ match: process.env.BLOX_STUDIO || config.studio?.match, evalBridge: config.bridge?.eval === true });
 }
 
 // `blox mcp` — stdio MCP server exposing the blox toolset for one project.
