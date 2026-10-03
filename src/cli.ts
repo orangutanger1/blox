@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseArgs, type ParsedArgs } from './args.js';
+import { parseArgs, strayPrompt, type ParsedArgs } from './args.js';
 import { loadConfig, overridesFromArgs, runnerFor } from './config.js';
 import { buildDigest } from './context/digest.js';
 import { studioLauncher } from './bridge/mcpBridge.js';
@@ -352,6 +352,13 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
+  if (prompt && !mock) {
+    const stray = strayPrompt(process.argv.slice(2));
+    if (stray) {
+      console.error(stray);
+      process.exit(2);
+    }
+  }
   if (!prompt) {
     console.error(
       'usage: blox "<prompt>" [--mock] [--project <dir>] [--model <id>] [--runner claude|openai] [--auto|--ask] [--max-turns <N>] [--budget <USD>] [--effort high|xhigh] [--image <path>|--image-from-dock] [--verify] [--resume <session>|--continue] [--auth subscription|key|relay]  |  blox doctor [--fix]  |  blox init [--on-conflict abort|suffix] [--force]  |  blox panel install  |  blox panel serve  |  blox auth login|logout|status|key set|key clear|relay <url>|relay clear|use subscription|key|relay  |  blox model add openrouter <slug...> --key <k>|add local <name>|list  |  blox eval [--mock]',

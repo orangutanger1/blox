@@ -1,3 +1,48 @@
+/** The toolset verbs (src/cliTools.ts handles them before the agent runner). */
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'scout', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+/** The runner's own subcommands (parseArgs below). */
+export const RUNNER_COMMANDS = ['init', 'doctor', 'serve', 'panel', 'auth', 'model', 'report', 'relay', 'eval'] as const;
+/** Flags that take a value, so the word after them is not part of the prompt. */
+const VALUED_FLAGS = new Set(['--project', '--max-turns', '--budget', '--effort', '--on-conflict', '--image', '--auth', '--model', '--runner', '--fallback-model', '--key', '--base-url', '--since', '--resume']);
+
+function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * An agent run auto-commits the working tree, so a mistyped or unknown verb
+ * (`blox scout obby`, `blox animte rig`) must not quietly become a prompt.
+ * Returns the refusal when the prompt's first argument is a bare word (no
+ * spaces): agent prompts are quoted, `blox "add a coin counter"`.
+ */
+export function strayPrompt(argv: readonly string[]): string | null {
+  const words: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith('--')) {
+      if (VALUED_FLAGS.has(argv[i])) i++;
+      continue;
+    }
+    words.push(argv[i]);
+  }
+  if (words.length === 0 || /\s/.test(words[0])) return null;
+  const word = words[0];
+  const known = [...TOOL_COMMANDS, ...RUNNER_COMMANDS].filter((c) => !c.startsWith('-'));
+  const near = known
+    .map((c) => ({ c, d: editDistance(word.toLowerCase(), c) }))
+    .filter((x) => x.d <= Math.max(1, Math.floor(word.length / 3)))
+    .sort((x, y) => x.d - y.d)[0];
+  return [
+    `"${word}" is not a blox command${near ? ` — did you mean "${near.c}"?` : ''}`,
+    `To ask the agent, quote the prompt: blox "${words.join(' ')}"  (an agent run commits the working tree when it ends)`,
+    'Commands: blox help',
+  ].join('\n');
+}
+
 export interface ParsedArgs {
   command: 'doctor' | 'serve' | 'init' | 'panel' | 'auth' | 'model' | 'report' | 'relay' | 'eval' | null;
   prompt: string | null;
