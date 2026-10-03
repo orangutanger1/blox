@@ -5,6 +5,13 @@ import { renderContactSheet } from './contact-sheet.js';
 import { rigFor } from './rigs.js';
 import { loadRecipes } from './recipes.js';
 import { ANIM_NAME, saveChecked } from './store.js';
+import { relative } from 'node:path';
+import { runLuau } from '../studio/luau.js';
+import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
+import { previewSampleTimes, verifyPlayback } from './animation-tool.js';
+import { animDir, loadChecked } from './store.js';
+import { buildProgram, commitProgram, type BuildReply } from './studio.js';
+import { writeRbxm } from './rbxm.js';
 
 export const ANIMATE_DESCRIPTION =
   'R15/R6 player-character animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, replaces?, rig?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot).';
@@ -49,6 +56,41 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     lines.push(`sheet: columns at ${sheet.times.map((t, i) => `${t.toFixed(2)}s${sheet.labels[i] ? ` (${sheet.labels[i]})` : ''}`).join(', ')}`);
     lines.push(failing.length ? `failing: ${failing.join(', ')} — fix the description, or waive a failure you mean (e.g. groundContact on a jump), then check again` : `Next: animate {action:"build", name:"${sequence.name}"}`);
     return { text: lines.join('\n'), images: [{ data: sheet.png.toString('base64'), mimeType: 'image/png' }], summary: failing.length ? `${failing.length} failing` : 'checks pass' };
+  }
+  if (a.action === 'build') {
+    if (typeof a.name !== 'string' || !ANIM_NAME.test(a.name)) return err('build needs name (the animation\'s name from check)', 'no name');
+    const stored = loadChecked(P, a.name);
+    if (!stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
+    if (stored.failing.length) return err(`${a.name} has failing checks (${stored.failing.join(', ')}): fix them or waive the ones you mean, then check again`, 'failing');
+    const seq = stored.sequence;
+    const play = await runLuau(ctx.session, buildProgram(seq, previewSampleTimes(seq)), 'edit', { chunkName: 'animateBuild', timeoutMs: 120_000 });
+    if (!play.ok) return err(`build failed in Studio: ${play.error?.message}`, 'studio error');
+    const reply = JSON.parse(String(play.values[0])) as BuildReply;
+    if (!reply.ok) return err(`build failed in Studio: ${reply.error}`, 'studio error');
+    const v = verifyPlayback(seq, reply.samples);
+    if (!v.verified) return err(`not written: ${v.reason}${v.worst ? ` (worst: ${v.worst.part} at ${v.worst.time}s)` : ''}`, 'mismatch');
+    const commit = await runLuau(ctx.session, commitProgram(seq, a.force === true), 'edit', { chunkName: 'animateCommit', timeoutMs: 60_000 });
+    if (!commit.ok) return err(`write failed in Studio: ${commit.error?.message}`, 'studio error');
+    const c = JSON.parse(String(commit.values[0])) as BuildReply;
+    if (!c.ok) return err(`${c.error}; rebuild with force:true to replace it${c.code === 'edited' ? ' (discards the Studio edits)' : ''}`, c.code ?? 'refused');
+    const dir = animDir(P, seq.name);
+    const rb = await writeRbxm(dir, seq);
+    if ('error' in rb) return err(`built in Studio (ServerStorage.BloxAnimations.${seq.name}) but ${rb.error}`, 'rbxm failed');
+    const file = relative(P, rb.file).replace(/\\/g, '/');
+    const m = loadManifest(P);
+    const existing = m.assets.find((x) => x.id === seq.name);
+    if (existing) {
+      existing.ref = { ...existing.ref, file };
+      if (existing.status === 'approved') existing.status = 'candidate';
+      saveManifest(P, m);
+    } else {
+      const added = addAsset(P, { id: seq.name, kind: 'animation', source: 'generated', licence: 'owned', ref: { file }, provenance: { tool: 'blox animate', createdAt: new Date().toISOString() } });
+      if (!added.ok) return err(`built, but not recorded in assets.json: ${added.errors.join('; ')}`, 'not recorded');
+    }
+    return {
+      text: `${seq.name}: played on a stock ${seq.rig} dummy within ${v.maxDegrees}° / ${v.maxStuds} studs of the checked motion (${v.samples} samples); written to ServerStorage.BloxAnimations.${seq.name} and ${file}, recorded as candidate "${seq.name}".\nNext: a human runs \`blox asset approve ${seq.name}\`, then asset {action:"upload", id:"${seq.name}", confirm:true}, then animate {action:"wire", slot, asset:<uploaded id>}.`,
+      summary: 'built',
+    };
   }
   return err(`${String(a.action)}: not implemented yet`, 'todo');
 }
