@@ -24,4 +24,20 @@ describe.skipIf(!process.env.BLOX_LIVE_BLENDER)('model pipeline in Blender', () 
     const ys = prev.triangles.flatMap((t) => t.v.map((p) => p[1]));
     expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(6, 3); // rest pose, Roblox Y up
   }, 180_000);
+  it('exports a rigid-piece dog: pieces-only GLB + pivots.json', async () => {
+    const d = mkdtempSync(join(tmpdir(), 'blox-mdl-rigid-'));
+    const blend = join(d, 'model.blend');
+    const code = new URL('../fixtures/model/rigid-dog.py', import.meta.url).pathname;
+    await runModelPy('run', { blend, code, budget: 2000 }, d);
+    const ex = (await runModelPy('export', { blend, out: join(d, 'export') }, d)) as { pivots?: string; upload?: string };
+    expect(ex.pivots).toBeTruthy();
+    expect(existsSync(ex.upload!)).toBe(true);
+    const p = JSON.parse(readFileSync(ex.pivots!, 'utf8')) as { pieces: { name: string; center: number[]; size: number[] }[]; joints: { name: string; part: string; parent: string; pivot: number[] }[]; riders: Record<string, string[]> };
+    expect(p.pieces.map((x) => x.name).sort()).toEqual(['Body', 'FrontLeft', 'FrontRight', 'Head', 'HindLeft', 'HindRight', 'Nose']);
+    expect(p.joints.map((j) => [j.part, j.parent]).sort()).toEqual([['FrontLeft', 'Body'], ['FrontRight', 'Body'], ['Head', 'Body'], ['HindLeft', 'Body'], ['HindRight', 'Body']]);
+    expect(p.riders).toEqual({ Head: ['Nose'] });
+    const hip = p.joints.find((j) => j.part === 'FrontLeft')!;
+    expect(hip.pivot).toEqual([-0.7, -1.4, 1.6]);
+    expect(p.pieces.find((x) => x.name === 'Body')!.size).toEqual([2, 4, 1.2]);
+  }, 180_000);
 });
