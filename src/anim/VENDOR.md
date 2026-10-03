@@ -15,5 +15,13 @@ model-read rigs (parts-dog, parts-octopus fixtures via model-rig) are removed �
 spec B: gait keeps its R15 and R6 cases, wave keeps its R15 case;
 pose-compiler and motion-checks are ported whole.
 
-Not vendored (spec B): model-rig, rig-declarations, body-plans, rig-build,
-rig-glb, rig-tool.
+Spec B (model rigs) adds model-rig, rig-declarations and body-plans, with
+their tests (tests/anim.model-rig, anim.rig-declarations; gait and wave now
+ported whole) and the parts-dog / parts-octopus fixtures
+(tests/fixtures/anim/). Local changes: `RoqerRig` → `BloxRig`,
+`RoqerModelAnimate` → `BloxModelAnimate`, "this Roqer reads" → "this blox
+reads"; model-rig's GLB-preview assertions are removed (rig-glb is not
+vendored): the one test only about mesh index widths is dropped, the two that
+also check the contact sheet and welded parts keep those checks.
+
+Not vendored: rig-build, rig-glb, rig-tool (spec C: building rigs).

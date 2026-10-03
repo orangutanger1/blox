@@ -293,7 +293,7 @@ export function judgeMovement(observation: unknown, loader: unknown): MovementCh
   });
   const states = typeof loader === 'object' && loader !== null ? loader as LoaderStates : undefined;
   if (!states || typeof states.ids !== 'object' || states.ids === null) {
-    return fail('the model has no RoqerModelAnimate loader: wire its idle, walk or run first');
+    return fail('the model has no BloxModelAnimate loader: wire its idle, walk or run first');
   }
   const samples = Array.isArray(record.samples) ? record.samples as MovementSample[] : [];
   if (samples.some((sample) => typeof sample?.t !== 'number' || typeof sample.speed !== 'number' || !Number.isFinite(sample.speed))) {

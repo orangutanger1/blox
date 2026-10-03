@@ -265,4 +265,59 @@ the head.
 - Check and build the same `name` again to revise an animation. `build` refuses
   to replace a sequence edited in Studio since its build unless `force: true`.
 
+## NPCs
+
+`animate {action:"npc", name:"Guard", rig:"R15", at:[x,y,z]}` makes a stock body
+with no `Animate` script, tagged `BloxAnimated`, and writes
+`src/ServerScriptService/BloxModelAnimate.server.luau` — one server script
+that plays every tagged model's idle, walk and run by its speed. Then:
+check a looping idle and a walk (`locomotion:true`), build, have a human
+approve and upload, and wire each:
+`animate {action:"wire", model:"Workspace.Guard", state:"walk", name:"Walk", asset}`.
+The loader paces a gait at speed ÷ ground speed, between 0.5× and 2×; outside
+that, set the Humanoid's `WalkSpeed` (wire warns). Prove it with
+`animate {action:"verify", model:"Workspace.Guard", name:"Walk"}` (a playtest
+walks it 12 studs and watches). Clones of the NPC keep the tag and attributes.
+An attack or other one-shot: play it from game code,
+`humanoid.Animator:LoadAnimation(anim):Play()`.
+
+## A model's own rig
+
+A Part-built model joined with `Motor6D`s (a dog, a door, a turret) is its own
+rig: give its path as `rig` in the description (`"rig":"Workspace.Dog"`).
+`animate {action:"rig", model}` lists the joints a pose may key and what the
+checks cannot judge. Poses turn joints about the body's own axes (right, up,
+back at rest). Rigging loose parts is not supported yet: rig it in Studio
+first.
+
+Declarations say what geometry cannot — feet, knees, ranges — as the model's
+`BloxRig` attribute. For four legs named `FrontLeft`/`FrontLeftUpper`+
+`FrontLeftLower` (and FrontRight, HindLeft, HindRight; `Head`, `Jaw`, `Tail`):
+`animate {action:"declare", model, plan:"quadruped"}`. Otherwise give them:
+
+```text
+{ "version": 1,
+  "feet": ["FrontLeftLower", ...],
+  "hinges": { "FrontLeftKnee": { "axis": "X", "flex": -1 } },
+  "limbs": { "FrontLeft": { "hinge": "FrontLeftKnee" } },
+  "limits": { "Tail": { "turn": 90 }, "FrontLeftKnee": { "min": -150, "max": 10 } } }
+```
+
+Build plays the animation on a copy of the model, so the model must be rigged
+as it was at check; wire works on the model and on copies of it.
+
+### DogWalk (quadruped, `plan:"quadruped"` declared; replace the rig path)
+
+```json
+{ "name": "DogWalk", "rig": "Workspace.Dog", "loop": true, "priority": "Movement", "duration": 1,
+  "gait": { "pattern": "walk", "stride": 1.2 } }
+```
+
+### TailWag
+
+```json
+{ "name": "TailWag", "rig": "Workspace.Dog", "loop": true, "priority": "Idle", "duration": 1,
+  "waves": [{ "joints": ["Tail"], "axis": "Y", "amplitude": 20, "cycles": 2 }] }
+```
+
 Adapted from Roqer (github.com/S4US/Roqer @4dcb9a7), see src/anim/VENDOR.md.

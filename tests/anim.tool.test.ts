@@ -97,6 +97,11 @@ describe('animate cli', () => {
     expect(cliArgs('animate', parseFlags(['build', 'Walk', '--force']))).toEqual({ tool: 'animate', args: { action: 'build', name: 'Walk', force: true } });
     expect(cliArgs('animate', parseFlags(['wire', 'walk', '123', '--replaces', '9']))).toEqual({ tool: 'animate', args: { action: 'wire', slot: 'walk', asset: '123', replaces: '9' } });
     expect(cliArgs('animate', parseFlags(['verify', 'Walk', '--slot', 'walk']))).toEqual({ tool: 'animate', args: { action: 'verify', name: 'Walk', slot: 'walk' } });
+    expect(cliArgs('animate', parseFlags(['rig', 'Workspace.Dog']))).toEqual({ tool: 'animate', args: { action: 'rig', model: 'Workspace.Dog' } });
+    expect(cliArgs('animate', parseFlags(['declare', 'Workspace.Dog', '--plan', 'quadruped']))).toEqual({ tool: 'animate', args: { action: 'declare', model: 'Workspace.Dog', plan: 'quadruped' } });
+    expect(cliArgs('animate', parseFlags(['npc', 'Guard', '--rig', 'R15', '--at', '1,2,3']))).toEqual({ tool: 'animate', args: { action: 'npc', name: 'Guard', rig: 'R15', at: [1, 2, 3] } });
+    expect(cliArgs('animate', parseFlags(['wire', '--model', 'Workspace.Guard', '--state', 'walk', 'Walk', '5']))).toEqual({ tool: 'animate', args: { action: 'wire', model: 'Workspace.Guard', state: 'walk', name: 'Walk', asset: '5' } });
+    expect(cliArgs('animate', parseFlags(['verify', '--model', 'Workspace.Guard']))).toEqual({ tool: 'animate', args: { action: 'verify', model: 'Workspace.Guard' } });
   });
   it('check reads the description from a JSON file', () => {
     const f = join(mkdtempSync(join(tmpdir(), 'blox-animcli-')), 'walk.json');

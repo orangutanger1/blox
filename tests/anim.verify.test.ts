@@ -93,7 +93,7 @@ describe('verify slot readback', () => {
 
 describe('animate Luau compiles', () => {
   it.skipIf(!luneBin())('build, commit and verify programs and the loader', async () => {
-    const { buildProgram, commitProgram, verifyProgram } = await import('../src/anim/studio.js');
+    const { buildProgram, commitProgram, verifyModelProgram, verifyProgram } = await import('../src/anim/studio.js');
     const { LOADER_SOURCE } = await import('../src/anim/wire.js');
     const { compilePoseAnimation } = await import('../src/anim/pose-compiler.js');
     const c = compilePoseAnimation(loadRecipes().get('Wave'));
@@ -101,6 +101,8 @@ describe('animate Luau compiles', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-animluau-'));
     const files = {
       'build.luau': buildProgram(c.sequence, [0.1]),
+      'verify_model.luau': verifyModelProgram({ model: 'Workspace.Guard', sequence: c.sequence, animationId: null, target: null }),
+      'build_model.luau': buildProgram(c.sequence, [0.1], { path: 'Workspace.Dog', rootPart: 'HumanoidRootPart' }),
       'commit.luau': commitProgram(c.sequence, false),
       'verify.luau': verifyProgram(c.sequence, null, 'walk'),
       'verify_id.luau': verifyProgram(null, 'rbxassetid://1', 'walk'),
