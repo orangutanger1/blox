@@ -44,6 +44,14 @@ describe('runSanitize', () => {
     expect(r.scripts[3].findings).toEqual(['loadstring']);
     expect(r).toMatchObject({ removed: 5, parts: 4, guis: 2, screenGuis: 1, size: [9, 8, 7] });
   });
+  it('a script cut at the budget is a finding (its tail was never scanned)', async () => {
+    const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
+    const f = fakeStudio({ luau: () => env(JSON.stringify({ path: 'W.T', parts: 1, removed: 0, scripts: [{ path: 'W.T.Big', class: 'Script', source: 'print(1)', cut: true }], next: null })) });
+    const session = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    const r = await runSanitize(session, 'W.T', true);
+    expect(r.scripts[0].findings).toEqual([expect.stringMatching(/longer than 20000 characters: only the start was scanned/)]);
+    expect(sanitizeProgram('W.T', true)).toMatch(/cut = #src > BUDGET/);
+  });
   it('program removes scripts only when no source is left unread', () => {
     const p = sanitizeProgram('W.T', false, 3);
     expect(p).toContain('local SKIP = 3');

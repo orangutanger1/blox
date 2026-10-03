@@ -129,10 +129,17 @@ describe('scout tool', () => {
     expect(e.ref.path).toBeUndefined();
   });
 
+  it('discard cleans the quarantine even when try failed before recording', async () => {
+    const { c, luau } = ctx();
+    const d = await call({ action: 'discard', id: 'orphan' }, c);
+    expect(d.isError).toBeFalsy();
+    expect(d.text).toMatch(/no manifest entry/);
+    expect(luau.some((l) => l.includes('BLOX_SCOUT_DISCARD') && l.includes('orphan'))).toBe(true);
+  });
+
   it('adopt and discard refuse entries scout did not try', async () => {
     const { c } = ctx();
     expect((await call({ action: 'adopt', id: 'nope', to: 'Workspace' }, c)).isError).toBe(true);
-    expect((await call({ action: 'discard', id: 'nope' }, c)).isError).toBe(true);
   });
 });
 

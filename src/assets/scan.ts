@@ -57,9 +57,10 @@ for _, d in { cur, table.unpack(cur:GetDescendants()) } do
 			if used > 0 and used + #src > BUDGET then
 				nextSkip = idx - 1
 			else
+				local cut = #src > BUDGET
 				src = string.sub(src, 1, BUDGET)
 				used += #src
-				table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = src })
+				table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = src, cut = cut })
 			end
 		end
 	elseif d:IsA("BasePart") then
@@ -107,7 +108,7 @@ export interface SanitizeReport {
 }
 
 interface SanitizeChunk extends Omit<SanitizeReport, 'scripts'> {
-  scripts: { path: string; class: string; source: string }[];
+  scripts: { path: string; class: string; source: string; cut?: boolean }[];
   next: number | null;
 }
 
@@ -124,10 +125,16 @@ function parseChunk(raw: unknown): SanitizeChunk {
 
 export function gradeSanitize(raw: unknown): SanitizeReport {
   const { next: _n, ...c } = parseChunk(raw);
-  return { ...c, scripts: c.scripts.map((s) => ({ path: s.path, class: s.class, findings: riskFindings(s.source) })) };
+  return { ...c, scripts: c.scripts.map((s) => ({ path: s.path, class: s.class, findings: chunkFindings(s) })) };
 }
 
 const MAX_CHUNKS = 200;
+
+// A script longer than one chunk is scanned only up to the budget: its tail is
+// unknown, which must stop it being kept as if it were clean.
+function chunkFindings(s: { source: string; cut?: boolean }): string[] {
+  return [...riskFindings(s.source), ...(s.cut ? [`longer than ${SOURCE_BUDGET} characters: only the start was scanned`] : [])];
+}
 
 // Inspect (and, unless keep, strip) a model whatever the size of its scripts.
 export async function runSanitize(session: StudioSession, path: string, keep: boolean): Promise<SanitizeReport> {
@@ -137,7 +144,7 @@ export async function runSanitize(session: StudioSession, path: string, keep: bo
     const r = await runLuau(session, sanitizeProgram(path, keep, skip), 'edit', { chunkName: 'sanitize' });
     if (!r.ok) throw new Error(r.error?.message ?? 'sanitize failed');
     const c = parseChunk(r.values[0]);
-    scripts.push(...c.scripts.map((s) => ({ path: s.path, class: s.class, findings: riskFindings(s.source) })));
+    scripts.push(...c.scripts.map((s) => ({ path: s.path, class: s.class, findings: chunkFindings(s) })));
     if (c.next === null) {
       const { next: _n, scripts: _s, ...rest } = c;
       return { ...rest, scripts };

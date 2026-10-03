@@ -231,6 +231,12 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     const m = loadManifest(P);
     const e = m.assets.find((x) => x.id === id);
     const rec = readJson<TryRecord>(P, tryFile(id));
+    if (a.action === 'discard' && !e && /^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) {
+      // try inserted the copy but failed before recording it.
+      const r = await runLuau(ctx.session, discardLuau(`${QUARANTINE}.${id}`), 'edit', { chunkName: 'scoutDiscard' });
+      if (!r.ok) return err(`discard failed: ${r.error?.message}`, 'failed');
+      return { text: `no manifest entry "${id}"; quarantine copy ${r.values[0] === 'destroyed' ? 'removed' : 'was already gone'}`, summary: 'discarded' };
+    }
     if (!e || e.provenance.tool !== 'scout' || !rec || !e.ref.path?.startsWith(`${QUARANTINE}.`)) {
       return err(`"${id}" is not a scout try waiting in ${QUARANTINE}`, 'not tried');
     }
