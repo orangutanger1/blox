@@ -14,11 +14,11 @@ import type { Presentation } from './schema.js';
 export type PresentRule =
   | 'title-length' | 'title-roblox' | 'title-tags' | 'title-caps'
   | 'desc-length' | 'desc-links' | 'scam' | 'claims' | 'engagement-bait' | 'emoji-spam' | 'mature'
-  | 'thumb-count' | 'thumb-variety' | 'thumb-rendered' | 'thumb-aspect' | 'thumb-duplicate' | 'thumb-blank' | 'thumb-contrast' | 'thumb-similar' | 'icon';
+  | 'thumb-count' | 'thumb-variety' | 'thumb-rendered' | 'thumb-aspect' | 'thumb-duplicate' | 'thumb-blank' | 'thumb-contrast' | 'thumb-similar' | 'thumb-pixels' | 'icon';
 export const PRESENT_RULES: PresentRule[] = [
   'title-length', 'title-roblox', 'title-tags', 'title-caps',
   'desc-length', 'desc-links', 'scam', 'claims', 'engagement-bait', 'emoji-spam', 'mature',
-  'thumb-count', 'thumb-variety', 'thumb-rendered', 'thumb-aspect', 'thumb-duplicate', 'thumb-blank', 'thumb-contrast', 'thumb-similar', 'icon',
+  'thumb-count', 'thumb-variety', 'thumb-rendered', 'thumb-aspect', 'thumb-duplicate', 'thumb-blank', 'thumb-contrast', 'thumb-similar', 'thumb-pixels', 'icon',
 ];
 export interface PresentFinding {
   rule: PresentRule;
@@ -45,19 +45,26 @@ const ASPECT_TOL = 0.05;
 // Pixel thresholds (0..255 luma), loose on purpose: they catch broken frames
 // (camera in a wall, sky only, failed capture), not taste.
 const BLANK_STD = 8;
+// A minimalist icon (one glyph on a flat field) is legitimately low-spread;
+// only a truly flat icon is blank.
+const ICON_BLANK_STD = 2;
 const MIN_RANGE = 48; // p95 - p5
 const DARK = 35;
 const BRIGHT = 225;
 const SIMILAR = 10; // colour-grid mean abs diff; distinct shots measured 24-58
 
 // Blank / contrast checks on one image; returns its colour grid for similarity.
-function pixelChecks(buf: Buffer, where: string, add: (rule: PresentRule, severity: 'error' | 'warn', where: string, detail: string) => void): Float64Array | null {
+function pixelChecks(buf: Buffer, where: string, add: (rule: PresentRule, severity: 'error' | 'warn', where: string, detail: string) => void, icon = false): Float64Array | null {
   const img = decodeSmall(buf);
   if (!img) {
-    add('thumb-blank', 'warn', where, 'pixels not checked (needs 8-bit PNG or baseline JPEG)');
+    add('thumb-pixels', 'warn', where, 'pixels not checked (needs 8-bit PNG or baseline JPEG)');
     return null;
   }
   const s = pixelStats(img);
+  if (icon) {
+    if (s.std < ICON_BLANK_STD) add('icon', 'error', where, `one flat colour (luma spread ${s.std.toFixed(1)}) — the capture failed; re-render`);
+    return colourGrid(img);
+  }
   if (s.std < BLANK_STD) {
     add('thumb-blank', 'error', where, `one flat colour (luma spread ${s.std.toFixed(1)}) — the camera may be inside a wall or the capture failed; re-render`);
     return colourGrid(img);
@@ -128,7 +135,7 @@ export function lintPresentation(doc: Presentation, projectPath: string): Presen
   if (icons.length !== 1) add('icon', 'error', 'shots', `${icons.length} icon shots (need exactly 1)`);
   else {
     const iconFile = icons[0].file ? join(projectPath, icons[0].file) : null;
-    if (iconFile && existsSync(iconFile)) pixelChecks(readFileSync(iconFile), icons[0].id, add);
+    if (iconFile && existsSync(iconFile)) pixelChecks(readFileSync(iconFile), icons[0].id, add, true);
     const text = icons[0].overlay?.text ?? '';
     if (text.length > 12 || text.split(/\s+/).filter(Boolean).length > 2) add('icon', 'error', icons[0].id, `icon text "${text}" will not read at 64 px (<= 12 chars, <= 2 words)`);
   }

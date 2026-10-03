@@ -133,10 +133,17 @@ function jpegDc(b: Buffer): SmallImage | null {
   const hts = new Map<number, Huff>(); // (class << 4) | id
   let frame: { w: number; h: number; comps: { id: number; h: number; v: number; tq: number }[] } | null = null;
   let restart = 0;
+  // Adobe APP14 transform 0 (or components named R, G, B): the three
+  // components are RGB already, not YCbCr.
+  let adobeTransform = -1;
   let i = 2;
   while (i + 4 <= b.length) {
     if (b[i] !== 0xff) return null;
     const m = b[i + 1];
+    if (m === 0xff) {
+      i++; // a fill byte before the marker
+      continue;
+    }
     if (m === 0xd8 || (m >= 0xd0 && m <= 0xd7) || m === 0x01) {
       i += 2;
       continue;
@@ -175,6 +182,8 @@ function jpegDc(b: Buffer): SmallImage | null {
       return null; // progressive, lossless, arithmetic: not supported
     } else if (m === 0xdd) {
       restart = seg.readUInt16BE(0);
+    } else if (m === 0xee) {
+      if (seg.length >= 12 && seg.toString('ascii', 0, 5) === 'Adobe') adobeTransform = seg[11];
     } else if (m === 0xda) {
       if (!frame) return null;
       const ns = seg[0];
@@ -188,7 +197,8 @@ function jpegDc(b: Buffer): SmallImage | null {
       }
       // Only a full interleaved scan (or a one-component image) is handled.
       if (ns !== frame.comps.length) return null;
-      return decodeScan(b, i + 2 + len, frame, scan, qt, restart);
+      const rgbComps = frame.comps.length === 3 && (adobeTransform === 0 || (adobeTransform < 0 && frame.comps.map((c) => c.id).join() === '82,71,66'));
+      return decodeScan(b, i + 2 + len, frame, scan, qt, restart, rgbComps);
     }
     i += 2 + len;
   }
@@ -202,6 +212,7 @@ function decodeScan(
   scan: { ci: number; dc: Huff; ac: Huff }[],
   qt: number[][],
   restart: number,
+  rgbComps = false,
 ): SmallImage | null {
   let pos = start, bitBuf = 0, bitCnt = 0, marker = false;
   const readBit = (): number => {
@@ -302,7 +313,11 @@ function decodeScan(
     for (let x = 0; x < w; x++) {
       const k = (y * w + x) * 3;
       const Y = at(0, x, y);
-      if (comps.length >= 3) {
+      if (rgbComps) {
+        rgb[k] = clamp(Y);
+        rgb[k + 1] = clamp(at(1, x, y));
+        rgb[k + 2] = clamp(at(2, x, y));
+      } else if (comps.length >= 3) {
         const cb = at(1, x, y) - 128, cr = at(2, x, y) - 128;
         rgb[k] = clamp(Y + 1.402 * cr);
         rgb[k + 1] = clamp(Y - 0.344136 * cb - 0.714136 * cr);
@@ -323,6 +338,7 @@ export function decodeSmall(b: Buffer): SmallImage | null {
 
 export function pixelStats(img: SmallImage): { mean: number; std: number; p5: number; p95: number } {
   const n = img.luma.length;
+  if (n === 0) return { mean: 0, std: 0, p5: 0, p95: 0 };
   let s = 0;
   for (const v of img.luma) s += v;
   const mean = s / n;
