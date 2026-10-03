@@ -54,12 +54,20 @@ for _, d in { cur, table.unpack(cur:GetDescendants()) } do
 		if idx > SKIP and nextSkip == nil then
 			local ok, src = pcall(function() return d.Source end)
 			src = ok and src or ""
-			if used > 0 and used + #src > BUDGET then
+			-- What it costs once JSON-escaped: a control character becomes up
+			-- to 6 characters (\\u0001), a quote or backslash 2.
+			local _, ctl = string.gsub(src, "%c", "")
+			local _, esc = string.gsub(src, '["\\\\]', "")
+			local cost = #src + 5 * ctl + esc
+			if used > 0 and used + cost > BUDGET then
 				nextSkip = idx - 1
 			else
-				local cut = #src > BUDGET
-				src = string.sub(src, 1, BUDGET)
-				used += #src
+				local cut = cost > BUDGET
+				if cut then
+					src = string.sub(src, 1, math.max(1, math.floor(#src * BUDGET / cost)))
+					cost = BUDGET
+				end
+				used += cost
 				table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = src, cut = cut })
 			end
 		end

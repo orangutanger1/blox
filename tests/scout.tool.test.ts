@@ -18,7 +18,7 @@ const hit = (assetId: string, name: string, extra: Record<string, unknown> = {})
   creatorStoreUrl: `https://create.roblox.com/store/asset/${assetId}`, source: 'creator_store', ...extra,
 });
 
-function ctx(opts: { scripts?: { path: string; class: string; source: string }[] } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
+function ctx(opts: { scripts?: { path: string; class: string; source: string }[]; moveFails?: boolean; left?: number } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-scout-'));
   const luau: string[] = [];
   const f = fakeStudio({
@@ -28,7 +28,10 @@ function ctx(opts: { scripts?: { path: string; class: string; source: string }[]
         const strip = code.includes('local KEEP = false');
         return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', className: 'Model', parts: 120, meshParts: 3, textures: 0, guis: 0, screenGuis: 0, sounds: 0, size: [200, 30, 150], removed: strip ? (opts.scripts ?? []).length : 0, scripts: opts.scripts ?? [], next: null }));
       }
-      if (code.includes('BLOX_SCOUT_MOVE')) return env(JSON.stringify({ path: 'Workspace.obby' }));
+      if (code.includes('BLOX_SCOUT_MOVE')) {
+        if (opts.moveFails) { opts.moveFails = false; return JSON.stringify({ ok: false, error: { message: 'Workspace already has obby' }, logs: [] }); }
+        return env(JSON.stringify(code.includes('if true then') ? { paths: ['game.StarterGui.HUD'], moved: 1, left: opts.left ?? 0 } : { paths: ['game.Workspace.obby'], moved: 1, left: 0 }));
+      }
       return env('ok');
     },
     tools: {
@@ -115,6 +118,32 @@ describe('scout tool', () => {
     const mv = luau.find((l) => l.includes('BLOX_SCOUT_MOVE'))!;
     expect(mv).toMatch(/IsA\("LayerCollector"\)/);
     expect(mv).toMatch(/src:GetChildren\(\)/);
+  });
+
+  it('adopt normalises the to path, and a failed move then retry keeps the scripts-removed count', async () => {
+    const scripts = [{ path: 'ServerStorage.BloxScout.obby.Old', class: 'Script', source: 'print(1)' }];
+    const o = { scripts, moveFails: true };
+    const { c, luau } = ctx(o);
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    const first = await call({ action: 'adopt', id: 'obby', to: 'game.Workspace..' }, c);
+    expect(first.isError).toBe(true);
+    expect(loadManifest(c.projectPath).assets[0].sanitized).toMatchObject({ scriptsRemoved: 1 });
+    o.scripts = []; // already stripped
+    const again = await call({ action: 'adopt', id: 'obby', to: 'Workspace' }, c);
+    expect(again.isError, again.text).toBeFalsy();
+    expect(loadManifest(c.projectPath).assets[0].sanitized).toMatchObject({ scriptsRemoved: 1 });
+    expect(luau.filter((l) => l.includes('BLOX_SCOUT_MOVE'))[0]).toContain('[[Workspace]]');
+  });
+
+  it('adopt unpack leaves non-GUI leftovers in the quarantine and says so', async () => {
+    const { c } = ctx({ left: 4 });
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    const a = await call({ action: 'adopt', id: 'obby', to: 'StarterGui', unpack: true }, c);
+    expect(a.text).toMatch(/StarterGui\.HUD/);
+    expect(a.text).toMatch(/4 instance\(s\) that were not GUI stayed in ServerStorage\.BloxScout\.obby/);
+    expect(loadManifest(c.projectPath).assets[0].ref.path).toBe('ServerStorage.BloxScout.obby');
   });
 
   it('discard destroys the copy and rejects the entry', async () => {
