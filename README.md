@@ -130,7 +130,7 @@ figures are billed. Details:
 
 ## Built-in runner (optional)
 
-`blox "<prompt>" [--auto|--ask] [--budget USD] [--max-turns N] [--model …] [--runner claude|openai]`
+`blox "<prompt>" [--auto|--ask] [--budget USD] [--max-turns N] [--model …] [--runner claude|openai|codex]`
 runs an agent loop over the same toolset (in-process), then commits the project and
 leaves Studio synced. `--ask` gates credit-spending asset generation (dock panel can
 approve).
@@ -152,6 +152,13 @@ approve).
   (conversations are saved under `$XDG_STATE_HOME/blox/chat-sessions`, outside the
   project, with images dropped).
   Set `"runner": "openai"` in `blox.config.json` to use it for every model (the dock too).
+- `--runner codex`: Codex's agent loop on your ChatGPT plan, over `codex app-server`
+  (`npm i -g @openai/codex`, then `blox auth codex` once; `--device` for a device code,
+  `status`, `logout`). Codex runs with its own CODEX_HOME (`~/.config/blox/codex`, not
+  your `~/.codex`) and its acting features off: the model gets only blox's file tools
+  and toolset, with the same guardrails and `--ask` gates; a turn that starts a
+  built-in Codex tool is stopped. `--model` picks a Codex model (default: Codex's);
+  `--max-turns` caps tool calls. Billed to the ChatGPT plan; no `--resume` yet.
 - **Usage-limit fallback**: with `"fallbackModel": "openrouter,openai/gpt-6-luna"` in
   `blox.config.json` (or `--fallback-model`), a subscription run that hits its plan's
   usage limit continues on that model through `--runner openai`. The fallback agent is

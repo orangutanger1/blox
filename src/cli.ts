@@ -214,6 +214,10 @@ async function main(): Promise<void> {
   if (command === 'auth') {
     const parts = (prompt ?? '').split(' ').filter(Boolean);
     const sub = parts[0];
+    if (sub === 'codex') {
+      const { codexAuthCommand } = await import('./agent/codex/login.js');
+      process.exit(await codexAuthCommand(parts[1], (m) => console.log(m)));
+    }
     if (sub === 'login' || sub === 'logout') {
       const res = runClaudeAuth(sub);
       if (!res.ok) {
@@ -275,7 +279,7 @@ async function main(): Promise<void> {
       console.log(`active auth mode: ${mode}`);
       process.exit(0);
     }
-    console.error('usage: blox auth login | logout | status | key set | key clear | relay <url> | relay clear | use subscription|key|relay');
+    console.error('usage: blox auth login | logout | status | key set | key clear | relay <url> | relay clear | use subscription|key|relay | codex [--device|status|logout]');
     process.exit(2);
   }
 
@@ -434,7 +438,7 @@ async function main(): Promise<void> {
     // A routed model (`provider,slug`) only routes if the SDK talks to CCR, not
     // api.anthropic.com — the daemon already does this; the one-shot must too.
     // The openai runner talks to the provider directly (no CCR translation).
-    const routed = runnerFor(config) !== 'openai' && (config.model ?? '').includes(',');
+    const routed = runnerFor(config) === 'claude' && (config.model ?? '').includes(',');
     if (routed) {
       ensureCcrInstalled((m) => console.log(m));
       if (!(await ensureCcr((m) => console.log(m)))) {

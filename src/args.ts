@@ -15,7 +15,7 @@ export interface ParsedArgs {
   imageFromDock: boolean;
   verify: boolean;
   model: string | null;
-  runner: 'claude' | 'openai' | null;
+  runner: 'claude' | 'openai' | 'codex' | null;
   fallbackModel: string | null;
   usageSource: 'auto' | 'local' | 'relay'; // blox report: --local / --relay
   key: string | null;
@@ -44,7 +44,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let imageFromDock = false;
   let verify = false;
   let model: string | null = null;
-  let runner: 'claude' | 'openai' | null = null;
+  let runner: 'claude' | 'openai' | 'codex' | null = null;
   let fallbackModel: string | null = null;
   let usageSource: 'auto' | 'local' | 'relay' = 'auto';
   let key: string | null = null;
@@ -93,7 +93,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (a === '--model') model = argv[++i] ?? null;
     else if (a === '--runner') {
       const v = argv[++i];
-      if (v !== 'claude' && v !== 'openai') throw new Error('--runner must be claude or openai');
+      if (v !== 'claude' && v !== 'openai' && v !== 'codex') throw new Error('--runner must be claude, openai or codex');
       runner = v;
     }
     else if (a === '--fallback-model') fallbackModel = argv[++i] ?? null;

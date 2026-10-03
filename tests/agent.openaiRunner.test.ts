@@ -190,7 +190,7 @@ describe('runner selection', () => {
 describe('--runner wiring', () => {
   it('parses --runner and passes it through the bench blox profile', () => {
     expect(parseArgs(['--runner', 'openai', 'go']).runner).toBe('openai');
-    expect(() => parseArgs(['--runner', 'gpt'])).toThrow(/claude or openai/);
+    expect(() => parseArgs(['--runner', 'gpt'])).toThrow(/claude, openai or codex/);
     expect(agentSpec('blox', { runner: 'openai', model: 'openai/gpt-6-luna' }).argv).toEqual(expect.arrayContaining(['--runner', 'openai']));
   });
 });

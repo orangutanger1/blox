@@ -9,6 +9,7 @@ import type { ResultRecord } from './panel/gates.js';
 import { buildQueryOptions } from './agent/buildOptions.js';
 import { runAgent } from './agent/runAgent.js';
 import { runOpenAiAgent } from './agent/openaiRunner.js';
+import { runCodexAgent } from './agent/codexRunner.js';
 import { syncProject, realSpawn } from './sync/rojo.js';
 import { commitChanges } from './git/commit.js';
 import type { Billing, RunReport } from './report.js';
@@ -72,7 +73,17 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   };
 
   let agent;
-  if (runnerFor(config) === 'openai') {
+  if (runnerFor(config) === 'codex') {
+    const ctx = deps.bridge.toolCtx;
+    if (!ctx) throw new Error('--runner codex needs the blox toolset (a real Studio session, not --mock)');
+    agent = await runCodexAgent(prompt, config, ctx, deps.digest, {
+      image: deps.image,
+      verify: deps.verify,
+      sink: deps.sink,
+      gate: deps.gate,
+      abortController: deps.abortController,
+    });
+  } else if (runnerFor(config) === 'openai') {
     agent = await openaiRun(config, prompt, { resume: deps.resume, continueSession: deps.continueSession });
   } else {
     const options = buildQueryOptions(config, deps.bridge, deps.digest, deps.gate, {
@@ -129,11 +140,12 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
   const status = agent.status === 'success' && sync.ok ? 'success' : 'error';
   // The Agent SDK prices a CCR-routed "provider,slug" model at Claude rates
   // (observed ~500x too high for GPT-6 Luna); don't ledger that as spend.
-  if (runnerFor(config) !== 'openai' && config.model.includes(',')) {
+  if (runnerFor(config) === 'claude' && config.model.includes(',')) {
     agent = { ...agent, costUsd: 0, costUnknown: true };
   }
-  const routedOrOpenai = runnerFor(config) === 'openai' || config.model.includes(',');
-  const billing: Billing | undefined = routedOrOpenai ? 'provider' : deps.authMode;
+  const routedOrOpenai = runnerFor(config) === 'openai' || (runnerFor(config) === 'claude' && config.model.includes(','));
+  // Codex runs are billed to the user's ChatGPT plan.
+  const billing: Billing | undefined = runnerFor(config) === 'codex' ? 'subscription' : routedOrOpenai ? 'provider' : deps.authMode;
   const cost = {
     ...(agent.costUnknown ? { costUsd: 0, costUnknown: true as const } : { costUsd: agent.costUsd }),
     ...(billing ? { billing } : {}),
