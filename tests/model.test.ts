@@ -98,6 +98,17 @@ describe('model tool', () => {
     expect(r.text).toMatch(/no model "dog" yet/);
     expect((await call({ action: 'brief', id: 'cat', prompt: 'x', refs: ['nope.png'] }, ctx(p))).text).toMatch(/not found: nope.png/);
   });
+  it('brief copies a reference from outside the project into the model and stores project paths', async () => {
+    const p = project();
+    const outside = mkdtempSync(join(tmpdir(), 'blox-ref-'));
+    writeFileSync(join(outside, 'side.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    writeFileSync(join(p, 'front.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const r = await call({ action: 'brief', id: 'dog', prompt: 'dog', refs: [join(outside, 'side.png'), 'front.png', join(p, 'front.png')] }, ctx(p));
+    expect(r.isError, r.text).toBeFalsy();
+    const brief = JSON.parse(readFileSync(join(p, '.blox/models/dog/brief.json'), 'utf8')) as { refs: string[] };
+    expect(brief.refs).toEqual(['.blox/models/dog/refs/side.png', 'front.png', 'front.png']);
+    expect(existsSync(join(p, '.blox/models/dog/refs/side.png'))).toBe(true);
+  });
   it('check returns the views and references as images (images:false opts out)', async () => {
     const p = project();
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
@@ -121,6 +132,11 @@ describe('model tool', () => {
       expect(r.text).toContain('images: view front, reference ref.png');
       const off = await call({ action: 'check', id: 'dog', images: false }, ctx(p));
       expect(off.images ?? []).toEqual([]);
+      // Later checks send the views only; with_refs resends the references.
+      const later = await call({ action: 'check', id: 'dog' }, ctx(p));
+      expect(later.images?.length).toBe(1);
+      expect(later.text).toMatch(/references not resent \(1; sent on the first check\)/);
+      expect((await call({ action: 'check', id: 'dog', with_refs: true }, ctx(p))).images?.length).toBe(2);
     } finally {
       if (old === undefined) delete process.env.BLOX_BLENDER;
       else process.env.BLOX_BLENDER = old;

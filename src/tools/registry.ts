@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BloxConfig } from '../config.js';
 import { StudioError, contextToDataModel, resultText, type DataModelContext, type StudioSession } from '../studio/session.js';
 import { runLuau, type LuauResult } from '../studio/luau.js';
@@ -800,6 +800,7 @@ export const TOOLS: BloxTool[] = [
       action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'animate', 'list']),
       id: z.string().optional(),
       images: z.boolean().optional().describe('check: attach the views and reference images (default true)'),
+      with_refs: z.boolean().optional().describe('check: resend the brief\'s reference images (default: first check only)'),
       prompt: z.string().optional(),
       style: z.string().optional(),
       tris: z.number().int().positive().optional(),
@@ -824,9 +825,20 @@ export const TOOLS: BloxTool[] = [
       const brief = readBrief(P, id);
       if (a.action === 'brief') {
         if (typeof a.prompt !== 'string') return { text: 'brief needs prompt', isError: true, summary: 'no prompt' };
-        const refs = (a.refs as string[] | undefined) ?? [];
-        const missing = refs.filter((r) => !existsSync(join(P, r)) && !existsSync(r));
+        // Refs are stored project-relative (check reads them from the project):
+        // a project file as is, anything else copied into the model's refs/.
+        const given = (a.refs as string[] | undefined) ?? [];
+        const missing = given.filter((r) => !existsSync(join(P, r)) && !existsSync(r));
         if (missing.length) return { text: `reference image(s) not found: ${missing.join(', ')}`, isError: true, summary: 'missing refs' };
+        const refs = given.map((r) => {
+          if (existsSync(join(P, r)) && isPathContained(P, resolve(P, r))) return relative(P, resolve(P, r));
+          const abs = resolve(r);
+          if (isPathContained(P, abs)) return relative(P, abs);
+          mkdirSync(join(dir, 'refs'), { recursive: true });
+          const copy = join(dir, 'refs', basename(abs));
+          copyFileSync(abs, copy);
+          return relative(P, copy);
+        });
         const b = writeBrief(P, { id, prompt: a.prompt, ...(typeof a.style === 'string' ? { style: a.style } : {}), tris: (a.tris as number | undefined) ?? 5000, rig: a.rig === true, animations: (a.animations as string[] | undefined) ?? [], refs });
         return { text: briefText(b), summary: 'brief' };
       }
@@ -845,9 +857,14 @@ export const TOOLS: BloxTool[] = [
       if (!existsSync(blend)) return { text: `no model "${id}" yet — model {action:"run", id:"${id}", code} first`, isError: true, summary: 'no model' };
       if (a.action === 'check') {
         const s = (await runModelPy('check', { blend, views: join(dir, 'views'), budget }, dir)) as unknown as ModelStats;
+        // References go with the first check only (or when asked): resending
+        // them every loop costs image tokens without new information.
+        const firstCheck = !existsSync(join(dir, 'check.json'));
         writeFileSync(join(dir, 'check.json'), JSON.stringify(s, null, 2));
-        const att = a.images === false ? null : checkImages(s.views ?? [], brief?.refs ?? [], P);
-        const text = [formatStats(s, P, budget), ...(att?.labels.length ? [`images: ${att.labels.join(', ')}`] : []), ...(att?.notes ?? [])].join('\n');
+        const sendRefs = a.with_refs === true || (a.with_refs !== false && firstCheck);
+        const att = a.images === false ? null : checkImages(s.views ?? [], sendRefs ? brief?.refs ?? [] : [], P);
+        const refNote = !sendRefs && brief?.refs.length ? [`references not resent (${brief.refs.length}; sent on the first check): pass with_refs:true to see them again`] : [];
+        const text = [formatStats(s, P, budget), ...(att?.labels.length ? [`images: ${att.labels.join(', ')}`] : []), ...(att?.notes ?? []), ...refNote].join('\n');
         return { text, ...(att?.images.length ? { images: att.images } : {}), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
       }
       if (a.action === 'export') {
