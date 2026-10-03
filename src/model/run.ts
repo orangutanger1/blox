@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, relative, resolve } from 'node:path';
+import { isPathContained } from '../agent/guardrail.js';
 import { fileURLToPath } from 'node:url';
 import { blenderBin, defaultSpawn, type Spawner } from '../assets/blender.js';
 import { longString } from '../studio/luau.js';
@@ -35,6 +36,8 @@ export interface ModelStats {
   size: [number, number, number];
   issues: string[];
   views?: string[];
+  colours?: Record<string, string>; // material → flat | vertex | texture | procedural | missing-image
+  uploadParts?: number; // MeshParts an upload makes after the export bake
 }
 
 export function modelDir(projectPath: string, id: string): string {
@@ -70,7 +73,7 @@ export function briefText(b: ModelBrief): string {
       : '   (static: no rig needed)',
     '   Separate body parts that move into their own objects so each binds to one bone.',
     `2. model {action:"run", id:"${b.id}", code} — rebuilds the .blend from your code (keep the whole build in one script; rerun after edits).`,
-    `3. model {action:"check", id:"${b.id}"} — stats vs Roblox limits + front/right/back/¾ renders: open them and compare with the references; fix and rerun.`,
+    `3. model {action:"check", id:"${b.id}"} — budget, colour survival, Roblox limits + front/right/back/¾ renders returned next to the references: compare them; fix and rerun.`,
     `4. model {action:"export", id:"${b.id}"} — model.glb (upload), model.fbx, anim_<name>.fbx + .json, preview.json.`,
     `5. model {action:"preview", id:"${b.id}"} — coloured mesh in Studio (no upload) to judge scale in the real place.`,
     `6. model {action:"import", id:"${b.id}"} — records it in .blox/assets.json; a human approves (blox asset approve ${b.id}) before upload.`,
@@ -100,15 +103,78 @@ export async function runModelPy(cmd: 'run' | 'check' | 'export', args: Record<s
   return JSON.parse(line) as Record<string, unknown>;
 }
 
-export function formatStats(s: ModelStats, projectPath: string): string {
+const COLOUR_ORDER = ['flat', 'vertex', 'texture', 'procedural', 'missing-image'];
+const COLOUR_NOTE: Record<string, string> = { flat: ' (baked into vertex colours on export)', procedural: ' (LOST on upload)', 'missing-image': ' (LOST on upload)' };
+
+export function formatStats(s: ModelStats, projectPath: string, budget = 0): string {
   const lines = [
     `${s.triangles} triangles · ${s.materials} materials · ${s.bones} bones · size ${s.size.join(' × ')} studs (x × y × z)`,
     s.actions.length ? `animations: ${s.actions.map((a) => `${a.name} [${a.frames[0]}-${a.frames[1]}]`).join(', ')}` : 'animations: none',
   ];
+  if (budget > 0) {
+    const parts = [
+      `budget: ${s.triangles} / ${budget} triangles (${Math.round((100 * s.triangles) / budget)}%)`,
+      ...(s.uploadParts !== undefined ? [`upload ≈ ${s.uploadParts} MeshPart${s.uploadParts === 1 ? '' : 's'}`] : []),
+      `${s.bones} bones`,
+      `textures: ${s.textures.length ? s.textures.map((t) => `${t.name} ${t.size[0]}×${t.size[1]}`).join(', ') : 'none'}`,
+    ];
+    lines.push(parts.join(' · '));
+  }
+  if (s.colours && Object.keys(s.colours).length) {
+    const n = new Map<string, number>();
+    for (const c of Object.values(s.colours)) n.set(c, (n.get(c) ?? 0) + 1);
+    lines.push(`colours: ${COLOUR_ORDER.filter((c) => n.has(c)).map((c) => `${n.get(c)} ${c}${COLOUR_NOTE[c] ?? ''}`).join(', ')}`);
+  }
   for (const i of s.issues) lines.push(`  ✗ ${i}`);
   if (!s.issues.length) lines.push('  ✓ within Roblox limits');
   if (s.views?.length) lines.push(`views (open and compare with the references): ${s.views.map((v) => relative(projectPath, v)).join(', ')}`);
   return lines.join('\n');
+}
+
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_REFS = 4;
+const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+
+// check hands the renders and the brief's references back as images, so any
+// MCP client sees them side by side (not every agent can open image files).
+export function checkImages(views: string[], refs: string[], projectPath: string): { images: { data: string; mimeType: string }[]; labels: string[]; notes: string[] } {
+  const images: { data: string; mimeType: string }[] = [];
+  const labels: string[] = [];
+  const notes: string[] = [];
+  const add = (file: string, label: string, shown: string): boolean => {
+    const mimeType = MIME[extname(file).toLowerCase()];
+    if (!mimeType) return notes.push(`${shown}: not attached (PNG or JPEG only)`), false;
+    if (!existsSync(file)) return notes.push(`${shown}: missing`), false;
+    if (statSync(file).size > MAX_IMAGE_BYTES) return notes.push(`${shown}: not attached (over 2 MB)`), false;
+    const bytes = readFileSync(file);
+    // Model APIs reject a request whose image bytes don't match its media type.
+    const isPng = bytes.subarray(0, 4).equals(PNG_MAGIC);
+    const isJpeg = bytes.subarray(0, 3).equals(JPEG_MAGIC);
+    if ((mimeType === 'image/png' && !isPng) || (mimeType === 'image/jpeg' && !isJpeg)) {
+      return notes.push(`${shown}: not attached (its bytes are not a ${mimeType === 'image/png' ? 'PNG' : 'JPEG'}; re-save it)`), false;
+    }
+    images.push({ data: bytes.toString('base64'), mimeType });
+    labels.push(label);
+    return true;
+  };
+  for (const v of views) add(v, `view ${basename(v).replace(/\.[^.]+$/, '')}`, relative(projectPath, v));
+  let n = 0;
+  for (const r of refs) {
+    if (n >= MAX_REFS) {
+      notes.push(`${r}: not attached (only ${MAX_REFS} references are)`);
+      continue;
+    }
+    // Only project files reach the model's context.
+    const file = resolve(projectPath, r);
+    if (!isPathContained(projectPath, file)) {
+      notes.push(`${r}: not attached (outside the project — copy it into the project)`);
+      continue;
+    }
+    if (add(file, `reference ${r}`, r)) n++;
+  }
+  return { images, labels, notes };
 }
 
 // Edit-context Luau that builds a coloured MeshPart from preview.json via

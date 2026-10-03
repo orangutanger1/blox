@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { briefText, formatStats, modelDir, previewLuau, runModelPy, writeBrief } from '../src/model/run.js';
+import { briefText, checkImages, formatStats, modelDir, previewLuau, runModelPy, writeBrief } from '../src/model/run.js';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 import { BloxConfigSchema } from '../src/config.js';
 import { StudioSession } from '../src/studio/session.js';
@@ -30,6 +30,41 @@ describe('model helpers', () => {
     const t = formatStats({ triangles: 30000, meshes: { a: 30000 }, materials: 1, bones: 0, maxInfluences: 0, actions: [], textures: [], size: [1, 2, 3], issues: ['triangles 30000 > budget 5000'], views: ['/p/.blox/models/a/views/front.png'] }, '/p');
     expect(t).toContain('✗ triangles 30000 > budget 5000');
     expect(t).toContain('.blox/models/a/views/front.png');
+  });
+  it('stats show the budget block and colour survival', () => {
+    const t = formatStats({ triangles: 4210, meshes: { a: 4000, b: 210 }, materials: 3, bones: 12, maxInfluences: 1, actions: [], textures: [{ name: 'skin', size: [1024, 1024] }], size: [1, 2, 3], issues: [], colours: { A: 'flat', B: 'flat', C: 'vertex', D: 'texture' }, uploadParts: 3 }, '/p', 5000);
+    expect(t).toContain('budget: 4210 / 5000 triangles (84%) · upload ≈ 3 MeshParts · 12 bones · textures: skin 1024×1024');
+    expect(t).toContain('colours: 2 flat (baked into vertex colours on export), 1 vertex, 1 texture');
+    const noBudget = formatStats({ triangles: 10, meshes: {}, materials: 0, bones: 0, maxInfluences: 0, actions: [], textures: [], size: [1, 1, 1], issues: [] }, '/p');
+    expect(noBudget).not.toContain('budget:');
+  });
+  it('checkImages attaches views then refs (PNG/JPEG, size-capped, at most 4 refs)', () => {
+    const p = project();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    for (const f of ['front.png', 'r1.png', 'r3.png', 'r4.png', 'r5.png']) writeFileSync(join(p, f), png);
+    writeFileSync(join(p, 'r2.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    writeFileSync(join(p, 'big.png'), Buffer.alloc(3 * 1024 * 1024));
+    writeFileSync(join(p, 'sheet.webp'), png);
+    const r = checkImages([join(p, 'front.png'), join(p, 'gone.png')], ['big.png', 'sheet.webp', 'r1.png', 'r2.jpg', 'r3.png', 'r4.png', 'r5.png'], p);
+    expect(r.images.map((i) => i.mimeType)).toEqual(['image/png', 'image/png', 'image/jpeg', 'image/png', 'image/png']);
+    expect(r.images[0].data).toBe(png.toString('base64'));
+    expect(r.labels).toEqual(['view front', 'reference r1.png', 'reference r2.jpg', 'reference r3.png', 'reference r4.png']);
+    expect(r.notes.join('\n')).toMatch(/big\.png.*over 2 MB/);
+    expect(r.notes.join('\n')).toMatch(/sheet\.webp.*PNG or JPEG/);
+    expect(r.notes.join('\n')).toMatch(/r5\.png.*4 references/);
+    expect(r.notes.join('\n')).toMatch(/gone\.png.*missing/);
+  });
+  it('checkImages sniffs the bytes and keeps refs inside the project', () => {
+    const p = project();
+    const outside = project();
+    writeFileSync(join(p, 'fake.png'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    writeFileSync(join(p, 'real.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+    writeFileSync(join(outside, 'x.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const r = checkImages([], ['fake.png', 'real.jpg', join(outside, 'x.png'), '../escape.png'], p);
+    expect(r.images.map((i) => i.mimeType)).toEqual(['image/jpeg']);
+    expect(r.notes.join('\n')).toMatch(/fake\.png.*not a PNG/);
+    expect(r.notes.join('\n')).toMatch(/x\.png.*outside the project/);
+    expect(r.notes.join('\n')).toMatch(/escape\.png.*outside the project/);
   });
   it('runModelPy passes software-GL env on linux and parses the result line', async () => {
     const p = project();
@@ -62,6 +97,34 @@ describe('model tool', () => {
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/no model "dog" yet/);
     expect((await call({ action: 'brief', id: 'cat', prompt: 'x', refs: ['nope.png'] }, ctx(p))).text).toMatch(/not found: nope.png/);
+  });
+  it('check returns the views and references as images (images:false opts out)', async () => {
+    const p = project();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    writeFileSync(join(p, 'ref.png'), png);
+    await call({ action: 'brief', id: 'dog', prompt: 'blocky dog', tris: 1000, refs: ['ref.png'] }, ctx(p));
+    const dir = join(p, '.blox/models/dog');
+    writeFileSync(join(dir, 'model.blend'), '');
+    mkdirSync(join(dir, 'views'), { recursive: true });
+    writeFileSync(join(dir, 'views', 'front.png'), png);
+    const stats = { triangles: 900, meshes: { a: 900 }, materials: 1, bones: 0, maxInfluences: 0, actions: [], textures: [], size: [1, 1, 1], issues: [], views: [join(dir, 'views', 'front.png')], colours: { A: 'flat' }, uploadParts: 1 };
+    const fake = join(p, 'fake-blender.sh');
+    writeFileSync(fake, `#!/bin/sh\necho 'BLOX_MODEL ${JSON.stringify(stats)}'\n`);
+    chmodSync(fake, 0o755);
+    const old = process.env.BLOX_BLENDER;
+    process.env.BLOX_BLENDER = fake;
+    try {
+      const r = await call({ action: 'check', id: 'dog' }, ctx(p));
+      expect(r.isError).toBeFalsy();
+      expect(r.images?.length).toBe(2);
+      expect(r.text).toContain('budget: 900 / 1000 triangles (90%)');
+      expect(r.text).toContain('images: view front, reference ref.png');
+      const off = await call({ action: 'check', id: 'dog', images: false }, ctx(p));
+      expect(off.images ?? []).toEqual([]);
+    } finally {
+      if (old === undefined) delete process.env.BLOX_BLENDER;
+      else process.env.BLOX_BLENDER = old;
+    }
   });
 });
 

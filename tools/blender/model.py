@@ -119,6 +119,16 @@ def stats(budget):
         issues.append("there is an armature but no mesh is skinned to it (use bind_rigid)")
     if not ms:
         issues.append("no meshes")
+    colours = {}
+    for o in ms:
+        for slot in o.material_slots:
+            if slot.material is not None:
+                colours[slot.material.name] = blox_model.colour_class(slot.material)
+    for name, cls in sorted(colours.items()):
+        if cls == "procedural":
+            issues.append("material %s: base colour comes from a node, lost on upload (arrives white) — use flat colours, a Color Attribute, or bake it to an image" % name)
+        elif cls == "missing-image":
+            issues.append("material %s: its image has no pixels (not packed, file missing), lost on upload — pack it or fix the path" % name)
     return {
         "triangles": total,
         "meshes": tris,
@@ -129,6 +139,8 @@ def stats(budget):
         "textures": textures,
         "size": [round(size.x, 2), round(size.z, 2), round(size.y, 2)],  # Roblox x, y(up), z
         "issues": issues,
+        "colours": colours,
+        "uploadParts": blox_model.upload_parts(ms),
     }
 
 
