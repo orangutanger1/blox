@@ -839,13 +839,13 @@ export const TOOLS: BloxTool[] = [
         // A fresh .blend each run: the script is the source of truth.
         rmSync(blend, { force: true });
         const s = (await runModelPy('run', { blend, code, budget, name: `${id}/build.py` }, dir)) as unknown as ModelStats;
-        return { text: `built ${id}\n${formatStats(s, P)}\nnext: model {action:"check", id:"${id}"} and look at the views`, isError: s.issues.length > 0, summary: `${s.triangles} tris` };
+        return { text: `built ${id}\n${formatStats(s, P, budget)}\nnext: model {action:"check", id:"${id}"} and look at the views`, isError: s.issues.length > 0, summary: `${s.triangles} tris` };
       }
       if (!existsSync(blend)) return { text: `no model "${id}" yet — model {action:"run", id:"${id}", code} first`, isError: true, summary: 'no model' };
       if (a.action === 'check') {
         const s = (await runModelPy('check', { blend, views: join(dir, 'views'), budget }, dir)) as unknown as ModelStats;
         writeFileSync(join(dir, 'check.json'), JSON.stringify(s, null, 2));
-        return { text: formatStats(s, P), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
+        return { text: formatStats(s, P, budget), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
       }
       if (a.action === 'export') {
         const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };

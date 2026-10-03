@@ -31,6 +31,13 @@ describe('model helpers', () => {
     expect(t).toContain('✗ triangles 30000 > budget 5000');
     expect(t).toContain('.blox/models/a/views/front.png');
   });
+  it('stats show the budget block and colour survival', () => {
+    const t = formatStats({ triangles: 4210, meshes: { a: 4000, b: 210 }, materials: 3, bones: 12, maxInfluences: 1, actions: [], textures: [{ name: 'skin', size: [1024, 1024] }], size: [1, 2, 3], issues: [], colours: { A: 'flat', B: 'flat', C: 'vertex', D: 'texture' }, uploadParts: 3 }, '/p', 5000);
+    expect(t).toContain('budget: 4210 / 5000 triangles (84%) · upload ≈ 3 MeshParts · 12 bones · textures: skin 1024×1024');
+    expect(t).toContain('colours: 2 flat (baked into vertex colours on export), 1 vertex, 1 texture');
+    const noBudget = formatStats({ triangles: 10, meshes: {}, materials: 0, bones: 0, maxInfluences: 0, actions: [], textures: [], size: [1, 1, 1], issues: [] }, '/p');
+    expect(noBudget).not.toContain('budget:');
+  });
   it('runModelPy passes software-GL env on linux and parses the result line', async () => {
     const p = project();
     let env: Record<string, string> | undefined;

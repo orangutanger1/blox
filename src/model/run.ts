@@ -102,11 +102,28 @@ export async function runModelPy(cmd: 'run' | 'check' | 'export', args: Record<s
   return JSON.parse(line) as Record<string, unknown>;
 }
 
-export function formatStats(s: ModelStats, projectPath: string): string {
+const COLOUR_ORDER = ['flat', 'vertex', 'texture', 'procedural', 'missing-image'];
+const COLOUR_NOTE: Record<string, string> = { flat: ' (baked into vertex colours on export)', procedural: ' (LOST on upload)', 'missing-image': ' (LOST on upload)' };
+
+export function formatStats(s: ModelStats, projectPath: string, budget = 0): string {
   const lines = [
     `${s.triangles} triangles · ${s.materials} materials · ${s.bones} bones · size ${s.size.join(' × ')} studs (x × y × z)`,
     s.actions.length ? `animations: ${s.actions.map((a) => `${a.name} [${a.frames[0]}-${a.frames[1]}]`).join(', ')}` : 'animations: none',
   ];
+  if (budget > 0) {
+    const parts = [
+      `budget: ${s.triangles} / ${budget} triangles (${Math.round((100 * s.triangles) / budget)}%)`,
+      ...(s.uploadParts !== undefined ? [`upload ≈ ${s.uploadParts} MeshPart${s.uploadParts === 1 ? '' : 's'}`] : []),
+      `${s.bones} bones`,
+      `textures: ${s.textures.length ? s.textures.map((t) => `${t.name} ${t.size[0]}×${t.size[1]}`).join(', ') : 'none'}`,
+    ];
+    lines.push(parts.join(' · '));
+  }
+  if (s.colours && Object.keys(s.colours).length) {
+    const n = new Map<string, number>();
+    for (const c of Object.values(s.colours)) n.set(c, (n.get(c) ?? 0) + 1);
+    lines.push(`colours: ${COLOUR_ORDER.filter((c) => n.has(c)).map((c) => `${n.get(c)} ${c}${COLOUR_NOTE[c] ?? ''}`).join(', ')}`);
+  }
   for (const i of s.issues) lines.push(`  ✗ ${i}`);
   if (!s.issues.length) lines.push('  ✓ within Roblox limits');
   if (s.views?.length) lines.push(`views (open and compare with the references): ${s.views.map((v) => relative(projectPath, v)).join(', ')}`);
