@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { modelPath, parseReply, readRig, readRigProgram, rigForSequence, rigRevision } from '../src/anim/modelRig.js';
+import { declareProgram, modelPath, parseReply, readRig, readRigProgram, rigForSequence, rigRevision } from '../src/anim/modelRig.js';
 import { saveRigReading } from '../src/anim/store.js';
 import { compilePoseAnimation } from '../src/anim/pose-compiler.js';
 import { kneeDeclarations, partsDog } from './fixtures/anim/parts-dog.js';
@@ -77,5 +77,10 @@ describe('rig read Luau compiles', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-mrigluau-'));
     writeFileSync(join(d, 'read.luau'), readRigProgram('Workspace.Dog', false));
     expect(luneCheck([join(d, 'read.luau')])).toEqual([]);
+  });
+  it.skipIf(!luneBin())('declare program', () => {
+    const d = mkdtempSync(join(tmpdir(), 'blox-mrigluau-'));
+    writeFileSync(join(d, 'declare.luau'), declareProgram('Workspace.Dog', '{"version":1}', 'fp'));
+    expect(luneCheck([join(d, 'declare.luau')])).toEqual([]);
   });
 });

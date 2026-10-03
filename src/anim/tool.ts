@@ -19,6 +19,10 @@ import { normalizeAnimationId, verifyLivePlayback } from './animation-tool.js';
 import { readSlots } from './wire.js';
 import { verifyProgram, type VerifyReply } from './studio.js';
 import { pushProject, formatSyncResult } from '../sync/push.js';
+import { BODY_PLANS, mergeDeclarations, planDeclarations } from './body-plans.js';
+import { MODEL_STATES, describeRig } from './animation-tool.js';
+import { rigFromModel } from './model-rig.js';
+import { readRig, declareProgram, skippedChecks, parseReply, modelPath } from './modelRig.js';
 import { applyWire, planWire } from './wire.js';
 import type { AnimateSlot } from './animation-tool.js';
 
@@ -26,7 +30,7 @@ export const ANIMATE_DESCRIPTION =
   'R15/R6 player-character animation (guide: skill {name:"character-animation"}). recipes {name?} (tested starting points) | check {animation, locomotion?, grounded?, waive?} (compile + 7 motion checks + contact sheet image, offline; writes .blox/anims/<name>/) | build {name, force?} (plays it on a stock dummy in Studio, compares with the checked motion, writes ServerStorage.BloxAnimations.<name> + anim_<name>.rbxm, records an animation candidate; a human approves before asset upload) | wire {slot, asset, rig | name, replaces?} (sets an Animate slot for every player via src/ReplicatedStorage/BloxAnimSlots.luau + a fixed loader, then syncs; rig, or the checked animation name, says which rig the slot is for) | verify {name, slot?, asset?} (playtest: plays on the player\'s character, compares with the checked motion, confirms the slot).';
 
 export const animateShape = {
-  action: z.enum(['recipes', 'check', 'build', 'wire', 'verify']),
+  action: z.enum(['recipes', 'check', 'build', 'wire', 'verify', 'rig', 'declare', 'npc']),
   name: z.string().optional(),
   animation: z.record(z.string(), z.unknown()).optional().describe('check: the pose description (see the character-animation skill)'),
   locomotion: z.boolean().optional(),
@@ -36,7 +40,14 @@ export const animateShape = {
   slot: z.enum(ANIMATE_SLOTS as unknown as [string, ...string[]]).optional(),
   asset: z.union([z.string(), z.number()]).optional(),
   replaces: z.union([z.string(), z.number()]).optional(),
-  rig: z.enum(['R15', 'R6']).optional(),
+  rig: z.string().optional().describe('R15, R6, or (npc) the stock body; check reads the rig from animation.rig'),
+  model: z.string().optional().describe('a model path, e.g. Workspace.Dog'),
+  plan: z.enum(BODY_PLANS as unknown as [string, ...string[]]).optional(),
+  declarations: z.record(z.string(), z.unknown()).optional(),
+  state: z.enum(MODEL_STATES as unknown as [string, ...string[]]).optional(),
+  at: z.array(z.number()).length(3).optional(),
+  parent: z.string().optional(),
+  target: z.array(z.number()).length(3).optional(),
 };
 
 const err = (text: string, summary: string): ToolOutput => ({ text, isError: true, summary });
@@ -115,6 +126,7 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     const rig = typeof a.rig === 'string' ? a.rig : checkedRig;
     if (!rig) return err('wire needs rig:"R15" or rig:"R6", or name (a checked animation) to know which rig the slot is for', 'rig unknown');
     if (checkedRig && rig !== checkedRig) return err(`${String(a.name)} is an ${checkedRig} animation, not ${rig}`, 'rig mismatch');
+    if (rig !== 'R15' && rig !== 'R6') return err('wire with slot takes rig:"R15" or rig:"R6"', 'bad rig');
     const plan = planWire(P, { slot: a.slot as AnimateSlot, asset: a.asset, replaces: a.replaces });
     if (!plan.ok) return err(plan.error, 'refused');
     applyWire(P, plan.slots, plan.writeLoader);
@@ -161,5 +173,31 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     writeFileSync(join(animDir(P, seq.name), 'verify.json'), JSON.stringify({ at: new Date().toISOString(), slot, expectedId, reply: { ...reply, samples: reply.samples?.length }, check, problems }, null, 2));
     return { text: lines.join('\n'), isError: problems.length > 0, summary: problems.length ? 'verify failed' : 'verified' };
   }
-  return err(`unknown action ${String(a.action)}: recipes, check, build, wire or verify`, 'unknown action');
+  if (a.action === 'rig') {
+    if (typeof a.model !== 'string') return err('rig needs model (a model path, e.g. Workspace.Dog)', 'no model');
+    const r = await readRig(ctx.session, a.model);
+    if (!r.ok) return err(r.error, r.code ?? 'refused');
+    const lines = [JSON.stringify(describeRig(r.rig, r.notes), null, 2), ...skippedChecks(r.rig)];
+    lines.push(`Next: animate {action:"check", animation:{..., rig:"${r.reading.path}"}} (the joints above are what poses may key)`);
+    return { text: lines.join('\n'), summary: `${r.rig.joints.length} joints` };
+  }
+  if (a.action === 'declare') {
+    if (typeof a.model !== 'string') return err('declare needs model', 'no model');
+    if (a.plan === undefined && a.declarations === undefined) return err('declare needs plan ("quadruped" | "custom") or declarations (the BloxRig JSON; see the character-animation skill)', 'nothing to declare');
+    const bare = await readRig(ctx.session, a.model, { bare: true });
+    if (!bare.ok) return err(bare.error, bare.code ?? 'refused');
+    const joints = bare.reading.joints.map((j) => ({ name: j.name, parentPart: j.part0, childPart: j.part1 }));
+    const merged = mergeDeclarations(planDeclarations((a.plan as 'quadruped' | 'custom' | undefined) ?? 'custom', joints), a.declarations as Record<string, unknown> | undefined);
+    const text = JSON.stringify(merged);
+    const trial = rigFromModel({ ...bare.reading, declarations: text });
+    if (!trial.ok) return err(`not written; the declarations do not fit ${bare.reading.path}:\n${trial.errors.map((e) => `  ${e}`).join('\n')}`, 'invalid');
+    const w = await runLuau(ctx.session, declareProgram(a.model, text, bare.fingerprint ?? ''), 'edit', { chunkName: 'animateDeclare', timeoutMs: 60_000 });
+    if (!w.ok) return err(`write failed in Studio: ${w.error?.message}`, 'studio error');
+    const p = parseReply(w.values, 'declare');
+    if (!p.ok) return err(p.error, 'studio error');
+    if (p.value.ok !== true) return err(String(p.value.error ?? 'declare refused'), String(p.value.code ?? 'refused'));
+    const lines = [`wrote BloxRig on ${bare.reading.path}:`, JSON.stringify(describeRig(trial.rig, trial.notes), null, 2), ...skippedChecks(trial.rig)];
+    return { text: lines.join('\n'), summary: 'declared' };
+  }
+  return err(`unknown action ${String(a.action)}: recipes, check, build, wire, verify, rig, declare or npc`, 'unknown action');
 }

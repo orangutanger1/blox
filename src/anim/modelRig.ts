@@ -143,6 +143,12 @@ local function weldedParts(model, rigParts)
 	end
 	return out, #visible - #out
 end
+local function fingerprint(reading)
+	local out = {}
+	for _, j in reading.joints do table.insert(out, j.name .. ":" .. j.part0 .. ":" .. j.part1 .. ":" .. table.concat(j.c0, ",") .. ":" .. table.concat(j.c1, ",")) end
+	table.sort(out)
+	return table.concat(out, "|")
+end
 local function readModelRig(path, bare)
 	local model, controller, err = animatedModel(path)
 	if not model then return { ok = false, code = controller, error = err } end
@@ -203,7 +209,7 @@ local function readModelRig(path, bare)
 	if declared ~= nil and not bare then reading.declarations = declared end
 	if #welded > 0 then reading.welded = welded end
 	if leftOut > 0 then reading.weldedLeftOut = leftOut end
-	return { ok = true, reading = reading, rigType = humanoid and humanoid.RigType.Name or nil, walkSpeed = humanoid and humanoid.WalkSpeed or nil }
+	return { ok = true, reading = reading, fingerprint = fingerprint(reading), rigType = humanoid and humanoid.RigType.Name or nil, walkSpeed = humanoid and humanoid.WalkSpeed or nil }
 end
 `;
 
@@ -214,8 +220,37 @@ local P = HS:JSONDecode(PAYLOAD)
 ${RESOLVE_LUAU}${READ_RIG_LUAU}return HS:JSONEncode(readModelRig(P.path, P.bare))`;
 }
 
+/** What the checks cannot judge on a rig for want of declarations, and the call that would let them. */
+export function skippedChecks(rig: Rig): string[] {
+  const out: string[] = [];
+  if (rig.feet.length === 0) out.push('no feet declared: groundContact, footSliding and gaitSymmetry are not checked (and gaits cannot be used) — animate {action:"declare", model, plan:"quadruped"} or declarations.feet');
+  const free = rig.joints.filter((j) => rig.limits[j.name] === undefined).map((j) => j.name);
+  if (free.length) out.push(`no range declared for ${free.join(', ')}: jointLimits does not judge them — declarations.limits`);
+  return out;
+}
+
+const DECLARE_LUAU = `local model = resolve(P.path)
+if not model then return HS:JSONEncode({ ok = false, error = P.path .. " does not exist" }) end
+local now = readModelRig(P.path, true)
+if not now.ok then return HS:JSONEncode(now) end
+if now.fingerprint ~= P.expect then return HS:JSONEncode({ ok = false, code = "changed", error = P.path .. " changed while blox was declaring it; run declare again" }) end
+local CHS = game:GetService("ChangeHistoryService")
+local rec
+pcall(function() rec = CHS:TryBeginRecording("blox animate declare") end)
+model:SetAttribute("BloxRig", P.text)
+if rec then pcall(function() CHS:FinishRecording(rec, Enum.FinishRecordingOperation.Commit) end) end
+return HS:JSONEncode({ ok = true, written = true })`;
+
+export function declareProgram(path: string, text: string, expectFingerprint: string): string {
+  return `-- BloxRigWrite
+local PAYLOAD = ${longString(JSON.stringify({ path: modelPath(path), text, expect: expectFingerprint }))}
+local HS = game:GetService("HttpService")
+local P = HS:JSONDecode(PAYLOAD)
+${RESOLVE_LUAU}${READ_RIG_LUAU}${DECLARE_LUAU}`;
+}
+
 export type RigRead =
-  | { ok: true; reading: ModelRigReading; rig: Rig; notes: string[]; rigType?: 'R15' | 'R6'; walkSpeed?: number }
+  | { ok: true; reading: ModelRigReading; rig: Rig; notes: string[]; fingerprint?: string; rigType?: 'R15' | 'R6'; walkSpeed?: number }
   | { ok: false; error: string; code?: string };
 
 export async function readRig(session: StudioSession, path: string, opts: { bare?: boolean } = {}): Promise<RigRead> {
@@ -223,12 +258,12 @@ export async function readRig(session: StudioSession, path: string, opts: { bare
   if (!r.ok) return { ok: false, error: `reading ${path} failed in Studio: ${r.error?.message}` };
   const p = parseReply(r.values, 'rig read');
   if (!p.ok) return p;
-  const v = p.value as { ok?: boolean; code?: string; error?: string; reading?: Omit<ModelRigReading, 'revision'>; rigType?: 'R15' | 'R6'; walkSpeed?: number };
+  const v = p.value as { ok?: boolean; code?: string; error?: string; reading?: Omit<ModelRigReading, 'revision'>; fingerprint?: string; rigType?: 'R15' | 'R6'; walkSpeed?: number };
   if (!v.ok || !v.reading) return { ok: false, error: v.error ?? 'the rig read failed', code: v.code };
   const reading: ModelRigReading = { ...v.reading, revision: rigRevision(v.reading) };
   const built = rigFromModel(reading);
   if (!built.ok) return { ok: false, code: 'invalid_rig', error: `${reading.path} cannot be animated:\n${built.errors.map((e) => `  ${e}`).join('\n')}` };
-  return { ok: true, reading, rig: built.rig, notes: built.notes, ...(v.rigType ? { rigType: v.rigType } : {}), ...(typeof v.walkSpeed === 'number' ? { walkSpeed: v.walkSpeed } : {}) };
+  return { ok: true, reading, rig: built.rig, notes: built.notes, ...(v.fingerprint ? { fingerprint: v.fingerprint } : {}), ...(v.rigType ? { rigType: v.rigType } : {}), ...(typeof v.walkSpeed === 'number' ? { walkSpeed: v.walkSpeed } : {}) };
 }
 
 /** The rig a compiled sequence was checked on: a stock rig, or the model reading check saved. */
