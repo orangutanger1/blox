@@ -13,7 +13,7 @@ import { drawnParts } from './box-rig.js';
 import { frameFromComponents, multiply, poseRig, pointToWorld, type Frame } from './motion.js';
 import { R15_RIG } from './r15-rig.js';
 import { declareRig } from './rig-declarations.js';
-import type { PartShape, Rig, RigAttachment, RigJoint, RigJointLimit, Rotation, Vec3 } from './rig.js';
+import { ONE_PIECE_LEGS_UNCHECKED, type PartShape, type Rig, type RigAttachment, type RigJoint, type RigJointLimit, type Rotation, type Vec3 } from './rig.js';
 
 /** The most joints a rig may have: a bound of Roqer's for summaries and previews, not the engine's. */
 export const MAX_RIG_JOINTS = 64;
@@ -345,7 +345,7 @@ export function rigFromModel(input: unknown): ModelRigResult {
   // checked (the gait does not bob such a body either).
   const footJoints = rig.feet.map((foot) => rig.joints.find((joint) => joint.childPart === foot));
   if (footJoints.length > 0 && footJoints.every((joint) => joint !== undefined && rig.limbs[joint.name] !== undefined && rig.limbs[joint.name].hinge === undefined)) {
-    rig = { ...rig, uncheckedChecks: { ...rig.uncheckedChecks, footSliding: 'its legs are each one piece, which cannot keep a planted foot still' } };
+    rig = { ...rig, uncheckedChecks: { ...rig.uncheckedChecks, footSliding: ONE_PIECE_LEGS_UNCHECKED } };
   }
   return { ok: true, rig: { ...rig, scale: bodyScale(rig, high - low) }, notes };
 }

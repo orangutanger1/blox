@@ -165,3 +165,9 @@ export interface Rig {
 export function jointAxes(joint: RigJoint): Rotation | undefined {
   return joint.restRotation ?? joint.parentRotation;
 }
+
+/**
+ * blox: why foot sliding goes unchecked on a model rig whose legs are each one
+ * piece. Its ground speed is still measured, so a walk on it can be wired.
+ */
+export const ONE_PIECE_LEGS_UNCHECKED = 'its legs are each one piece, which cannot keep a planted foot still';

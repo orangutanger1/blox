@@ -14,7 +14,7 @@
 // judge by for, such as feet or a joint's range, says so rather than passing.
 
 import { R15_RIG } from './r15-rig.js';
-import type { Rig, RigHinge, Vec3 } from './rig.js';
+import { ONE_PIECE_LEGS_UNCHECKED, type Rig, type RigHinge, type Vec3 } from './rig.js';
 import {
   buildTracks,
   degreesBetween,
@@ -602,8 +602,9 @@ export function checkMotion(sequence: MotionSequence, options: MotionCheckOption
     const why = unchecked[check.id];
     if (why !== undefined && check.status !== 'skipped') checks[index] = skipped(check.id, `not checked: ${why}`);
   }
-  // Measured from planted feet, so only where planted feet are checked.
-  const groundSpeed = options.locomotion && unchecked.footSliding === undefined
+  // Measured from planted feet, so only where planted feet are checked, or
+  // (blox) on one-piece legs, where an approximate pace still lets a walk be wired.
+  const groundSpeed = options.locomotion && (unchecked.footSliding === undefined || unchecked.footSliding === ONE_PIECE_LEGS_UNCHECKED)
     ? measureGroundSpeed(data, rate, rig)
     : undefined;
   return {

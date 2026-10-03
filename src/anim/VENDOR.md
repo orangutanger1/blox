@@ -39,6 +39,7 @@ planner's code but blox's tool refuses them.
 model-rig (blox change, after spec C): a rig whose every foot hangs on a leg
 of one piece gets `uncheckedChecks.footSliding`, as R6 does — a rigid leg
 cannot keep a planted foot still at a steady body height (found live on a
-kneeless Blender dog). Tests: tests/anim.model-rig.test.ts "legs of one piece".
+kneeless Blender dog). Its ground speed is still measured (motion-checks), so
+a walk on it can be wired. Tests: anim.model-rig / anim.gait "legs of one piece".
 
 Still not vendored: rig-glb, rig-tool.

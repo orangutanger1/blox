@@ -151,6 +151,15 @@ describe('legs of one piece', () => {
     expect(walk.report.checks.find((entry) => entry.id === 'groundContact')!.status).toBe('pass');
   });
 
+  test('blox: foot sliding is skipped but the ground speed is still measured, so the walk can be wired', () => {
+    const feet = ['FrontLeft', 'FrontRight', 'HindLeft', 'HindRight'];
+    const result = rigFromModel(partsDog({ declarations: { version: 1, feet, limbs: Object.fromEntries(feet.map((leg) => [leg, {}])) } }));
+    if (!result.ok) throw new Error(result.errors.join('; '));
+    const walk = prepared(result.rig, { pattern: 'walk', stride: 1 });
+    expect(walk.report.checks.find((entry) => entry.id === 'footSliding')!.status).toBe('skipped');
+    expect(walk.report.groundSpeed).toBeGreaterThan(0);
+  });
+
   test('on R6 a walk passes the checks R6 has', () => {
     const walk = prepared(R6_RIG, { pattern: 'walk', stride: 1.6 }, { rig: 'R6', duration: 0.8 });
     expect(walk.failing).toEqual([]);
