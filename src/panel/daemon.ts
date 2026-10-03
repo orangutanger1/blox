@@ -129,7 +129,7 @@ export async function startDaemon(config: BloxConfig): Promise<PanelServer> {
       server.emit({ type: 'run_finished', status: 'error', stopReason: 'error', turns: 0, costUsd: 0, detail: authBlock });
       return;
     }
-    const useCcr = ccr.provider !== null && runnerFor(runConfig) !== 'openai';
+    const useCcr = ccr.provider !== null && runnerFor(runConfig) === 'claude';
     if (useCcr) {
       ensureCcrInstalled(log);
       await ensureCcr(log);

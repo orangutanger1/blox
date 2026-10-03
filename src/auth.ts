@@ -295,7 +295,7 @@ export async function fetchRelayUsage(link: RelayLink, sinceDays: number | null,
 // budget); API-key mode asks Anthropic's free model list. A check that can't
 // reach the server lets the run proceed.
 export async function authPreflight(
-  opts: { override?: AuthMode | null; model: string; runner: 'claude' | 'openai'; store?: AuthStore; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv },
+  opts: { override?: AuthMode | null; model: string; runner: 'claude' | 'openai' | 'codex'; store?: AuthStore; fetchImpl?: typeof fetch; env?: NodeJS.ProcessEnv },
 ): Promise<string | null> {
   const store = opts.store ?? loadAuthStore();
   const mode = effectiveAuthMode(store, opts.override);
@@ -314,7 +314,7 @@ export async function authPreflight(
     return null;
   }
   if (mode !== 'relay') return null;
-  if (opts.runner !== 'claude') return 'team relay mode routes Claude runs only; --runner openai would bypass it (switch with `blox auth use subscription|key`)';
+  if (opts.runner !== 'claude') return `team relay mode routes Claude runs only; --runner ${opts.runner} would bypass it (switch with \`blox auth use subscription|key\`)`;
   if (opts.model.includes(',')) return `team relay mode routes Claude runs only; the routed model "${opts.model}" would bypass it`;
   const r = await checkRelay(store.relay!, opts.model, opts.fetchImpl);
   return r.ok ? null : r.message;

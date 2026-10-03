@@ -49,7 +49,8 @@ export const BloxConfigSchema = z.object({
   // Unset: a "provider,slug" model uses the openai runner (talks to the provider
   // directly: real cost, no CCR daemon), any other model the Claude runner.
   // Set "claude" to route provider,slug models through CCR instead.
-  runner: z.enum(['claude', 'openai']).optional(),
+  // "codex": Codex's agent loop on the user's ChatGPT plan (`blox auth codex`).
+  runner: z.enum(['claude', 'openai', 'codex']).optional(),
   // When a subscription run hits its plan usage limit, finish the task on this
   // model through the openai runner (e.g. "openrouter,openai/gpt-6-luna").
   // Unset: the run stops at the limit. Fallback runs are billed by the provider.
@@ -81,7 +82,9 @@ export const BloxConfigSchema = z.object({
 
 export type BloxConfig = z.infer<typeof BloxConfigSchema>;
 
-export function runnerFor(c: { runner?: 'claude' | 'openai'; model: string }): 'claude' | 'openai' {
+export type Runner = 'claude' | 'openai' | 'codex';
+
+export function runnerFor(c: { runner?: Runner; model: string }): Runner {
   return c.runner ?? (c.model.includes(',') ? 'openai' : 'claude');
 }
 
@@ -107,7 +110,7 @@ export function overridesFromArgs(a: {
   effort: 'high' | 'xhigh' | null;
   mode: 'auto' | 'ask' | null;
   model: string | null;
-  runner?: 'claude' | 'openai' | null;
+  runner?: 'claude' | 'openai' | 'codex' | null;
   fallbackModel?: string | null;
 }): Partial<BloxConfig> {
   const o: Partial<BloxConfig> = {};

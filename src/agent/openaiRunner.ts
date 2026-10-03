@@ -4,16 +4,16 @@ import type { BloxConfig } from '../config.js';
 import type { ProjectDigest } from '../context/digest.js';
 import type { EventSink } from '../panel/events.js';
 import { ccrConfigPath } from '../ccr.js';
-import { TOOLS, invokeTool, type ToolCtx } from '../tools/registry.js';
-import { FILE_TOOLS, isFileTool, runChatLoop, runFileTool, StopRun, type ChatTool, type ContentPart } from './chatLoop.js';
+import { TOOLS, type ToolCtx } from '../tools/registry.js';
+import { FILE_TOOLS, runChatLoop, type ChatTool, type ContentPart } from './chatLoop.js';
 import { buildBloxSystemPrompt } from './systemPrompt.js';
-import { denyMessage, dockDenyMessage, isGatedCall, type GateChannel } from './permission.js';
+import type { GateChannel } from './permission.js';
 import type { AgentRunResult, GatedAction, StopReason } from './runAgent.js';
 import type { ImageInput } from './imageInput.js';
-import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk';
 import { latestChatSession, loadChatSession, newChatSessionId, saveChatSession, type ChatSession } from './chatSessions.js';
 import type { ChatMessage } from './chatLoop.js';
-import { buildAssetDedupeHook, buildAssetRecordHook, buildAssetResultHook, type ResultGateChannel } from './hooks.js';
+import type { ResultGateChannel } from './hooks.js';
+import { bloxToolCaller } from './toolCaller.js';
 
 // The built-in runner on any OpenAI-compatible endpoint (`--runner openai`).
 // Same blox toolset, system prompt, path guardrails, --ask gates and budget as
@@ -142,29 +142,8 @@ export async function runOpenAiAgent(
     }
   };
 
-  const ask = config.mode === 'ask';
   let costWarned = false;
-  // The Claude runner's asset hooks, called directly: dedupe hint before a
-  // generation, then record it and park on the dock's approve/reject card.
-  const resultGate: ResultGateChannel | undefined =
-    o.gate?.requestResult ? { isConnected: () => o.gate!.isConnected(), requestResult: o.gate.requestResult.bind(o.gate) } : undefined;
-  const preHooks = [buildAssetDedupeHook(config.projectPath)];
-  const postHooks = [buildAssetRecordHook(config.projectPath), buildAssetResultHook(resultGate)];
-  const runHooks = async (hooks: HookCallback[], input: Record<string, unknown>): Promise<string[]> => {
-    const notes: string[] = [];
-    for (const h of hooks) {
-      try {
-        const r = (await h(input as unknown as HookInput, undefined, { signal: new AbortController().signal })) as {
-          decision?: string; reason?: string; hookSpecificOutput?: { additionalContext?: string };
-        };
-        if (r.decision === 'block' && r.reason) notes.push(r.reason);
-        if (r.hookSpecificOutput?.additionalContext) notes.push(r.hookSpecificOutput.additionalContext);
-      } catch {
-        /* hooks are advisory here; never fail the tool call */
-      }
-    }
-    return notes;
-  };
+  const callTool = bloxToolCaller({ config, ctx, gate: o.gate, vision, gatedActions, deniedByUser });
   try {
     const r = await runChatLoop({
       ...endpoint,
@@ -183,43 +162,7 @@ export async function runOpenAiAgent(
           log('this endpoint does not report cost; only --max-turns bounds the run');
         }
       },
-      async callTool(name, args) {
-        if (isFileTool(name)) return { text: runFileTool(config.projectPath, name, args) };
-        const tool = TOOLS.find((t) => t.name === name);
-        if (!tool) return { text: `ERROR: unknown tool ${name}` };
-        const qualified = `mcp__blox__${name}`;
-        const gated = ask ? isGatedCall(qualified, args) : null;
-        if (gated) {
-          let decided = false;
-          if (o.gate?.isConnected()) {
-            try {
-              const d = await o.gate.request(qualified, args);
-              if (d.decision === 'allow') decided = true;
-              else if (d.source === 'dock') {
-                deniedByUser.push(qualified);
-                return { text: dockDenyMessage(gated) };
-              }
-            } catch {
-              /* a broken channel must never stall the run — fall back to deny+stop */
-            }
-          }
-          if (!decided) {
-            gatedActions.push({ tool: gated, input: args });
-            throw new StopRun(denyMessage(gated));
-          }
-        }
-        const hookInput = { tool_name: qualified, tool_input: args };
-        const before = name === 'studio_tool' ? await runHooks(preHooks, { ...hookInput, hook_event_name: 'PreToolUse' }) : [];
-        const out = await invokeTool(tool, args, ctx);
-        const after = name === 'studio_tool' && !out.isError
-          ? await runHooks(postHooks, { ...hookInput, hook_event_name: 'PostToolUse', tool_response: { content: [{ type: 'text', text: out.text }] } })
-          : [];
-        const text = [...before, (out.isError ? 'ERROR: ' : '') + out.text, ...after].join('\n\n');
-        if (out.images?.length && !vision) {
-          return { text: `${text}\n(${out.images.length} image(s) not shown: this run is text-only${out.artifacts?.length ? `; saved: ${out.artifacts.join(', ')}` : ''})` };
-        }
-        return { text, images: out.images };
-      },
+      callTool,
     });
     save();
     const gatedStop = gatedActions.length > 0;
