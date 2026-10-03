@@ -308,3 +308,27 @@ export function validateDesign(raw: unknown): { ok: true; doc: DesignDoc } | { o
 export function formatErrors(errors: DesignError[]): string {
   return errors.map((e) => `  ${e.path || '(root)'}: ${e.message}`).join('\n');
 }
+
+// A small valid doc showing every common shape once. design {action:"example"}
+// returns it, and a failed set appends it, so an agent copies shapes instead of
+// guessing field names (2026-10-03 live run: 13 failed sets before a valid doc).
+export const DESIGN_EXAMPLE = {
+  version: 1,
+  meta: { title: 'Coin Obby', format: 'other' },
+  loop: ['run the course', 'grab coins', 'buy a speed boost', 'reach the next stage'],
+  ftue: [{ id: 'first_coin', text: 'collect a coin', targetSec: 20 }],
+  monetization: [{ id: 'vip', kind: 'pass', effect: 'upgrade:speed' }],
+  economy: {
+    resources: [{ id: 'coins', start: 0, spendable: true }],
+    actions: [{ id: 'collect_coin', yields: { coins: 1 }, perSec: 0.2 }],
+    generators: [{ id: 'coin_magnet', produces: { coins: 0.5 }, cost: { res: 'coins', base: 10, growth: 1.15 }, max: 5 }],
+    upgrades: [{ id: 'speed', cost: { res: 'coins', base: 25 }, effect: { target: 'coins', mult: 1.5 } }],
+    gates: [{ id: 'stage2', needs: { res: 'coins', amount: 20 } }],
+  },
+  tunables: { coinValue: 1, stageCount: 3 },
+  archetypes: [{ id: 'casual', session: { lengthSec: 300, perDay: 2 }, policy: 'cheapest' }],
+  assertions: [
+    { id: 'reach_stage2', archetype: 'casual', metric: 'timeTo', target: 'gate:stage2', op: '<=', value: 180 },
+    { id: 'coins_10min', archetype: 'casual', metric: 'balanceAt', res: 'coins', at: 600, op: '>=', value: 5, clock: 'wall' },
+  ],
+} as const;

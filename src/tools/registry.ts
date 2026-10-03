@@ -14,7 +14,9 @@ import {
   type Criterion, type TaskState, type TestSummaryLike,
 } from '../state/store.js';
 import { scaffoldProject } from '../scaffold.js';
-import { validateDesign, formatErrors } from '../design/schema.js';
+import { validateDesign, formatErrors, DESIGN_EXAMPLE } from '../design/schema.js';
+
+const EXAMPLE_TEXT = JSON.stringify(DESIGN_EXAMPLE);
 import { runSimulation, formatReport } from '../design/report.js';
 import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
 import { applyKit, formatApply, KITS_ROOT, listKits } from '../kits.js';
@@ -423,9 +425,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'design',
     description:
-      'Game design doc (.blox/design.json) + offline economy simulator. get | set {doc} (validated; invalid docs are not written) | validate | simulate {archetypes?, horizon? s, runs?, seed?} (player archetypes over time → pass/fail assertions + milestones; failing assertions = isError) | codegen (writes src/ReplicatedStorage/Design/Tunables.luau; game code reads numbers from it). Criteria bind to assertions via tests:["design:<id>"]. No Studio needed.',
+      'Game design doc (.blox/design.json) + offline economy simulator. get | example (a small valid doc to copy shapes from) | set {doc} (validated; invalid docs are not written) | validate | simulate {archetypes?, horizon? s, runs?, seed?} (player archetypes over time → pass/fail assertions + milestones; failing assertions = isError) | codegen (writes src/ReplicatedStorage/Design/Tunables.luau; game code reads numbers from it). Criteria bind to assertions via tests:["design:<id>"]. No Studio needed.',
     shape: {
-      action: z.enum(['get', 'set', 'validate', 'simulate', 'codegen']),
+      action: z.enum(['get', 'example', 'set', 'validate', 'simulate', 'codegen']),
       doc: z.unknown().optional(),
       archetypes: z.array(z.string()).optional(),
       horizon: z.number().int().positive().optional(),
@@ -433,14 +435,15 @@ export const TOOLS: BloxTool[] = [
       seed: z.number().int().optional(),
     },
     async handler(a, ctx) {
+      if (a.action === 'example') return { text: `${EXAMPLE_TEXT}\nTimeTo targets are gate:/upgrade:/generator:/action: refs; balanceAt needs res + at (wall clock). Kits ship full examples (kit {action:"list"}).`, summary: 'example' };
       if (a.action === 'set') {
         const v = validateDesign(a.doc);
-        if (!v.ok) return { text: `design not saved — ${v.errors.length} error(s):\n${formatErrors(v.errors)}`, isError: true, summary: 'invalid' };
+        if (!v.ok) return { text: `design not saved — ${v.errors.length} error(s):\n${formatErrors(v.errors)}\nA valid doc to copy shapes from:\n${EXAMPLE_TEXT}`, isError: true, summary: 'invalid' };
         writeJson(ctx.projectPath, 'design.json', v.doc);
         return { text: `saved .blox/design.json (${v.doc.meta.title}, ${v.doc.assertions.length} assertion(s)). Next: design {action:"simulate"}.`, summary: 'saved' };
       }
       const raw = readJson<unknown>(ctx.projectPath, 'design.json');
-      if (raw === null) return { text: 'no .blox/design.json — create one with design {action:"set", doc:{...}}', isError: true, summary: 'no design' };
+      if (raw === null) return { text: 'no .blox/design.json — create one with design {action:"set", doc:{...}} (design {action:"example"} shows a valid doc)', isError: true, summary: 'no design' };
       if (a.action === 'get') return { text: JSON.stringify(raw, null, 2), summary: 'get' };
       const v = validateDesign(raw);
       if (!v.ok) return { text: `design.json is invalid — ${v.errors.length} error(s):\n${formatErrors(v.errors)}`, isError: true, summary: 'invalid' };
