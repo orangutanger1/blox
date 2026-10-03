@@ -340,6 +340,13 @@ export function rigFromModel(input: unknown): ModelRigResult {
   const drawn = drawnParts(rig);
   const { low, high } = restBounds(rig, drawn.length > 0 ? drawn : Object.keys(parts));
   rig = { ...rig, ground: low };
+  // blox: like R6, a rig whose every foot hangs on a leg of one piece cannot
+  // keep a planted foot still at a steady body height, so foot sliding is not
+  // checked (the gait does not bob such a body either).
+  const footJoints = rig.feet.map((foot) => rig.joints.find((joint) => joint.childPart === foot));
+  if (footJoints.length > 0 && footJoints.every((joint) => joint !== undefined && rig.limbs[joint.name] !== undefined && rig.limbs[joint.name].hinge === undefined)) {
+    rig = { ...rig, uncheckedChecks: { ...rig.uncheckedChecks, footSliding: 'its legs are each one piece, which cannot keep a planted foot still' } };
+  }
   return { ok: true, rig: { ...rig, scale: bodyScale(rig, high - low) }, notes };
 }
 

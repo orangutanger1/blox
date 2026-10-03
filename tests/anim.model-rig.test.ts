@@ -11,7 +11,7 @@ import { buildTracks, pointToWorld, poseRig } from '../src/anim/motion.js';
 import { MAX_RIG_JOINTS, MAX_WELDED_PARTS, R15_REST_HEIGHT, rigFromModel, type ModelRigReading, type ModelRigWeldedPart } from '../src/anim/model-rig.js';
 import { compilePoseAnimation, type KeyframeSequenceDescription } from '../src/anim/pose-compiler.js';
 import type { Rig } from '../src/anim/rig.js';
-import { cf, IDENTITY, LEG_ROOTS, motor, partsDog, type CF, type V } from './fixtures/anim/parts-dog.js';
+import { cf, IDENTITY, kneeDeclarations, LEG_ROOTS, motor, partsDog, type CF, type V } from './fixtures/anim/parts-dog.js';
 
 /** The dog, with parts or joints replaced. */
 const dog = (overrides: Partial<ModelRigReading> = {}): ModelRigReading => ({ ...partsDog(), ...overrides });
@@ -319,5 +319,20 @@ describe('a rig read from a model', () => {
     const many = Array.from({ length: MAX_RIG_JOINTS + 1 }, (_unused, index) => ({ name: `J${index}`, part0: 'Body', part1: `P${index}`, c0: offset([0, 0, 0], [0, 0, 0]), c1: offset([0, 0, 0], [0, 0, 0]) }));
     expect(errorsOf(dog({ parts: [...base.parts, ...many.map((joint) => ({ name: joint.part1, size: [1, 1, 1] as V }))], joints: [...base.joints, ...many] })))
       .toContain(`joints: a rig may have at most ${MAX_RIG_JOINTS} joints; this one has ${base.joints.length + many.length}`);
+  });
+});
+
+describe('legs of one piece (blox)', () => {
+  const FEET = ['FrontLeft', 'FrontRight', 'HindLeft', 'HindRight'];
+  it('skip foot sliding, like R6: a rigid leg cannot keep a foot planted', () => {
+    const r = rigFromModel(partsDog({ declarations: { version: 1, feet: FEET, limbs: Object.fromEntries(FEET.map((leg) => [leg, {}])) } }));
+    if (!r.ok) throw new Error(r.errors.join('; '));
+    expect(r.rig.uncheckedChecks?.footSliding).toMatch(/one piece/);
+  });
+  it('legs with knees keep the check', () => {
+    const r = rigFromModel(partsDog({ knees: true, declarations: kneeDeclarations() }));
+    if (!r.ok) throw new Error(r.errors.join('; '));
+    expect(r.rig.feet.length).toBeGreaterThan(0);
+    expect(r.rig.uncheckedChecks?.footSliding).toBeUndefined();
   });
 });
