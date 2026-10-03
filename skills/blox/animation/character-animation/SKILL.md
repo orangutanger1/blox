@@ -287,8 +287,7 @@ A Part-built model joined with `Motor6D`s (a dog, a door, a turret) is its own
 rig: give its path as `rig` in the description (`"rig":"Workspace.Dog"`).
 `animate {action:"rig", model}` lists the joints a pose may key and what the
 checks cannot judge. Poses turn joints about the body's own axes (right, up,
-back at rest). Rigging loose parts is not supported yet: rig it in Studio
-first.
+back at rest). Loose parts get a rig with `rig` (below).
 
 Declarations say what geometry cannot — feet, knees, ranges — as the model's
 `BloxRig` attribute. For four legs named `FrontLeft`/`FrontLeftUpper`+
@@ -305,6 +304,35 @@ Declarations say what geometry cannot — feet, knees, ranges — as the model's
 
 Build plays the animation on a copy of the model, so the model must be rigged
 as it was at check; wire works on the model and on copies of it.
+
+### Rigging loose pieces
+
+1. `animate {action:"rig", model, suggest:true, plan:"quadruped"}` proposes
+   which piece hangs from which and where each turns, from where the pieces
+   touch. Small leaf pieces (eyes, nose) ride their parent (`with`); a piece
+   that touches nothing is flagged `loose`. Nothing changes in Studio.
+2. Review it. Edit any joint and pass the array as `joints`, or build it as is:
+   `animate {action:"rig", model, joints:"suggested", controller:"Humanoid", plan:"quadruped"}`.
+   `Humanoid` for a body that walks; `AnimationController` for one that flies,
+   swims or stays put (its root is anchored for a script to move).
+3. Look at the range sheet image: every joint turned ±30°. A piece that swings
+   off the body instead of about its end has its pivot in the wrong place; fix
+   that joint's pivot and rig again with `expected_revision` (the revision the
+   result printed).
+4. Animate it as any model rig: `check` with `"rig":"<model path>"`.
+
+Name the parts for the plan (`Body`; `FrontLeftUpper`/`FrontLeftLower` …;
+`Head`, `Tail`) and the suggestion names the joints (`Neck`, `FrontLeft`,
+`FrontLeftKnee`) the way `plan:"quadruped"` declares them.
+
+A Blender creature made with `rig_rigid` (separate pieces, one per bone)
+carries its own pivots: export, upload, insert, then
+`animate {action:"rig", model, joints:"blender", blender_id:"<model id>", controller:"Humanoid"}`.
+blox fits the exported pieces to the inserted ones, so the model may be moved
+or turned first.
+
+Refused by name: skinned meshes (use `model animate`), models with an
+importer's rig, `replace`, `pivot_space`.
 
 ### DogWalk (quadruped, `plan:"quadruped"` declared; replace the rig path)
 
