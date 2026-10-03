@@ -344,7 +344,7 @@ if humanoid.Health <= 0 or humanoid:GetState() == Enum.HumanoidStateType.Dead th
 	return { ok = false, error = P.model .. " is dead in the playtest (fell out of the world, or spawned inside the ground?); place it standing on the ground" }
 end
 local root = humanoid.RootPart
-if not root then return { ok = false, error = P.model .. "'s Humanoid has no root part" } end
+if not root then return { ok = false, error = P.model .. "'s Humanoid has no root part in the playtest (its HumanoidRootPart fell out of the world, or is missing?); give it ground to stand on" } end
 for _, p in model:GetDescendants() do
 	-- One anchored part holds its whole assembly, the root's included.
 	if p:IsA("BasePart") and p.Anchored and (p == root or p.AssemblyRootPart == root.AssemblyRootPart) then

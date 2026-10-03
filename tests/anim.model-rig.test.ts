@@ -10,7 +10,7 @@ import { checkMotion } from '../src/anim/motion-checks.js';
 import { buildTracks, pointToWorld, poseRig } from '../src/anim/motion.js';
 import { MAX_RIG_JOINTS, MAX_WELDED_PARTS, R15_REST_HEIGHT, rigFromModel, type ModelRigReading, type ModelRigWeldedPart } from '../src/anim/model-rig.js';
 import { compilePoseAnimation, type KeyframeSequenceDescription } from '../src/anim/pose-compiler.js';
-import type { Rig } from '../src/anim/rig.js';
+import { ONE_PIECE_LEGS_UNCHECKED, type Rig } from '../src/anim/rig.js';
 import { cf, IDENTITY, kneeDeclarations, LEG_ROOTS, motor, partsDog, type CF, type V } from './fixtures/anim/parts-dog.js';
 
 /** The dog, with parts or joints replaced. */
@@ -327,7 +327,7 @@ describe('legs of one piece (blox)', () => {
   it('skip foot sliding, like R6: a rigid leg cannot keep a foot planted', () => {
     const r = rigFromModel(partsDog({ declarations: { version: 1, feet: FEET, limbs: Object.fromEntries(FEET.map((leg) => [leg, {}])) } }));
     if (!r.ok) throw new Error(r.errors.join('; '));
-    expect(r.rig.uncheckedChecks?.footSliding).toMatch(/one piece/);
+    expect(r.rig.uncheckedChecks?.footSliding).toBe(ONE_PIECE_LEGS_UNCHECKED);
   });
   it('legs with knees keep the check', () => {
     const r = rigFromModel(partsDog({ knees: true, declarations: kneeDeclarations() }));
