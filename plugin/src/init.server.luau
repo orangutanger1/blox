@@ -463,3 +463,103 @@ if RunService:IsEdit() then
 		end
 	end)
 end
+
+-- Eval bridge (opt-in per project: blox.config.json bridge.eval). In a playtest
+-- the plugin also runs inside the server DataModel (only the server may make
+-- HTTP requests), polls for eval jobs, and runs each probe as a one-shot
+-- Script (server) or LocalScript under the player's PlayerGui (client; it
+-- replicates and reports back over a RemoteEvent) inside a single
+-- __BloxBridge folder. The code has game-script identity and can require()
+-- game modules (the Studio MCP's play thread cannot). blox lints the source
+-- before sending it; here the job shape is checked, the container is fixed,
+-- and the server's HttpEnabled is off while the probe runs.
+local MAX_EVAL_SOURCE = 256 * 1024
+local MAX_EVAL_SECONDS = 120
+local Players = game:GetService("Players")
+
+local function bridgeTarget(ctx: string, job: { [string]: any }): (Instance?, Player?)
+	if ctx == "server" then
+		return game:GetService("ServerScriptService"), nil
+	end
+	local player = if type(job.player) == "string" then Players:FindFirstChild(job.player) else Players:GetPlayers()[1]
+	if not player or not player:IsA("Player") then
+		return nil, nil
+	end
+	return player:FindFirstChildOfClass("PlayerGui"), player
+end
+
+local function runEval(job: { [string]: any }): (boolean, any)
+	local ctx = job.context
+	if (ctx ~= "server" and ctx ~= "client") or type(job.source) ~= "string" or #job.source > MAX_EVAL_SOURCE then
+		return false, "bad eval job"
+	end
+	local parent, player = bridgeTarget(ctx, job)
+	if not parent then
+		return false, "no player in the playtest yet"
+	end
+	local folder = parent:FindFirstChild("__BloxBridge")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "__BloxBridge"
+		folder.Parent = parent
+	end
+	local s = Instance.new(if ctx == "server" then "Script" else "LocalScript")
+	s.Name = "BloxEval"
+	local done = Instance.new(if ctx == "server" then "BindableEvent" else "RemoteEvent")
+	done.Name = "Done"
+	done.Parent = s
+	s.Source = job.source
+	local result: { any }? = nil
+	local conn = if ctx == "server"
+		then (done :: BindableEvent).Event:Connect(function(ok, out)
+			result = { ok, out }
+		end)
+		else (done :: RemoteEvent).OnServerEvent:Connect(function(from, ok, out)
+			if from == player then
+				result = { ok, out }
+			end
+		end)
+	local httpWas: boolean? = nil
+	pcall(function()
+		httpWas = HttpService.HttpEnabled
+		HttpService.HttpEnabled = false
+	end)
+	s.Parent = folder
+	local limit = math.clamp(tonumber(job.timeoutMs) or 60000, 1000, MAX_EVAL_SECONDS * 1000) / 1000
+	local t0 = os.clock()
+	while not result and os.clock() - t0 < limit do
+		task.wait(0.05)
+	end
+	conn:Disconnect()
+	s:Destroy()
+	if httpWas ~= nil then
+		pcall(function()
+			HttpService.HttpEnabled = httpWas
+		end)
+	end
+	if not result then
+		return false, string.format("probe did not finish within %ds", limit)
+	end
+	if not result[1] then
+		return false, tostring(result[2])
+	end
+	return true, result[2]
+end
+
+if not RunService:IsEdit() and RunService:IsRunning() and RunService:IsServer() then
+	task.spawn(function()
+		while true do
+			local job = laneRequest("GET", "/job?ctx=play")
+			if job and job.id and job.kind == "eval" then
+				local ok, out = runEval(job)
+				laneRequest("POST", "/result", {
+					id = job.id,
+					ok = ok,
+					result = if ok then out else nil,
+					error = if ok then nil else tostring(out),
+				})
+			end
+			task.wait(0.5)
+		end
+	end)
+end

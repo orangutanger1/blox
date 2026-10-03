@@ -251,7 +251,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_luau',
     description:
-      'Run Luau in Studio; returns serialized return values, printed logs, errors with line numbers. context edit (default) or server/client (needs a running playtest). For probes; lasting checks go in tests/.',
+      'Run Luau in Studio; returns serialized return values, printed logs, errors with line numbers. context edit (default) or server/client (needs a running playtest; require() of game modules there works only with blox.config.json bridge.eval). For probes; lasting checks go in tests/.',
     shape: { code: z.string(), context: context.optional() },
     async handler(a, ctx) {
       const code = String(a.code ?? '');

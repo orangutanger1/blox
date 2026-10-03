@@ -86,6 +86,9 @@ export interface StudioSessionOptions {
   connector?: McpConnector;
   // Pick a Studio whose name contains this (case-insensitive) or whose id equals it.
   match?: string;
+  // Route server/client runLuau through the dock plugin's eval bridge
+  // (blox.config.json bridge.eval).
+  evalBridge?: boolean;
   attachTimeoutMs?: number;
   callTimeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -141,11 +144,13 @@ export class StudioSession {
   private tools: ToolInfo[] = [];
   private studio: StudioInfo | null = null;
   private needsStudioId = true;
-  private readonly opts: Required<Omit<StudioSessionOptions, 'match' | 'launch'>> & Pick<StudioSessionOptions, 'match'>;
+  private readonly opts: Required<Omit<StudioSessionOptions, 'match' | 'launch' | 'evalBridge'>> & Pick<StudioSessionOptions, 'match'>;
   readonly launch: StudioLaunch;
+  readonly evalBridge: boolean;
 
   constructor(options: StudioSessionOptions = {}) {
     this.launch = options.launch ?? resolveStudioLaunch();
+    this.evalBridge = options.evalBridge === true;
     this.opts = {
       connector: options.connector ?? realConnector,
       match: options.match ?? (process.env.BLOX_STUDIO || undefined),

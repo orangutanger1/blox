@@ -71,6 +71,10 @@ export const BloxConfigSchema = z.object({
   // Which attached Studio to drive when several are open: a name substring
   // (e.g. the place name) or a studio id. BLOX_STUDIO env overrides.
   studio: z.object({ match: z.string().optional() }).prefault({}),
+  // Opt-in: run play server/client probes (run_luau, playtest) through the blox
+  // dock plugin, which can require() game modules. Off by default; see
+  // src/studio/evalBridge.ts for the guardrails.
+  bridge: z.object({ eval: z.boolean().default(false) }).prefault({}),
   testDir: z.string().default('tests'),
   worldDir: z.string().default('world'),
 });
