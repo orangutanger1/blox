@@ -39,10 +39,13 @@ Captures written by `present render` are 1466×825 **baseline JPEG** (JFIF,
 | `thumb-blank` | luma standard deviation < 8 (of 255): one flat colour | error |
 | `thumb-contrast` | luma p95 − p5 < 48: washed out or murky | warn |
 | `thumb-dark` / bright | mean luma < 35 or > 225 | warn (reported under `thumb-contrast`) |
-| `thumb-similar` | 16×9 average-hash Hamming distance ≤ 6 of 144 to an earlier thumbnail (not byte-identical) | error |
+| `thumb-similar` | 16×9 colour-grid mean absolute difference < 10 (of 255) to an earlier thumbnail (not byte-identical) | error |
 
-The image `thumb-similar` uses comes from the downscaled luma image
-(box-averaged to 16×9). Byte-identical images keep their existing
+`thumb-similar` uses a 16×9 grid of box-averaged colours from the downscaled image.
+Ruling from calibration on real captures: the first design used a 16×9
+average hash with Hamming distance ≤ 6. Two genuinely different shots
+(sky above ground) scored 9, so luma-only hashing is too coarse. Colour-grid
+differences between distinct shots measured 24–58. Byte-identical images keep their existing
 `thumb-duplicate` rule.
 
 ## Decisions
