@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adaptVerdict, gradeInspect, inspectProgram, mergeResults, scoutFile, scoutQueries, type SearchHit } from '../src/assets/scout.js';
+import { adaptVerdict, findingsOf, mergeResults, scoutFile, scoutQueries, statsOf, type SearchHit } from '../src/assets/scout.js';
 
 const hit = (assetId: string, name: string, extra: Partial<SearchHit> = {}): SearchHit => ({
   assetId, name, description: '', creatorName: 'c', assetType: 'Model', isFree: true, priceCents: 0,
@@ -31,6 +31,10 @@ describe('mergeResults', () => {
     expect(r[0]).toMatchObject({ hits: 2, score: 2 * 2 + 1 + 1 });
     expect(r.find((x) => x.assetId === '9')).toBeUndefined();
   });
+  it('counts a need word once however often the name repeats it', () => {
+    const r = mergeResults([[hit('1', 'Obby obby OBBY Obby'), hit('2', 'Obby Map Template')]], 'obby', 'map');
+    expect(r.map((x) => x.assetId)).toEqual(['2', '1']);
+  });
   it('treats a free flag with a price as paid', () => {
     expect(mergeResults([[hit('5', 'x', { priceCents: 100 })]], 'x', 'model')).toEqual([]);
   });
@@ -54,19 +58,11 @@ describe('adaptVerdict', () => {
   });
 });
 
-describe('inspect', () => {
-  it('program reads only, never destroys or calls HTTP', () => {
-    const p = inspectProgram('ServerStorage.BloxScout.obby');
-    expect(p).not.toMatch(/Destroy|GetAsync|PostAsync|RequestAsync|loadstring\(/);
-    expect(p).toContain('ServerStorage.BloxScout.obby');
-  });
-  it('grades scripts into findings', () => {
-    const g = gradeInspect(JSON.stringify({ path: 'ServerStorage.BloxScout.x', parts: 3, meshParts: 1, guis: 0, screenGuis: 0, sounds: 1, size: [1, 2, 3], scripts: [{ path: 'a.S', class: 'Script', source: 'require(1234567)' }, { path: 'a.T', class: 'Script', source: 'print(1)' }] }));
-    expect(g.stats).toMatchObject({ parts: 3, scripts: 2, size: [1, 2, 3] });
-    expect(g.findings).toEqual(['a.S: require(<asset id>) loads remote code']);
-  });
-  it('rejects a non-string reply', () => {
-    expect(() => gradeInspect(null)).toThrow(/no data/);
+describe('statsOf / findingsOf', () => {
+  it('reads a sanitize report', () => {
+    const r = { path: 'X', removed: 0, parts: 3, meshParts: 1, textures: 0, guis: 0, screenGuis: 0, sounds: 1, size: [1, 2, 3] as [number, number, number], scripts: [{ path: 'a.S', class: 'Script', findings: ['loadstring'] }, { path: 'a.T', class: 'Script', findings: [] }] };
+    expect(statsOf(r)).toMatchObject({ parts: 3, scripts: 2, sounds: 1, size: [1, 2, 3] });
+    expect(findingsOf(r)).toEqual(['a.S: loadstring']);
   });
 });
 

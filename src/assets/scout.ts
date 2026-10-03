@@ -1,5 +1,4 @@
-import { longString } from '../studio/luau.js';
-import { riskFindings } from './scan.js';
+import type { SanitizeReport } from './scan.js';
 
 // Template scout: find free Creator Store templates/packs, look inside the best
 // ones in a quarantine (ServerStorage — scripts there never run), and decide
@@ -60,7 +59,7 @@ export function mergeResults(perQuery: SearchHit[][], need: string, _kind: Scout
   }
   const needWords = new Set(words(need));
   const out = [...byId.values()].map((r) => {
-    const nameWords = words(r.name);
+    const nameWords = [...new Set(words(r.name))];
     const score = 2 * r.hits + nameWords.filter((w) => needWords.has(w)).length + (KIND_WORDS.test(r.name) ? 1 : 0);
     return { ...r, score };
   });
@@ -89,60 +88,11 @@ export function adaptVerdict(kind: ScoutKind, s: InspectStats, findings: string[
   return care.length ? { verdict: 'adapt-with-care', reasons: care } : { verdict: 'adapt', reasons: [`${s.parts} parts, ${s.guis} GUI objects, no scripts`] };
 }
 
-const MAX_SOURCE = 200_000;
-
-// Edit-context, read-only: what is inside an inserted template.
-export function inspectProgram(path: string): string {
-  return `local HttpService = game:GetService("HttpService")
-local PATH = ${longString(path)}
-local cur = game
-for name in string.gmatch(PATH, "[^%.]+") do
-	if cur == game and name == "game" then continue end
-	local nxt = cur:FindFirstChild(name)
-	if not nxt and cur == game then
-		local ok, svc = pcall(function() return game:GetService(name) end)
-		nxt = ok and svc or nil
-	end
-	if not nxt then error("not found: " .. PATH, 0) end
-	cur = nxt
-end
-local scripts, parts, meshParts, guis, screenGuis, sounds = {}, 0, 0, 0, 0, 0
-for _, d in { cur, table.unpack(cur:GetDescendants()) } do
-	if d:IsA("LuaSourceContainer") then
-		local ok, src = pcall(function() return d.Source end)
-		table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = ok and string.sub(src, 1, ${MAX_SOURCE}) or "" })
-	elseif d:IsA("BasePart") then
-		parts += 1
-		if d:IsA("MeshPart") then meshParts += 1 end
-	elseif d:IsA("GuiObject") then
-		guis += 1
-	elseif d:IsA("LayerCollector") then
-		screenGuis += 1
-	elseif d:IsA("Sound") then
-		sounds += 1
-	end
-end
-local size = { 0, 0, 0 }
-if cur:IsA("Model") and parts > 0 then
-	local s = cur:GetExtentsSize()
-	size = { s.X, s.Y, s.Z }
-elseif cur:IsA("BasePart") then
-	size = { cur.Size.X, cur.Size.Y, cur.Size.Z }
-end
-return HttpService:JSONEncode({ path = cur:GetFullName(), className = cur.ClassName, scripts = scripts, parts = parts, meshParts = meshParts, guis = guis, screenGuis = screenGuis, sounds = sounds, size = size })`;
+export function statsOf(r: SanitizeReport): InspectStats {
+  return { parts: r.parts, meshParts: r.meshParts, guis: r.guis, screenGuis: r.screenGuis, sounds: r.sounds, scripts: r.scripts.length, size: r.size };
 }
 
-export function gradeInspect(raw: unknown): { path: string; stats: InspectStats; findings: string[] } {
-  if (typeof raw !== 'string') throw new Error('inspect returned no data');
-  const j = JSON.parse(raw) as Omit<InspectStats, 'scripts'> & { path: string; scripts?: { path: string; source: string }[] };
-  const scripts = Array.isArray(j.scripts) ? j.scripts : [];
-  const size = Array.isArray(j.size) && j.size.length === 3 ? (j.size as [number, number, number]) : [0, 0, 0] as [number, number, number];
-  return {
-    path: j.path,
-    stats: { parts: j.parts ?? 0, meshParts: j.meshParts ?? 0, guis: j.guis ?? 0, screenGuis: j.screenGuis ?? 0, sounds: j.sounds ?? 0, scripts: scripts.length, size },
-    findings: scripts.flatMap((s) => riskFindings(s.source).map((f) => `${s.path}: ${f}`)),
-  };
-}
+export const findingsOf = (r: SanitizeReport): string[] => r.scripts.flatMap((s) => s.findings.map((f) => `${s.path}: ${f}`));
 
 export function scoutFile(need: string, kind: ScoutKind): string {
   const slug = need.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'need';

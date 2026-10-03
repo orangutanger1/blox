@@ -7,7 +7,7 @@ import { StudioSession } from '../src/studio/session.js';
 import { BloxConfigSchema } from '../src/config.js';
 import { loadManifest } from '../src/assets/manifest.js';
 import { readJson } from '../src/state/store.js';
-import { cliArgs, parseFlags } from '../src/cliTools.js';
+import { cliArgs, parseFlags, TOOL_COMMANDS } from '../src/cliTools.js';
 import { fakeStudio, type FakeStudio } from './fakeStudio.js';
 
 const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
@@ -22,11 +22,9 @@ function ctx(opts: { scripts?: { path: string; class: string; source: string }[]
   const f = fakeStudio({
     luau: (code) => {
       luau.push(code);
-      if (code.includes('className = cur.ClassName')) {
-        return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', className: 'Model', parts: 120, meshParts: 3, guis: 0, screenGuis: 0, sounds: 0, size: [200, 30, 150], scripts: opts.scripts ?? [] }));
-      }
-      if (code.includes('LuaSourceContainer') && code.includes('removed')) {
-        return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', removed: (opts.scripts ?? []).length, parts: 120, meshParts: 3, textures: 0, scripts: opts.scripts ?? [] }));
+      if (code.includes('local KEEP = ')) {
+        const strip = code.includes('local KEEP = false');
+        return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', className: 'Model', parts: 120, meshParts: 3, textures: 0, guis: 0, screenGuis: 0, sounds: 0, size: [200, 30, 150], removed: strip ? (opts.scripts ?? []).length : 0, scripts: opts.scripts ?? [], next: null }));
       }
       if (code.includes('BLOX_SCOUT_MOVE')) return env(JSON.stringify({ path: 'Workspace.obby' }));
       return env('ok');
@@ -127,6 +125,9 @@ describe('scout tool', () => {
 });
 
 describe('scout CLI', () => {
+  it('is a tool command, not an agent prompt', () => {
+    expect(TOOL_COMMANDS.has('scout')).toBe(true);
+  });
   it('maps flags', () => {
     expect(cliArgs('scout', parseFlags(['lava', 'obby', '--kind', 'map', '--max', '5']))).toEqual({ tool: 'scout', args: { action: 'search', need: 'lava obby', kind: 'map', max: 5 } });
     expect(cliArgs('scout', parseFlags(['try', '123', '--id', 'obby']))).toEqual({ tool: 'scout', args: { action: 'try', asset_id: '123', id: 'obby' } });

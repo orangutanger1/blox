@@ -1,4 +1,5 @@
-import { longString } from '../studio/luau.js';
+import { longString, runLuau } from '../studio/luau.js';
+import type { StudioSession } from '../studio/session.js';
 import type { AssetManifest } from './manifest.js';
 
 // Risky patterns in scripts that ship inside free models. Graded in TS so the
@@ -20,12 +21,19 @@ export function riskFindings(source: string): string[] {
   return RISKS.filter((r) => r.re.test(source)).map((r) => r.label);
 }
 
-const MAX_SOURCE = 200_000;
+// execute_luau replies are capped (live: 50KB fine, 100KB cut off), so script
+// sources come back in chunks of about SOURCE_BUDGET characters; JSON escaping
+// can double that. A single longer script is scanned up to the budget.
+export const SOURCE_BUDGET = 20_000;
 
-// Edit-context: inspect an inserted model; remove its scripts unless keep.
-export function sanitizeProgram(path: string, keep: boolean): string {
+// Edit-context: inspect a model (stats + script sources from index SKIP on) and,
+// on the call that reads the last source, remove its scripts unless KEEP.
+export function sanitizeProgram(path: string, keep: boolean, skip = 0, budget = SOURCE_BUDGET): string {
   return `local HttpService = game:GetService("HttpService")
 local PATH = ${longString(path)}
+local SKIP = ${Math.max(0, Math.floor(skip))}
+local BUDGET = ${Math.max(1, Math.floor(budget))}
+local KEEP = ${keep ? 'true' : 'false'}
 local cur = game
 for name in string.gmatch(PATH, "[^%.]+") do
 	if cur == game and name == "game" then continue end
@@ -37,28 +45,52 @@ for name in string.gmatch(PATH, "[^%.]+") do
 	if not nxt then error("not found: " .. PATH, 0) end
 	cur = nxt
 end
-local scripts, parts, meshParts, textures = {}, 0, 0, {}
+local scripts, parts, meshParts, textures, guis, screenGuis, sounds = {}, 0, 0, {}, 0, 0, 0
+local idx, used, nextSkip = 0, 0, nil
 local function tex(id) if type(id) == "string" and id ~= "" then textures[id] = true end end
 for _, d in { cur, table.unpack(cur:GetDescendants()) } do
 	if d:IsA("LuaSourceContainer") then
-		local ok, src = pcall(function() return d.Source end)
-		table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = ok and string.sub(src, 1, ${MAX_SOURCE}) or "" })
+		idx += 1
+		if idx > SKIP and nextSkip == nil then
+			local ok, src = pcall(function() return d.Source end)
+			src = ok and src or ""
+			if used > 0 and used + #src > BUDGET then
+				nextSkip = idx - 1
+			else
+				src = string.sub(src, 1, BUDGET)
+				used += #src
+				table.insert(scripts, { path = d:GetFullName(), class = d.ClassName, source = src })
+			end
+		end
 	elseif d:IsA("BasePart") then
 		parts += 1
 		if d:IsA("MeshPart") then meshParts += 1 tex(d.TextureID) end
 	elseif d:IsA("Decal") or d:IsA("Texture") then
 		tex(d.Texture)
+	elseif d:IsA("GuiObject") then
+		guis += 1
+	elseif d:IsA("LayerCollector") then
+		screenGuis += 1
+	elseif d:IsA("Sound") then
+		sounds += 1
 	end
 end
 local removed = 0
-if not ${keep ? 'true' : 'false'} then
+if nextSkip == nil and not KEEP then
 	for _, d in cur:GetDescendants() do
 		if d:IsA("LuaSourceContainer") then d:Destroy() removed += 1 end
 	end
 end
+local size = { 0, 0, 0 }
+if cur:IsA("Model") and parts > 0 then
+	local e = cur:GetExtentsSize()
+	size = { e.X, e.Y, e.Z }
+elseif cur:IsA("BasePart") then
+	size = { cur.Size.X, cur.Size.Y, cur.Size.Z }
+end
 local t = 0
 for _ in textures do t += 1 end
-return HttpService:JSONEncode({ path = cur:GetFullName(), scripts = scripts, removed = removed, parts = parts, meshParts = meshParts, textures = t })`;
+return HttpService:JSONEncode({ path = cur:GetFullName(), className = cur.ClassName, scripts = scripts, removed = removed, parts = parts, meshParts = meshParts, textures = t, guis = guis, screenGuis = screenGuis, sounds = sounds, size = size, next = nextSkip })`;
 }
 
 export interface SanitizeReport {
@@ -68,13 +100,52 @@ export interface SanitizeReport {
   parts: number;
   meshParts: number;
   textures: number;
+  guis: number;
+  screenGuis: number;
+  sounds: number;
+  size: [number, number, number];
+}
+
+interface SanitizeChunk extends Omit<SanitizeReport, 'scripts'> {
+  scripts: { path: string; class: string; source: string }[];
+  next: number | null;
+}
+
+function parseChunk(raw: unknown): SanitizeChunk {
+  if (typeof raw !== 'string') throw new Error('sanitize returned no data');
+  const j = JSON.parse(raw) as Partial<SanitizeChunk>;
+  const size = Array.isArray(j.size) && j.size.length === 3 ? (j.size as [number, number, number]) : ([0, 0, 0] as [number, number, number]);
+  return {
+    path: String(j.path), removed: j.removed ?? 0, parts: j.parts ?? 0, meshParts: j.meshParts ?? 0, textures: j.textures ?? 0,
+    guis: j.guis ?? 0, screenGuis: j.screenGuis ?? 0, sounds: j.sounds ?? 0, size,
+    scripts: Array.isArray(j.scripts) ? j.scripts : [], next: typeof j.next === 'number' ? j.next : null,
+  };
 }
 
 export function gradeSanitize(raw: unknown): SanitizeReport {
-  if (typeof raw !== 'string') throw new Error('sanitize returned no data');
-  const j = JSON.parse(raw) as Omit<SanitizeReport, 'scripts'> & { scripts?: { path: string; class: string; source: string }[] };
-  const scripts = Array.isArray(j.scripts) ? j.scripts : [];
-  return { path: j.path, removed: j.removed, parts: j.parts, meshParts: j.meshParts, textures: j.textures, scripts: scripts.map((s) => ({ path: s.path, class: s.class, findings: riskFindings(s.source) })) };
+  const { next: _n, ...c } = parseChunk(raw);
+  return { ...c, scripts: c.scripts.map((s) => ({ path: s.path, class: s.class, findings: riskFindings(s.source) })) };
+}
+
+const MAX_CHUNKS = 200;
+
+// Inspect (and, unless keep, strip) a model whatever the size of its scripts.
+export async function runSanitize(session: StudioSession, path: string, keep: boolean): Promise<SanitizeReport> {
+  const scripts: SanitizeReport['scripts'] = [];
+  let skip = 0;
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    const r = await runLuau(session, sanitizeProgram(path, keep, skip), 'edit', { chunkName: 'sanitize' });
+    if (!r.ok) throw new Error(r.error?.message ?? 'sanitize failed');
+    const c = parseChunk(r.values[0]);
+    scripts.push(...c.scripts.map((s) => ({ path: s.path, class: s.class, findings: riskFindings(s.source) })));
+    if (c.next === null) {
+      const { next: _n, scripts: _s, ...rest } = c;
+      return { ...rest, scripts };
+    }
+    if (c.next <= skip) throw new Error(`sanitize made no progress at script ${skip}`);
+    skip = c.next;
+  }
+  throw new Error(`sanitize: more than ${MAX_CHUNKS} chunks of scripts`);
 }
 
 // Edit-context: every asset id the place references, with one example location.

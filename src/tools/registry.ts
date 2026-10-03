@@ -29,7 +29,7 @@ import { renderShots } from '../present/render.js';
 import { formatMp, runMultiplayer } from '../multiplayer/run.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
-import { gradeSanitize, sanitizeProgram, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
+import { runSanitize, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
 import { briefText, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
 import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, type AnimJson, type BuildResult } from '../model/anim.js';
@@ -707,9 +707,12 @@ export const TOOLS: BloxTool[] = [
       }
       if (a.action === 'sanitize') {
         if (typeof a.path !== 'string') return { text: 'sanitize needs path (e.g. "Workspace.FreeTree")', isError: true, summary: 'no path' };
-        const r = await runLuau(ctx.session, sanitizeProgram(a.path, a.keep_scripts === true), 'edit', { chunkName: 'sanitize' });
-        if (!r.ok) return { text: `sanitize failed: ${r.error?.message}`, isError: true, summary: 'failed' };
-        const g = gradeSanitize(r.values[0]);
+        let g;
+        try {
+          g = await runSanitize(ctx.session, a.path, a.keep_scripts === true);
+        } catch (e) {
+          return { text: `sanitize failed: ${(e as Error).message}`, isError: true, summary: 'failed' };
+        }
         const findings = g.scripts.flatMap((s) => s.findings.map((f) => `${s.path}: ${f}`));
         const id = typeof a.id === 'string' ? a.id : null;
         if (id) {

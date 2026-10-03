@@ -6,9 +6,9 @@ import { longString, runLuau } from '../studio/luau.js';
 import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
 import { addAsset, loadManifest, saveManifest } from './manifest.js';
-import { gradeSanitize, sanitizeProgram } from './scan.js';
+import { runSanitize } from './scan.js';
 import {
-  adaptVerdict, gradeInspect, inspectProgram, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS,
+  adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
 } from './scout.js';
 
@@ -180,9 +180,13 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     } catch (e) {
       return err(`insert of ${assetId} failed: ${(e as Error).message}\nTry the next search result.`, 'insert failed');
     }
-    const r = await runLuau(ctx.session, inspectProgram(path), 'edit', { chunkName: 'scoutInspect' });
-    if (!r.ok) return err(`inspect failed: ${r.error?.message}`, 'failed');
-    const g = gradeInspect(r.values[0]);
+    let rep;
+    try {
+      rep = await runSanitize(ctx.session, path, true);
+    } catch (e) {
+      return err(`inspect failed: ${(e as Error).message} (the copy is in ${path}; discard it with scout {action:"discard", id:"${id}"})`, 'failed');
+    }
+    const g = { stats: statsOf(rep), findings: findingsOf(rep) };
     const kind = found.save.kind;
     const v = adaptVerdict(kind, g.stats, g.findings);
     const manifestKind = kind === 'audio' ? 'audio' : kind === 'image' ? 'image' : 'model';
@@ -235,16 +239,19 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     if (!ADOPT_ROOTS.includes(to.split('.')[0]) || to.startsWith(QUARANTINE)) return err(`adopt to must be under ${ADOPT_ROOTS.join(', ')} (not the quarantine)`, 'bad to');
     const keep = a.keep_scripts === true;
     if (keep && rec.findings.length) return err(`keep_scripts refused: ${rec.findings.length} risk finding(s):\n  ${rec.findings.join('\n  ')}\nAdopt without keep_scripts (scripts are stripped) or discard.`, 'risky');
-    const s = await runLuau(ctx.session, sanitizeProgram(from, keep), 'edit', { chunkName: 'sanitize' });
-    if (!s.ok) return err(`sanitize failed: ${s.error?.message}`, 'failed');
-    const g = gradeSanitize(s.values[0]);
+    let g;
+    try {
+      g = await runSanitize(ctx.session, from, keep);
+    } catch (e) {
+      return err(`sanitize failed: ${(e as Error).message}`, 'failed');
+    }
     const mv = await runLuau(ctx.session, moveLuau(from, to, a.unpack === true), 'edit', { chunkName: 'scoutMove' });
     if (!mv.ok) return err(`move failed: ${mv.error?.message} (scripts ${keep ? 'kept' : `stripped: ${g.removed}`}; the copy is still in ${QUARANTINE})`, 'failed');
     const moved = JSON.parse(String(mv.values[0])) as { path: string; moved: number };
     const m2 = loadManifest(P);
     const e2 = m2.assets.find((x) => x.id === id)!;
     e2.ref.path = moved.path;
-    e2.sanitized = { at: new Date().toISOString(), scriptsRemoved: g.removed, findings: g.scripts.flatMap((x) => x.findings.map((f) => `${x.path}: ${f}`)) };
+    e2.sanitized = { at: new Date().toISOString(), scriptsRemoved: g.removed, findings: findingsOf(g) };
     e2.budget = { ...(e2.budget ?? {}), parts: g.parts };
     saveManifest(P, m2);
     return {
