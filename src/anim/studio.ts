@@ -270,6 +270,11 @@ local humanoid = controller:IsA("Humanoid") and controller or nil
 local animator = controller:FindFirstChildOfClass("Animator")
 local deadline = os.clock() + 3
 while not animator and os.clock() < deadline do task.wait(0.1) animator = controller:FindFirstChildOfClass("Animator") end
+if not animator and (P.sequence or P.animationId) then
+	-- Not wired, so the loader made none: playback needs only one of its own.
+	animator = Instance.new("Animator")
+	animator.Parent = controller
+end
 if not animator then return { ok = false, error = P.model .. " has no Animator in the playtest, and the loader made none (is it tagged BloxAnimated and is BloxModelAnimate synced?)" } end
 local loader = { ids = {}, speeds = {} }
 for _, state in { "idle", "walk", "run" } do
@@ -318,14 +323,21 @@ if P.sequence or P.animationId then
 	result.length = res.length
 	result.samples = res.samples
 end
+if next(loader.ids) == nil then
+	result.skipped = P.model .. " has nothing wired (BloxAnim_idle/walk/run), so verify does not walk it; animate wire first"
+	return result
+end
 if not humanoid then
 	result.skipped = P.model .. " has no Humanoid, so verify does not walk it; move it from your game's code to see its walk"
 	return result
 end
+if humanoid.Health <= 0 or humanoid:GetState() == Enum.HumanoidStateType.Dead then
+	return { ok = false, error = P.model .. " is dead in the playtest (fell out of the world, or spawned inside the ground?); place it standing on the ground" }
+end
 local root = humanoid.RootPart
 if not root then return { ok = false, error = P.model .. "'s Humanoid has no root part" } end
 if root.Anchored then return { ok = false, error = P.model .. "'s root part is anchored, so it cannot walk; unanchor it (its Humanoid holds it up)" } end
-local target = P.target and Vector3.new(P.target[1], P.target[2], P.target[3]) or (root.CFrame * CFrame.new(0, 0, -12)).Position
+local target = P.target and Vector3.new(P.target[1], P.target[2], P.target[3]) or (root.CFrame * CFrame.new(0, 0, -math.max(12, humanoid.WalkSpeed * 3))).Position
 local ids = {}
 for _, id in loader.ids do ids[id] = true end
 local samples, started, last = {}, os.clock(), root.Position

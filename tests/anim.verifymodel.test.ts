@@ -49,6 +49,29 @@ describe('verify a model', () => {
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/anchored/);
   });
+  it('a dead NPC is named as dead, not as missing its root part', () => {
+    const code = verifyModelProgram({ model: 'Workspace.Guard', sequence: null, animationId: null, target: null });
+    expect(code).toMatch(/humanoid.Health <= 0/);
+    expect(code).toMatch(/is dead in the playtest/);
+  });
+  it('walks a fast NPC far enough to be watched for three seconds', () => {
+    const code = verifyModelProgram({ model: 'Workspace.Guard', sequence: null, animationId: null, target: null });
+    expect(code).toMatch(/math.max\(12, humanoid.WalkSpeed \* 3\)/);
+  });
+  it('plays a checked clip on an unwired model (own Animator) and does not walk it', () => {
+    const code = verifyModelProgram({ model: 'Workspace.Dog', sequence: null, animationId: null, target: null });
+    expect(code).toMatch(/if not animator and \(P.sequence or P.animationId\) then/);
+    expect(code).toMatch(/has nothing wired/);
+  });
+  it('a verify that judged nothing fails', async () => {
+    const c = ctx();
+    const { writeModelLoader } = await import('../src/anim/npc.js');
+    writeModelLoader(c.projectPath);
+    probe = () => ({ ok: true, loader: { ids: {}, speeds: {} }, skipped: 'Workspace.Dog has nothing wired' });
+    const r = await call({ action: 'verify', model: 'Workspace.Dog' }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/nothing wired/);
+  });
   it('the probe payload is a Luau literal with no HttpService', () => {
     const code = verifyModelProgram({ model: 'Workspace.Guard', sequence: null, animationId: null, target: null });
     expect(code).not.toMatch(/HttpService/);

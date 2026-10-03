@@ -359,6 +359,7 @@ async function verifyModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<To
     if (!check.verified) problems.push(check.reason ?? 'played differently from the checked motion');
   }
   if (reply.ok && reply.skipped) lines.push(`· ${reply.skipped}`);
+  if (reply.ok && !stored && !reply.observation) problems.push(`nothing was verified: ${reply.skipped ?? 'no playback and no movement'}`);
   if (reply.ok && reply.observation) {
     const m = judgeMovement(reply.observation, { unchanged: loader.ok, ids: reply.loader?.ids ?? {}, speeds: reply.loader?.speeds ?? {} });
     const moved = Object.entries(m.moving.played).map(([k, n]) => `${k}×${n}`).join(', ');
