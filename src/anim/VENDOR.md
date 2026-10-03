@@ -24,4 +24,16 @@ reads"; model-rig's GLB-preview assertions are removed (rig-glb is not
 vendored): the one test only about mesh index widths is dropped, the two that
 also check the contact sheet and welded parts keep those checks.
 
-Not vendored: rig-build, rig-glb, rig-tool (spec C: building rigs).
+Spec C (rig building) adds rig-build (`planRigBuild`, `parseBuildJoints`,
+`planRigAdopt`, `builtRigMismatches`) with its tests
+(tests/anim.rig-build.test.ts) and the dog-pieces fixture
+(tests/fixtures/anim/dog-pieces.ts). Local changes: "Roqer's bound" →
+"blox's bound"; the read-back message `its RoqerRig …` → `its BloxRig …`.
+The Studio side (Roqer's plugin handlers animationReadPieces /
+animationBuildRig) is not vendored: blox ports it to edit-thread Luau in
+src/anim/rigBuild.ts, with attributes BloxMadeRoot / BloxMadeWeld /
+BloxRigBuilt and rider welds named BloxWeld_<part0>. Import-space pivots
+(BloxRigOrigin), importer-rig replacement and skinned rigs stay in the
+planner's code but blox's tool refuses them.
+
+Still not vendored: rig-glb, rig-tool.
