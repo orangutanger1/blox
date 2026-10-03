@@ -73,3 +73,20 @@ describe('animate npc', () => {
     expect(existsSync(join(c.projectPath, MODEL_LOADER_PATH))).toBe(false);
   });
 });
+
+describe('otherAnimators', () => {
+  it('finds project scripts that load animations on the model by name, not the loader or unrelated scripts', async () => {
+    const { otherAnimators, MODEL_LOADER_PATH: LOADER } = await import('../src/anim/npc.js');
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { join, dirname } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const p = mkdtempSync(join(tmpdir(), 'blox-anim-others-'));
+    const put = (rel: string, src: string) => { mkdirSync(dirname(join(p, rel)), { recursive: true }); writeFileSync(join(p, rel), src); };
+    put('src/ServerScriptService/DogWalker.server.luau', 'local dog = workspace:WaitForChild("ParkDog")\nlocal t = animator:LoadAnimation(anim)');
+    put('src/ServerScriptService/Other.server.luau', 'local cat = workspace.ParkDogHouse\nlocal t = animator:LoadAnimation(anim)');
+    put('src/ServerScriptService/Mover.server.luau', 'workspace.ParkDog:PivotTo(cf)');
+    put(LOADER, 'workspace.ParkDog -- :LoadAnimation(');
+    expect(otherAnimators(p, 'ParkDog')).toEqual(['src/ServerScriptService/DogWalker.server.luau']);
+    expect(otherAnimators(p, '')).toEqual([]);
+  });
+});
