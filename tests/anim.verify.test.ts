@@ -67,3 +67,18 @@ describe('animate verify', () => {
     expect(play.stopped).toBe(before + 1);
   });
 });
+
+describe('verify probe', () => {
+  it('passes the eval bridge guardrail (no HttpService in the probe)', async () => {
+    const { verifyProgram } = await import('../src/anim/studio.js');
+    const { bridgeDenyReason } = await import('../src/studio/evalBridge.js');
+    const { compilePoseAnimation } = await import('../src/anim/pose-compiler.js');
+    const c = compilePoseAnimation(loadRecipes().get('Wave'));
+    if (!c.ok) throw new Error(c.errors.join());
+    expect(bridgeDenyReason(verifyProgram(c.sequence, null, 'idle'))).toBeNull();
+    expect(bridgeDenyReason(verifyProgram(null, 'rbxassetid://1', 'idle'))).toBeNull();
+    const walk = compilePoseAnimation(loadRecipes().get('Run'));
+    if (!walk.ok) throw new Error(walk.errors.join());
+    expect(bridgeDenyReason(verifyProgram(walk.sequence, null, 'run'))).toBeNull(); // within the bridge's size cap
+  });
+});

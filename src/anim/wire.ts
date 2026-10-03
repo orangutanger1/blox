@@ -34,6 +34,9 @@ end
 
 local function watch(player)
 	player.CharacterAdded:Connect(apply)
+	-- Loading the avatar's appearance replaces the slot Animations with its own
+	-- animation pack's, after CharacterAdded; apply again once it has.
+	player.CharacterAppearanceLoaded:Connect(apply)
 	if player.Character then
 		task.spawn(apply, player.Character)
 	end

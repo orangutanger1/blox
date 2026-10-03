@@ -47,3 +47,10 @@ describe('wire', () => {
     expect(s.indexOf('idle')).toBeLessThan(s.indexOf('walk'));
   });
 });
+
+describe('loader', () => {
+  it('applies again once the avatar appearance has loaded (it replaces the Animate slot Animations)', () => {
+    expect(LOADER_SOURCE).toMatch(/player\.CharacterAppearanceLoaded:Connect\(apply\)/);
+    expect(LOADER_SOURCE).toMatch(/player\.CharacterAdded:Connect\(apply\)/);
+  });
+});

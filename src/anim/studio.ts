@@ -1,5 +1,5 @@
 import { longString } from '../studio/luau.js';
-import { SOURCE_SUM_LUAU } from '../sync/push.js';
+import { jsonToLuau, SOURCE_SUM_LUAU } from '../sync/push.js';
 import type { KeyframeSequenceDescription } from './pose-compiler.js';
 
 // Fixed Luau for the animate tool. Agent data arrives only as JSON in PAYLOAD.
@@ -16,9 +16,12 @@ export interface BuildReply {
 
 // Shared: KeyframeSequence from the compiled description (port of Roqer's
 // buildSequence/buildPose/buildMarkers), joint map, revision of a sequence.
-const SEQUENCE_LUAU = `${SOURCE_SUM_LUAU}local HS = game:GetService("HttpService")
+// Edit-mode programs decode a JSON payload; the verify probe (which may run
+// through the eval bridge, whose lint refuses HttpService) gets a Luau literal.
+const EDIT_HEAD = `${SOURCE_SUM_LUAU}local HS = game:GetService("HttpService")
 local P = HS:JSONDecode(PAYLOAD)
-local function cf(c) return CFrame.new(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12]) end
+`;
+const SEQUENCE_LUAU = `local function cf(c) return CFrame.new(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12]) end
 local function pose(d, parent)
 	local p = Instance.new("Pose")
 	p.Name = d.part
@@ -152,11 +155,11 @@ if rec then pcall(function() CHS:FinishRecording(rec, Enum.FinishRecordingOperat
 return HS:JSONEncode({ ok = true, written = true })`;
 
 export function buildProgram(seq: KeyframeSequenceDescription, sampleTimes: number[]): string {
-  return `local WRITE = false\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq, times: sampleTimes }))}\n${SEQUENCE_LUAU}${PLAY_LUAU}`;
+  return `local WRITE = false\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq, times: sampleTimes }))}\n${EDIT_HEAD}${SEQUENCE_LUAU}${PLAY_LUAU}`;
 }
 
 export function commitProgram(seq: KeyframeSequenceDescription, force: boolean): string {
-  return `local WRITE = true\nlocal FORCE = ${force}\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq }))}\n${SEQUENCE_LUAU}${COMMIT_LUAU}`;
+  return `local WRITE = true\nlocal FORCE = ${force}\nlocal PAYLOAD = ${longString(JSON.stringify({ sequence: seq }))}\n${EDIT_HEAD}${SEQUENCE_LUAU}${COMMIT_LUAU}`;
 }
 
 export interface VerifyReply {
@@ -174,11 +177,11 @@ export interface VerifyReply {
 const VERIFY_LUAU = `local Players = game:GetService("Players")
 local function components(c) local o = {} for _, v in { c:GetComponents() } do table.insert(o, r6(v)) end return o end
 local player = Players.LocalPlayer
-if not player then return HS:JSONEncode({ ok = false, error = "not a playtest client" }) end
+if not player then return { ok = false, error = "not a playtest client" } end
 local character = player.Character or player.CharacterAdded:Wait()
 local hum = character:WaitForChild("Humanoid", 10)
 local animator = hum and hum:WaitForChild("Animator", 10)
-if not animator then return HS:JSONEncode({ ok = false, error = "the character has no Humanoid with an Animator" }) end
+if not animator then return { ok = false, error = "the character has no Humanoid with an Animator" } end
 local wired
 if P.slot then
 	wired = {}
@@ -220,9 +223,9 @@ end)
 if track then pcall(function() track:Stop(0) end) end
 if anim then anim:Destroy() end
 if ks then ks:Destroy() end
-if not ok then return HS:JSONEncode({ ok = false, error = tostring(res), rigType = hum.RigType.Name, wiredIds = wired }) end
-return HS:JSONEncode({ ok = true, rigType = hum.RigType.Name, length = res.length, samples = res.samples, wiredIds = wired })`;
+if not ok then return { ok = false, error = tostring(res), rigType = hum.RigType.Name, wiredIds = wired } end
+return { ok = true, rigType = hum.RigType.Name, length = res.length, samples = res.samples, wiredIds = wired }`;
 
 export function verifyProgram(seq: KeyframeSequenceDescription | null, animationId: string | null, slot: string | null): string {
-  return `local PAYLOAD = ${longString(JSON.stringify({ sequence: seq, animationId, slot }))}\n${SEQUENCE_LUAU}${VERIFY_LUAU}`;
+  return `local P = ${jsonToLuau({ sequence: seq, animationId, slot })}\n${SEQUENCE_LUAU}${VERIFY_LUAU}`;
 }

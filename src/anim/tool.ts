@@ -133,7 +133,8 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
       reply = await withPlay(ctx.session, async () => {
         const r = await runLuau(ctx.session, verifyProgram(expectedId ? null : seq, expectedId ?? null, slot), 'client', { chunkName: 'animateVerify', timeoutMs: 90_000 });
         if (!r.ok) throw new Error(r.error?.message ?? 'probe failed');
-        return JSON.parse(String(r.values[0])) as VerifyReply;
+        const v = r.values[0];
+        return (typeof v === 'string' ? JSON.parse(v) : v) as VerifyReply;
       });
     } catch (e) {
       return err(`verify failed: ${(e as Error).message}`, 'probe failed');
