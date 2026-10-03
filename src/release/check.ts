@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { bloxDir, readJson } from '../state/store.js';
+import { loadManifest } from '../assets/manifest.js';
+import { QUARANTINE } from '../assets/scout.js';
 
 // Release readiness: every deterministic gate blox can run, in one place.
 // "ready" means the machine checks pass; the human gates are listed, not judged.
@@ -71,10 +73,42 @@ export function releaseCheck(projectPath: string): ReleaseReport {
   } else gates.push({ id: 'multiplayer', required: false, status: 'n/a', detail: 'no *.mp.luau specs' });
   gates.push(fromResults('ui', true, readJson<Results>(projectPath, 'ui-report.json')));
   gates.push(fromResults('present', true, readJson<Results>(projectPath, 'present-report.json')));
-  if (existsSync(join(bloxDir(projectPath), 'assets.json'))) gates.push(fromResults('assets', true, readJson<Results>(projectPath, 'asset-report.json')));
-  else gates.push({ id: 'assets', required: false, status: 'n/a', detail: 'no assets.json' });
+  if (existsSync(join(bloxDir(projectPath), 'assets.json'))) {
+    gates.push(fromResults('assets', true, readJson<Results>(projectPath, 'asset-report.json')));
+    gates.push(...provenanceGates(projectPath));
+  } else gates.push({ id: 'assets', required: false, status: 'n/a', detail: 'no assets.json' });
   const ready = gates.every((g) => !g.required || g.status === 'pass');
   return { ranAt: new Date().toISOString(), ready, gates, humanGates: HUMAN_GATES };
+}
+
+// Every asset the game uses (adopted into the place, or uploaded) needs a human
+// sign-off and a known licence; a quarantined try that was never adopted does not.
+// Adopted Creator Store packs live only in the place file — Rojo does not
+// rebuild them — so that is surfaced too.
+function provenanceGates(projectPath: string): Gate[] {
+  let m;
+  try {
+    m = loadManifest(projectPath);
+  } catch (e) {
+    return [{ id: 'provenance', required: true, status: 'fail', detail: (e as Error).message.split('\n')[0] }];
+  }
+  const inGame = m.assets.filter((a) => a.uploaded || (a.ref.path && !a.ref.path.startsWith(`${QUARANTINE}.`) && a.ref.path !== QUARANTINE));
+  const unapproved = inGame.filter((a) => a.status !== 'approved');
+  const unknown = inGame.filter((a) => a.licence === 'unknown');
+  const bad = [
+    ...(unapproved.length ? [`${unapproved.length} in use but not approved: ${unapproved.slice(0, 5).map((a) => a.id).join(', ')} (\`blox asset approve <id>\` after checking each)`] : []),
+    ...(unknown.length ? [`${unknown.length} with unknown licence: ${unknown.slice(0, 5).map((a) => a.id).join(', ')}`] : []),
+  ];
+  const gates: Gate[] = [
+    bad.length
+      ? { id: 'provenance', required: true, status: 'fail', detail: bad.join('; ') }
+      : inGame.length
+        ? { id: 'provenance', required: true, status: 'pass', detail: `${inGame.length} asset(s) in use, all approved` }
+        : { id: 'provenance', required: false, status: 'n/a', detail: 'no assets in use' },
+  ];
+  const placeOnly = inGame.filter((a) => a.ref.path && !a.uploaded && !a.ref.file && a.source === 'creator-store');
+  if (placeOnly.length) gates.push({ id: 'place-only', required: false, status: 'fail', detail: `${placeOnly.length} adopted pack(s) exist only in the Studio place (${placeOnly.slice(0, 4).map((a) => a.ref.path).join(', ')}): save the place file — sync from files will not recreate them` });
+  return gates;
 }
 
 const MARK: Record<GateStatus, string> = { pass: '✓', fail: '✗', missing: '–', stale: '!', 'n/a': '·' };

@@ -52,6 +52,28 @@ describe('releaseCheck', () => {
     writeJson(p, 'asset-report.json', ok(['asset:licence']));
     expect(releaseCheck(p).ready).toBe(true);
   });
+  it('assets in use must be approved with a known licence; quarantined tries do not count; place-only packs are flagged', () => {
+    const p = ready();
+    writeJson(p, 'asset-report.json', ok(['asset:licence']));
+    const e = (id: string, extra: Record<string, unknown>) => ({ id, kind: 'model', source: 'creator-store', licence: 'roblox-creator-store', ref: {}, provenance: { tool: 'scout', createdAt: 'x' }, status: 'candidate', ...extra });
+    writeJson(p, 'assets.json', { version: 1, assets: [e('tried', { ref: { assetId: 1, path: 'ServerStorage.BloxScout.tried' } })] });
+    expect(status(p).provenance).toBe('n/a');
+    expect(releaseCheck(p).ready).toBe(true);
+    writeJson(p, 'assets.json', { version: 1, assets: [
+      e('trees', { ref: { assetId: 2, path: 'Workspace.trees' } }),
+      e('icon', { kind: 'image', source: 'external', licence: 'unknown', status: 'approved', ref: { file: 'a.png' }, uploaded: { assetId: 9, operation: 'o', at: 'x' } }),
+    ] });
+    const r = releaseCheck(p);
+    expect(r.ready).toBe(false);
+    const g = r.gates.find((x) => x.id === 'provenance')!;
+    expect(g.detail).toMatch(/1 in use but not approved: trees/);
+    expect(g.detail).toMatch(/1 with unknown licence: icon/);
+    expect(r.gates.find((x) => x.id === 'place-only')).toMatchObject({ required: false, status: 'fail' });
+    expect(r.gates.find((x) => x.id === 'place-only')!.detail).toMatch(/Workspace\.trees/);
+    writeJson(p, 'assets.json', { version: 1, assets: [e('trees', { status: 'approved', ref: { assetId: 2, path: 'Workspace.trees' } })] });
+    expect(status(p).provenance).toBe('pass');
+    expect(releaseCheck(p).ready).toBe(true);
+  });
   it('soak is advisory', () => {
     const p = ready();
     writeJson(p, 'metrics-report.json', ok(['ftue:first-step']));
