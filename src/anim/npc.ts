@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { longString } from '../studio/luau.js';
 import { RESOLVE_LUAU } from './modelRig.js';
+import type { ModelState } from './animation-tool.js';
+
 
 // NPCs and models are animated by one server Script in the project: it plays
 // each tagged model's idle, walk and run by how fast the model moves, from the
@@ -204,4 +206,46 @@ export function npcProgram(o: { name: string; rig: 'R15' | 'R6'; at: [number, nu
 local HS = game:GetService("HttpService")
 local P = HS:JSONDecode(PAYLOAD)
 ${RESOLVE_LUAU}${NPC_LUAU}`;
+}
+
+
+const WIRE_MODEL_LUAU = `-- BloxAnimWire
+local model, controller, err = animatedModel(P.path)
+if not model then return HS:JSONEncode({ ok = false, code = controller, error = err }) end
+local humanoid = controller:IsA("Humanoid") and controller or nil
+if P.rigType and (not humanoid or humanoid.RigType.Name ~= P.rigType) then
+	return HS:JSONEncode({ ok = false, code = "rig", error = model:GetFullName() .. " is " .. (humanoid and ("an " .. humanoid.RigType.Name .. " Humanoid") or "not a Humanoid") .. "; this is an " .. P.rigType .. " animation" })
+end
+local key = "BloxAnim_" .. P.state
+local held = model:GetAttribute(key)
+if typeof(held) == "string" and held ~= "" and held ~= P.id and not table.find(P.allowed, held) and not P.force then
+	return HS:JSONEncode({ ok = false, code = "held", held = held, error = model:GetFullName() .. " " .. key .. " holds " .. held })
+end
+local CHS = game:GetService("ChangeHistoryService")
+local rec
+pcall(function() rec = CHS:TryBeginRecording("blox animate wire") end)
+model:SetAttribute(key, P.id)
+if P.state ~= "idle" then model:SetAttribute(key .. "Speed", P.speed) end
+model:AddTag("${MODEL_TAG}")
+if rec then pcall(function() CHS:FinishRecording(rec, Enum.FinishRecordingOperation.Commit) end) end
+return HS:JSONEncode({ ok = true, path = model:GetFullName(), held = held, walkSpeed = humanoid and humanoid.WalkSpeed or nil })`;
+
+export function wireModelProgram(o: { path: string; state: ModelState; id: string; speed: number | null; allowed: string[]; force: boolean; rigType: 'R15' | 'R6' | null }): string {
+  return `local PAYLOAD = ${longString(JSON.stringify(o))}
+local HS = game:GetService("HttpService")
+local P = HS:JSONDecode(PAYLOAD)
+${RESOLVE_LUAU}${WIRE_MODEL_LUAU}`;
+}
+
+type Wired = Record<string, Partial<Record<ModelState, string>>>;
+const wiredFile = (projectPath: string) => join(projectPath, '.blox', 'anims', 'wired.json');
+
+export function readWired(projectPath: string): Wired {
+  const f = wiredFile(projectPath);
+  return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as Wired) : {};
+}
+
+export function saveWired(projectPath: string, wired: Wired): void {
+  mkdirSync(dirname(wiredFile(projectPath)), { recursive: true });
+  writeFileSync(wiredFile(projectPath), JSON.stringify(wired, null, 2));
 }

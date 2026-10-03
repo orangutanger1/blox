@@ -4,9 +4,10 @@ import { compactChecks, prepareAnimation, MOTION_CHECK_IDS, ANIMATE_SLOTS } from
 import { renderContactSheet } from './contact-sheet.js';
 import { rigFor } from './rigs.js';
 import { loadRecipes } from './recipes.js';
-import { ANIM_NAME, clearRigReading, loadRigReading, saveChecked, saveRigReading } from './store.js';
+import { ANIM_NAME, clearRigReading, loadReport, loadRigReading, saveChecked, saveRigReading } from './store.js';
 import { RIGS } from './rigs.js';
-import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, planModelLoader, writeModelLoader } from './npc.js';
+import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, planModelLoader, readWired, saveWired, wireModelProgram, writeModelLoader } from './npc.js';
+import { LOADER_PACE, MAX_GROUND_SPEED, type ModelState } from './animation-tool.js';
 import { relative } from 'node:path';
 import { runLuau } from '../studio/luau.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
@@ -144,11 +145,15 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
       if (!added.ok) return err(`built, but not recorded in assets.json: ${added.errors.join('; ')}`, 'not recorded');
     }
     return {
-      text: `${seq.name}: played on ${model ? `a copy of ${model.path}` : `a stock ${seq.rig} dummy`} within ${v.maxDegrees}° / ${v.maxStuds} studs of the checked motion (${v.samples} samples); written to ServerStorage.BloxAnimations.${seq.name} and ${file}, recorded as candidate "${seq.name}".\nNext: a human runs \`blox asset approve ${seq.name}\`, then asset {action:"upload", id:"${seq.name}", confirm:true}, then animate {action:"wire", slot, asset:<uploaded id>}.`,
+      text: `${seq.name}: played on ${model ? `a copy of ${model.path}` : `a stock ${seq.rig} dummy`} within ${v.maxDegrees}° / ${v.maxStuds} studs of the checked motion (${v.samples} samples); written to ServerStorage.BloxAnimations.${seq.name} and ${file}, recorded as candidate "${seq.name}".\nNext: a human runs \`blox asset approve ${seq.name}\`, then asset {action:"upload", id:"${seq.name}", confirm:true}, then animate {action:"wire", ${model ? `model:"${model.path}", state, name:"${seq.name}"` : 'slot'}, asset:<uploaded id>}.`,
       summary: 'built',
     };
   }
   if (a.action === 'wire') {
+    if (typeof a.model === 'string') {
+      if (a.slot !== undefined) return err('wire takes slot (a player character) or model + state (an NPC or model), not both', 'ambiguous');
+      return wireModel(a, ctx);
+    }
     if (typeof a.slot !== 'string') return err(`wire needs slot: ${ANIMATE_SLOTS.join(', ')}`, 'no slot');
     // The place's avatar type (StarterPlayer.GameSettingsAvatar) is not readable
     // from Studio's edit thread, so the rig comes from the caller or the checked
@@ -246,18 +251,77 @@ export async function animateTool(a: Record<string, unknown>, ctx: ToolCtx): Pro
     if (loader.write) {
       writeModelLoader(P);
       lines.push(`wrote ${MODEL_LOADER_PATH}`);
-      // The body exists either way: a failed sync is reported, not thrown.
-      try {
-        const s = await pushProject(ctx.session, P);
-        lines.push(formatSyncResult(s));
-        if (!s.ok) return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
-      } catch (e) {
-        lines.push(`sync failed: ${(e as Error).message}; run blox sync to push the loader`);
-        return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
-      }
+      if (!(await syncLoader(ctx, lines))) return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
     }
     lines.push(`Next: wire its idle and walk: animate {action:"wire", model:"${String(p.value.path)}", state:"walk", name, asset} (an ${a.rig} animation, checked with locomotion:true)`);
     return { text: lines.join('\n'), summary: 'npc made' };
   }
   return err(`unknown action ${String(a.action)}: recipes, check, build, wire, verify, rig, declare or npc`, 'unknown action');
 }
+
+// Push the loader file; the Studio change before it stands either way, so a
+// failed sync is reported in lines, not thrown.
+async function syncLoader(ctx: ToolCtx, lines: string[]): Promise<boolean> {
+  try {
+    const s = await pushProject(ctx.session, ctx.projectPath);
+    lines.push(formatSyncResult(s));
+    return s.ok;
+  } catch (e) {
+    lines.push(`sync failed: ${(e as Error).message}; run blox sync to push the loader`);
+    return false;
+  }
+}
+
+async function wireModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<ToolOutput> {
+  const P = ctx.projectPath;
+  const state = a.state as ModelState | undefined;
+  if (!state) return err(`wire with model needs state: ${MODEL_STATES.join(', ')}`, 'no state');
+  if (typeof a.name !== 'string' || !ANIM_NAME.test(a.name)) return err('wire with model needs name (the checked animation, which says its rig and ground speed)', 'no name');
+  const stored = loadChecked(P, a.name);
+  if (!stored) return err(`no checked animation ${a.name}: run animate check first`, 'not checked');
+  const seq = stored.sequence;
+  if (!seq.loop) return err(`${seq.name} does not loop; the loader plays ${state} on repeat, so check it with loop:true`, 'not looped');
+  const id = normalizeAnimationId(a.asset);
+  if (!id) return err(`asset must be an asset id (123, rbxassetid://123 or a roblox.com asset link); got ${JSON.stringify(a.asset)}`, 'bad asset');
+  let speed: number | null = null;
+  if (state !== 'idle') {
+    const gs = loadReport(P, seq.name)?.groundSpeed;
+    if (typeof gs !== 'number' || gs <= 0) return err(`${seq.name} has no ground speed: check it with locomotion:true so the loader can pace its feet`, 'no ground speed');
+    if (gs > MAX_GROUND_SPEED) return err(`${seq.name}'s ground speed ${gs} is above ${MAX_GROUND_SPEED} studs/s`, 'too fast');
+    speed = gs;
+  }
+  const stock = seq.rig === 'R15' || seq.rig === 'R6' ? seq.rig : null;
+  if (!stock) {
+    const saved = loadRigReading(P, seq.name);
+    const now = await readRig(ctx.session, a.model as string);
+    if (!now.ok) return err(now.error, now.code ?? 'refused');
+    if (!saved || now.reading.revision !== saved.revision) return err(`${now.reading.path} is not the rig ${seq.name} was checked on (${seq.rig}); wire it to a copy of that model, or check the animation on this one`, 'rig mismatch');
+  }
+  const loader = planModelLoader(P);
+  if (!loader.ok) return err(loader.error, 'refused');
+  const path = modelPath(a.model as string);
+  const wired = readWired(P);
+  const prior = wired[path]?.[state];
+  const r = await runLuau(ctx.session, wireModelProgram({ path, state, id, speed, allowed: prior ? [prior] : [], force: a.force === true, rigType: stock }), 'edit', { chunkName: 'animateWireModel', timeoutMs: 60_000 });
+  if (!r.ok) return err(`wire failed in Studio: ${r.error?.message}`, 'studio error');
+  const p = parseReply(r.values, 'wire');
+  if (!p.ok) return err(p.error, 'studio error');
+  const v = p.value as { ok?: boolean; code?: string; error?: string; path?: string; walkSpeed?: number };
+  if (!v.ok) return err(`${v.error ?? 'wire refused'}${v.code === 'held' ? `; blox did not wire it, so pass force:true to replace it` : ''}`, v.code ?? 'refused');
+  const at = v.path ?? path;
+  wired[at] = { ...wired[at], [state]: id };
+  saveWired(P, wired);
+  const lines = [`wired ${at} ${state} = ${id}${speed ? ` (ground speed ${speed} studs/s)` : ''}`];
+  if (speed && typeof v.walkSpeed === 'number' && (v.walkSpeed < speed * LOADER_PACE.slowest || v.walkSpeed > speed * LOADER_PACE.fastest)) {
+    lines.push(`warning: WalkSpeed ${v.walkSpeed} is outside 0.5–2× of ${seq.name}'s ground speed ${speed}, so its feet will slide; set WalkSpeed between ${round2(speed * LOADER_PACE.slowest)} and ${round2(speed * LOADER_PACE.fastest)}, or make a ${v.walkSpeed > speed ? 'faster' : 'slower'} gait`);
+  }
+  if (loader.write) {
+    writeModelLoader(P);
+    lines.push(`wrote ${MODEL_LOADER_PATH}`);
+    const s = await syncLoader(ctx, lines);
+    if (!s) return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
+  }
+  lines.push(`Next: animate {action:"verify", model:"${at}", name:"${seq.name}"}`);
+  return { text: lines.join('\n'), summary: `wired ${state}` };
+}
+const round2 = (n: number) => Math.round(n * 100) / 100;

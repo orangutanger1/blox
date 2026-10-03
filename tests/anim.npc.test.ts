@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 import { BloxConfigSchema } from '../src/config.js';
-import { MODEL_LOADER_PATH, MODEL_LOADER_SOURCE, npcProgram, planModelLoader } from '../src/anim/npc.js';
+import { MODEL_LOADER_PATH, MODEL_LOADER_SOURCE, npcProgram, planModelLoader, wireModelProgram } from '../src/anim/npc.js';
 import { luneBin, luneCheck } from './helpers/lune.js';
 import type { StudioSession } from '../src/studio/session.js';
 
@@ -38,7 +38,8 @@ describe('the model loader', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-npcluau-'));
     writeFileSync(join(d, 'loader.luau'), MODEL_LOADER_SOURCE);
     writeFileSync(join(d, 'npc.luau'), npcProgram({ name: 'Guard', rig: 'R15', at: [0, 0, 0], parent: 'Workspace' }));
-    expect(luneCheck([join(d, 'loader.luau'), join(d, 'npc.luau')])).toEqual([]);
+    writeFileSync(join(d, 'wire_model.luau'), wireModelProgram({ path: 'Workspace.Guard', state: 'walk', id: 'rbxassetid://1', speed: 3, allowed: [], force: false, rigType: 'R15' }));
+    expect(luneCheck([join(d, 'loader.luau'), join(d, 'npc.luau'), join(d, 'wire_model.luau')])).toEqual([]);
   });
 });
 

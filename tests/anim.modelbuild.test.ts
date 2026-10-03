@@ -70,5 +70,6 @@ describe('build on a model rig', () => {
     const play = codes.find((x) => x.includes('local WRITE = false'))!;
     expect(play).toMatch(/"model":\{"path":"Workspace.Dog","rootPart":"HumanoidRootPart"\}/);
     expect(r.text).toMatch(/a copy of Workspace.Dog/);
+    expect(r.text).toMatch(/wire", model:"Workspace.Dog", state/);
   });
 });
