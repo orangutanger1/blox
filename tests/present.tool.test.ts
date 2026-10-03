@@ -45,7 +45,7 @@ describe('present tool', () => {
     expect(r.isError).toBeFalsy();
     expect(r.text).toMatch(/rendered 6\/6/);
     const l = await call({ action: 'lint' }, c);
-    expect(l.text).toMatch(/20\/20 rules pass/);
+    expect(l.text).toMatch(/21\/21 rules pass/);
     expect(l.isError).toBeFalsy();
     expect(withSyntheticResults(c.projectPath, null)!.tests.some((t) => t.name === 'present:thumb-rendered' && t.status === 'pass')).toBe(true);
   });

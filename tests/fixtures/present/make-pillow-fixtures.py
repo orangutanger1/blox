@@ -11,3 +11,11 @@ scene(64, 48).save(f"{d}/rst.jpg", quality=95, subsampling=2, restart_marker_blo
 scene(64, 48).save(f"{d}/norst.jpg", quality=95, subsampling=2)
 scene(37, 29).save(f"{d}/odd444.jpg", quality=95, subsampling=0)
 scene(37, 29).convert("L").save(f"{d}/gray.jpg", quality=95)
+# RGB components with an Adobe APP14 transform 0 marker (no YCbCr).
+scene(64, 48).save(f"{d}/adobergb.jpg", quality=95, subsampling=0, keep_rgb=True)
+# PNG with every row filter, from an encoder that is not the test helper.
+noisy = Image.new("RGB", (64, 48))
+noisy.putdata([(int(255 * x / 63), int(255 * y / 47), (x * 37 + y * 91) % 256) for y in range(48) for x in range(64)])
+noisy.save(f"{d}/pillow-filters.png")
+# Up / Avg / Paeth rows (Pillow writes Sub only): from pillow-filters.png with
+#   for p in up avg paeth; do ffmpeg -y -i pillow-filters.png -pred $p ffmpeg-$p.png; done

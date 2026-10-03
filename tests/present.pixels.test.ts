@@ -122,3 +122,40 @@ describe('colourGrid / gridDiff', () => {
     expect(gridDiff(colourGrid(a), colourGrid(c))).toBeGreaterThan(40);
   });
 });
+
+describe('decoders against independent encoders (blox)', () => {
+  // The scene make-pillow-fixtures.py draws: x/y gradients, a noisy blue.
+  const expected = (bx: number, by: number) => {
+    const sum = [0, 0, 0];
+    for (let y = by * 8; y < by * 8 + 8; y++) for (let x = bx * 8; x < bx * 8 + 8; x++) {
+      sum[0] += Math.trunc((255 * x) / 63);
+      sum[1] += Math.trunc((255 * y) / 47);
+      sum[2] += (x * 37 + y * 91) % 256;
+    }
+    return sum.map((v) => v / 64);
+  };
+  for (const f of ['pillow-filters.png', 'ffmpeg-up.png', 'ffmpeg-avg.png', 'ffmpeg-paeth.png']) {
+    it(`${f}: every 8×8 block matches the drawn colours`, () => {
+      const img = decodePng(fx(f))!;
+      expect([img.w, img.h]).toEqual([8, 6]);
+      for (let by = 0; by < 6; by++) for (let bx = 0; bx < 8; bx++) {
+        const want = expected(bx, by);
+        for (let c = 0; c < 3; c++) expect(img.rgb[(by * 8 + bx) * 3 + c]).toBeCloseTo(want[c], 3);
+      }
+    });
+  }
+  it('an Adobe RGB JPEG (transform 0) is read as RGB, not YCbCr', () => {
+    const img = decodeJpegDc(fx('adobergb.jpg'))!;
+    const want = [Math.trunc((255 * 3.5) / 63), Math.trunc((255 * 3.5) / 47), 128];
+    for (let c = 0; c < 3; c++) expect(Math.abs(img.rgb[c] - want[c])).toBeLessThan(8);
+  });
+  it('fill bytes (FF FF …) before a marker are skipped', () => {
+    const b = fx('flat.jpg');
+    const at = b.indexOf(Buffer.from([0xff, 0xdb]));
+    const padded = Buffer.concat([b.subarray(0, at), Buffer.from([0xff, 0xff, 0xff]), b.subarray(at)]);
+    expect(pixelStats(decodeJpegDc(padded)!).mean).toBeCloseTo(pixelStats(decodeJpegDc(b)!).mean, 5);
+  });
+  it('stats of an empty image are zeros, not NaN', () => {
+    expect(pixelStats({ w: 0, h: 0, luma: new Float32Array(0), rgb: new Float32Array(0) })).toEqual({ mean: 0, std: 0, p5: 0, p95: 0 });
+  });
+});

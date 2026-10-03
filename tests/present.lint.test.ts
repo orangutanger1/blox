@@ -96,7 +96,7 @@ describe('lintPresentation', () => {
     shots.pop();
     const { p, doc } = project(shots, files);
     // the 1000×1000 file is a header only: its pixels can't be checked (warn)
-    expect(rules(doc, p).sort()).toEqual(['icon:error', 'thumb-aspect:error', 'thumb-blank:warn', 'thumb-duplicate:error', 'thumb-rendered:error', 'thumb-variety:error']);
+    expect(rules(doc, p).sort()).toEqual(['icon:error', 'thumb-aspect:error', 'thumb-duplicate:error', 'thumb-pixels:warn', 'thumb-rendered:error', 'thumb-variety:error']);
   });
   it('pixel rules: blank, contrast, near-duplicate pictures, icon file', () => {
     const { shots, files } = goodShots();
@@ -108,9 +108,16 @@ describe('lintPresentation', () => {
     const { p, doc } = project(shots, files);
     const f = lintPresentation(doc, p);
     expect(f.map((x) => `${x.rule}:${x.severity}:${x.where}`).sort()).toEqual([
-      'thumb-blank:error:action', 'thumb-blank:error:icon', 'thumb-contrast:warn:exploration', 'thumb-similar:error:reward',
+      'icon:error:icon', 'thumb-blank:error:action', 'thumb-contrast:warn:exploration', 'thumb-similar:error:reward',
     ]);
     expect(f.find((x) => x.rule === 'thumb-similar')!.detail).toMatch(/character/);
+  });
+  it('a minimalist icon (small glyph on a flat field) is not blank', () => {
+    const { shots, files } = goodShots();
+    shots[5] = { ...shots[5], file: '.blox/artifacts/present/icon.png', provenance: 'render' };
+    files['.blox/artifacts/present/icon.png'] = makePng(160, 160, 2, (x, y) => (x > 72 && x < 88 && y > 72 && y < 88 ? [255, 210, 0] : [20, 20, 30]));
+    const { p, doc } = project(shots, files);
+    expect(lintPresentation(doc, p).filter((x) => x.where === 'icon')).toEqual([]);
   });
   it('counts and missing files', () => {
     const { p, doc } = project([{ id: 'a', kind: 'thumbnail', theme: 'action', camera: cam(0) }, { id: 'icon', kind: 'icon', theme: 'logo', camera: cam(9), overlay: { text: 'TOO MANY WORDS HERE' } }]);
