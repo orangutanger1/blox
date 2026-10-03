@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planFromSourcemap, diffPlan, jsonToLuau, planWorldBuilders, pushProject, type SourcemapNode } from '../src/sync/push.js';
+import { planFromSourcemap, diffPlan, sourceSum, jsonToLuau, planWorldBuilders, pushProject, type SourcemapNode } from '../src/sync/push.js';
 import type { StudioSession } from '../src/studio/session.js';
 
 const files: Record<string, string> = {
@@ -68,6 +68,41 @@ describe('diffPlan', () => {
     expect(d.deletes).toEqual(['ServerScriptService/Old']);
     // parents before children
     expect(keys.indexOf('ReplicatedStorage/Shared')).toBeLessThan(keys.indexOf('ReplicatedStorage/Shared/Util'));
+  });
+  it('refuses to overwrite or delete scripts edited in Studio since the last sync', () => {
+    const inv = {
+      'ServerScriptService/Main': { hash: 'stale', cls: 'Script', edited: true },
+      'ServerScriptService/Old': { hash: 'h', cls: 'Script', edited: true },
+      'ServerScriptService/Gone': { hash: 'h', cls: 'Script' },
+    };
+    const d = diffPlan(plan, inv);
+    expect(d.upserts.map((u) => u.key)).not.toContain('ServerScriptService/Main');
+    expect(d.deletes).toEqual(['ServerScriptService/Gone']);
+    expect(d.conflicts).toEqual([
+      { key: 'ServerScriptService/Main', file: main.file, op: 'overwrite' },
+      { key: 'ServerScriptService/Old', op: 'delete' },
+    ]);
+    const forced = diffPlan(plan, inv, true);
+    expect(forced.conflicts).toEqual([]);
+    expect(forced.upserts.map((u) => u.key)).toContain('ServerScriptService/Main');
+    expect(forced.deletes).toContain('ServerScriptService/Old');
+  });
+  it('reports Studio-only edits when the file is unchanged', () => {
+    const inv = Object.fromEntries(plan.instances.map((i) => [i.key, { hash: i.hash, cls: i.className }])) as Record<string, { hash: string; cls: string; edited?: boolean }>;
+    inv['ServerScriptService/Main'].edited = true;
+    const d = diffPlan(plan, inv);
+    expect(d.conflicts).toEqual([]);
+    expect(d.studioEdits).toEqual([{ key: 'ServerScriptService/Main', file: main.file }]);
+  });
+  it('stamps legacy scripts that match their file, flags ones that do not', () => {
+    const util = plan.instances.find((i) => i.key === 'ReplicatedStorage/Shared/Util')!;
+    const inv = {
+      'ServerScriptService/Main': { hash: main.hash, cls: 'Script', sum: sourceSum(main.source!) },
+      'ReplicatedStorage/Shared/Util': { hash: util.hash, cls: util.className, sum: 'deadbeef' },
+    };
+    const d = diffPlan(plan, inv);
+    expect(d.stamps).toEqual(['ServerScriptService/Main']);
+    expect(d.studioEdits.map((e) => e.key)).toEqual(['ReplicatedStorage/Shared/Util']);
   });
   it('force re-pushes everything', () => {
     const inv = Object.fromEntries(plan.instances.map((i) => [i.key, { hash: i.hash, cls: i.className }]));

@@ -68,6 +68,10 @@ export interface SyncResult {
   builders: { name: string; status: 'built' | 'unchanged' | 'error'; error?: string; parts?: number }[];
   skipped: { file: string; reason: string }[];
   errors: string[];
+  // Refused: the Studio copy was edited since the last sync (needs force).
+  conflicts: { key: string; file?: string; op: 'overwrite' | 'delete' }[];
+  // Edited in Studio, file unchanged: Studio has code the files don't.
+  studioEdits: { key: string; file?: string }[];
   durationMs: number;
 }
 
@@ -175,16 +179,60 @@ export function planWorldBuilders(projectPath: string, worldDir = 'world'): Worl
     });
 }
 
-const INVENTORY_LUAU = `local CS = game:GetService("CollectionService")
+// Revision guard: sync stamps each script with BloxSum, a checksum of the
+// Source it wrote (32-bit FNV-1a, hex). A later Source that no longer matches
+// was edited in Studio since the last sync; overwriting or deleting it needs
+// force. Scripts synced before the stamp existed have no BloxSum (unguarded).
+export const SOURCE_SUM_LUAU = `local function __bloxSum(s)
+	local h = 2166136261
+	for i = 1, #s, 4096 do
+		local bytes = { string.byte(s, i, math.min(i + 4095, #s)) }
+		for _, b in bytes do
+			h = bit32.bxor(h, b)
+			h = (bit32.lshift(h, 24) + h * 403) % 4294967296
+		end
+	end
+	return string.format("%08x", h)
+end
+`;
+
+// TS twin of __bloxSum (the Luau string is UTF-8 bytes).
+export function sourceSum(s: string): string {
+  let h = 0x811c9dc5;
+  for (const b of Buffer.from(s, 'utf8')) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, '0');
+}
+
+export interface InventoryEntry {
+  hash: string;
+  cls: string;
+  // Source changed in Studio since blox last wrote it.
+  edited?: boolean;
+  // Unstamped script (synced before the guard): checksum of its current Source.
+  sum?: string;
+}
+
+const INVENTORY_LUAU = `${SOURCE_SUM_LUAU}local CS = game:GetService("CollectionService")
 local out = {}
 for _, inst in CS:GetTagged("BloxManaged") do
 	local k = inst:GetAttribute("BloxKey")
-	if typeof(k) == "string" then out[k] = { hash = inst:GetAttribute("BloxHash") or "", cls = inst.ClassName } end
+	if typeof(k) == "string" then
+		local e = { hash = inst:GetAttribute("BloxHash") or "", cls = inst.ClassName }
+		local sum = inst:GetAttribute("BloxSum")
+		if inst:IsA("LuaSourceContainer") then
+			if typeof(sum) ~= "string" then
+				e.sum = __bloxSum(inst.Source)
+			elseif __bloxSum(inst.Source) ~= sum then
+				e.edited = true
+			end
+		end
+		out[k] = e
+	end
 end
 return game:GetService("HttpService"):JSONEncode(out)`;
 
 // Applies upserts/deletes/builders described by the JSON payload P.
-const APPLY_LUAU = `local HS = game:GetService("HttpService")
+const APPLY_LUAU = `${SOURCE_SUM_LUAU}local HS = game:GetService("HttpService")
 local CS = game:GetService("CollectionService")
 local SES = game:GetService("ScriptEditorService")
 local P = HS:JSONDecode(PAYLOAD)
@@ -224,6 +272,7 @@ end
 local function mark(inst, key, hash)
 	inst:SetAttribute("BloxKey", key)
 	inst:SetAttribute("BloxHash", hash)
+	if inst:IsA("LuaSourceContainer") then inst:SetAttribute("BloxSum", __bloxSum(inst.Source)) end
 	CS:AddTag(inst, "BloxManaged")
 	byKey[key] = inst
 end
@@ -328,6 +377,10 @@ for _, b in P.builders do
 	if not ok then entry.status = "error" entry.error = tostring(err) end
 	table.insert(res.builders, entry)
 end
+for _, key in P.stamps or {} do
+	local inst = byKey[key]
+	if inst and inst:IsA("LuaSourceContainer") then inst:SetAttribute("BloxSum", __bloxSum(inst.Source)) end
+end
 for _, key in P.deletes do
 	local inst = byKey[key]
 	if inst and inst.Parent then
@@ -370,18 +423,39 @@ async function luauJson<T>(session: StudioSession, code: string): Promise<T> {
 }
 
 // Pure diff: what must change in Studio to match the plan.
-export function diffPlan(plan: SyncPlan, inventory: Record<string, { hash: string; cls: string }>, force = false) {
+export function diffPlan(plan: SyncPlan, inventoryIn: Record<string, InventoryEntry>, force = false) {
+  // Unstamped scripts whose file is unchanged since their last sync: Studio
+  // matching the file gets stamped now; a mismatch was edited in Studio.
+  const inventory: Record<string, InventoryEntry> = { ...inventoryIn };
+  const stamps: string[] = [];
+  for (const i of plan.instances) {
+    const e = inventory[i.key];
+    if (!e?.sum || i.source === undefined || e.hash !== i.hash || e.cls !== i.className) continue;
+    if (e.sum === sourceSum(i.source)) stamps.push(i.key);
+    else inventory[i.key] = { ...e, edited: true };
+  }
   const desiredKeys = new Set([...plan.instances.map((i) => i.key), ...plan.builders.map((b) => b.key)]);
-  const upserts = plan.instances
+  const changed = plan.instances
     .filter((i) => i.anchor || force || inventory[i.key]?.hash !== i.hash || inventory[i.key]?.cls !== i.className)
     .sort((a, b) => a.path.length - b.path.length);
   const builders = plan.builders.filter((b) => force || inventory[b.key]?.hash !== b.hash);
   // Deepest first so a parent's destroy doesn't orphan the report of a child.
-  const deletes = Object.keys(inventory)
+  const stale = Object.keys(inventory)
     .filter((k) => !desiredKeys.has(k))
     .sort((a, b) => b.split('/').length - a.split('/').length);
-  const unchanged = plan.instances.filter((i) => !i.anchor).length - upserts.filter((i) => !i.anchor).length;
-  return { upserts, builders, deletes, unchanged, unchangedBuilders: plan.builders.length - builders.length };
+  // Scripts edited in Studio since the last sync are never overwritten or
+  // deleted without force; edits whose file is unchanged are only reported.
+  const edited = (k: string) => !force && inventory[k]?.edited === true;
+  const conflicts = [
+    ...changed.filter((i) => !i.anchor && edited(i.key)).map((i) => ({ key: i.key, file: i.file, op: 'overwrite' as const })),
+    ...stale.filter(edited).map((key) => ({ key, op: 'delete' as const })),
+  ];
+  const upserts = changed.filter((i) => i.anchor || !edited(i.key));
+  const deletes = stale.filter((k) => !edited(k));
+  const changedKeys = new Set(changed.map((i) => i.key));
+  const studioEdits = plan.instances.filter((i) => !changedKeys.has(i.key) && edited(i.key)).map((i) => ({ key: i.key, file: i.file }));
+  const unchanged = plan.instances.filter((i) => !i.anchor).length - changed.filter((i) => !i.anchor).length;
+  return { upserts, builders, deletes, conflicts, studioEdits, stamps: force ? [] : stamps, unchanged, unchangedBuilders: plan.builders.length - builders.length };
 }
 
 // Creates an empty script at path via Studio's multi_edit (scripts it creates
@@ -400,18 +474,19 @@ async function createScript(session: StudioSession, path: string[], className: s
 export async function pushProject(session: StudioSession, projectPath: string, opts: PushOptions = {}): Promise<SyncResult> {
   const t0 = Date.now();
   const plan = await buildPlan(projectPath, opts);
-  const inventory = await luauJson<Record<string, { hash: string; cls: string }>>(session, INVENTORY_LUAU);
+  const inventory = await luauJson<Record<string, InventoryEntry>>(session, INVENTORY_LUAU);
   const d = diffPlan(plan, Array.isArray(inventory) ? {} : inventory, opts.force);
 
   const result: SyncResult = {
     ok: true, created: [], updated: [], deleted: [], unchanged: d.unchanged,
     builders: plan.builders.filter((b) => !d.builders.includes(b)).map((b) => ({ name: b.name, status: 'unchanged' as const })),
-    skipped: plan.skipped, errors: [], durationMs: 0,
+    skipped: plan.skipped, errors: [], conflicts: d.conflicts, studioEdits: d.studioEdits, durationMs: 0,
   };
 
   type ApplyResult = { created?: string[]; updated?: string[]; deleted?: string[]; builders?: SyncResult['builders']; errors?: string[]; needCreate?: { key: string; path: string[]; className: string }[]; deferred?: string[] };
-  const apply = async (upserts: (DesiredInstance & { fresh?: boolean })[], builders: WorldBuilder[], deletes: string[]) => {
+  const apply = async (upserts: (DesiredInstance & { fresh?: boolean })[], builders: WorldBuilder[], deletes: string[], stamps: string[] = []) => {
     const payload = {
+      stamps,
       upserts: upserts.map(({ key, path, className, source, value, hash, anchor, fresh }) => ({ key, path, className, source, value, hash, anchor, fresh })),
       builders: builders.map(({ key, name, parent, source, file, hash }) => ({ key, name, parent, source, file, hash })),
       deletes,
@@ -462,8 +537,8 @@ export async function pushProject(session: StudioSession, projectPath: string, o
       todo = [...made, ...waiting];
     }
   }
-  if (d.builders.length || d.deletes.length) await apply([], d.builders, d.deletes);
-  result.ok = result.errors.length === 0 && result.builders.every((b) => b.status !== 'error');
+  if (d.builders.length || d.deletes.length || d.stamps.length) await apply([], d.builders, d.deletes, d.stamps);
+  result.ok = result.errors.length === 0 && result.conflicts.length === 0 && result.builders.every((b) => b.status !== 'error');
   result.durationMs = Date.now() - t0;
   return result;
 }
@@ -478,16 +553,23 @@ export function formatSyncResult(r: SyncResult): string {
   }
   for (const s of r.skipped) lines.push(`  skipped ${s.file}: ${s.reason}`);
   for (const e of r.errors) lines.push(`  ERROR ${e}`);
+  for (const c of r.conflicts) {
+    lines.push(`  CONFLICT ${c.key}${c.file ? ` (${c.file})` : ''}: edited in Studio since the last sync — not ${c.op === 'delete' ? 'deleted' : 'overwritten'}`);
+  }
+  for (const e of r.studioEdits) lines.push(`  note ${e.key}${e.file ? ` (${e.file})` : ''}: edited in Studio; the file does not have those edits`);
+  if (r.conflicts.length) lines.push('  → read the Studio version (studio_tool script_read), merge it into the file, then sync {force:true}; or sync {force:true} to discard the Studio edits');
   return lines.join('\n');
 }
 
 // Read-only drift check: what a sync WOULD change (no writes to Studio).
 export async function syncDrift(session: StudioSession, projectPath: string, opts: PushOptions = {}) {
   const plan = await buildPlan(projectPath, opts);
-  const inventory = await luauJson<Record<string, { hash: string; cls: string }>>(session, INVENTORY_LUAU);
+  const inventory = await luauJson<Record<string, InventoryEntry>>(session, INVENTORY_LUAU);
   const d = diffPlan(plan, Array.isArray(inventory) ? {} : inventory);
   return {
     pending: d.upserts.filter((u) => !u.anchor).map((u) => u.key),
+    conflicts: d.conflicts.map((c) => c.key),
+    studioEdits: d.studioEdits.map((e) => e.key),
     builders: d.builders.map((b) => b.name),
     deletes: d.deletes,
     skipped: plan.skipped,
