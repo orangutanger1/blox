@@ -215,6 +215,14 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action } };
       }
     }
+    case 'scout': {
+      const sub = f.rest[0];
+      if (sub === 'try') return { tool: 'scout', args: { action: 'try', asset_id: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
+      if (sub === 'adopt')
+        return { tool: 'scout', args: { action: 'adopt', id: f.rest[1], ...(typeof o.to === 'string' ? { to: o.to } : {}), ...(o.unpack === true ? { unpack: true } : {}), ...(o['keep-scripts'] === true ? { keep_scripts: true } : {}) } };
+      if (sub === 'discard') return { tool: 'scout', args: { action: 'discard', id: f.rest[1] } };
+      return { tool: 'scout', args: { action: 'search', need: f.rest.join(' '), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}), ...(typeof o.max === 'string' ? { max: Number(o.max) } : {}) } };
+    }
     case 'release':
       return { tool: 'release', args: { action: f.rest[0] ?? 'check', ...(o.confirm === true ? { confirm: true } : {}) } };
     case 'liveops': {
@@ -310,6 +318,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
+           blox scout <need> --kind map|ui|model|audio|image [--max N] | try <assetId> --id x | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
@@ -324,7 +333,7 @@ Agent:     blox "<prompt>"                built-in Claude runner (uses the same 
 Other:     blox doctor | init | panel | auth | model | report | relay | eval
 All commands take --project <dir> (default: cwd).`;
 
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'scout', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 
 // Returns true when argv was a toolset command (handled here).
 export async function runToolCommand(argv: string[]): Promise<boolean> {

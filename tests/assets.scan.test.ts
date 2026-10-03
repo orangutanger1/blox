@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { riskFindings, sanitizeProgram, gradeSanitize, SCAN_LUAU, untrackedFromScan } from '../src/assets/scan.js';
+import { riskFindings, runSanitize, sanitizeProgram, gradeSanitize, SCAN_LUAU, untrackedFromScan } from '../src/assets/scan.js';
+import { StudioSession } from '../src/studio/session.js';
+import { fakeStudio } from './fakeStudio.js';
 import { luneBin, luneCheck } from './helpers/lune.js';
 
 describe('riskFindings', () => {
@@ -17,6 +19,43 @@ describe('riskFindings', () => {
   it('leaves ordinary scripts alone', () => {
     expect(riskFindings('local door = script.Parent\ndoor.Touched:Connect(function() door.Transparency = 0.5 end)')).toEqual([]);
     expect(riskFindings('local m = require(script.Parent.Module)')).toEqual([]);
+  });
+});
+
+describe('runSanitize', () => {
+  // Live 2026-10-03: a 64-MeshPart obby template's script sources overflowed
+  // execute_luau's reply (~50-100KB) and the JSON came back cut off.
+  it('reads sources in chunks and strips only on the last chunk', async () => {
+    const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
+    const all = [0, 1, 2, 3, 4].map((i) => ({ path: `W.T.S${i}`, class: 'Script', source: i === 3 ? 'loadstring("x")' : `print(${i})` }));
+    const codes: string[] = [];
+    const f = fakeStudio({
+      luau: (code) => {
+        codes.push(code);
+        const skip = Number(/local SKIP = (\d+)/.exec(code)![1]);
+        const last = skip + 2 >= all.length;
+        return env(JSON.stringify({ path: 'W.T', parts: 4, meshParts: 1, textures: 0, guis: 2, screenGuis: 1, sounds: 0, size: [9, 8, 7], removed: last && code.includes('local KEEP = false') ? all.length : 0, scripts: all.slice(skip, skip + 2), next: last ? null : skip + 2 }));
+      },
+    });
+    const session = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    const r = await runSanitize(session, 'W.T', false);
+    expect(codes.length).toBe(3);
+    expect(r.scripts.map((s) => s.path)).toEqual(all.map((s) => s.path));
+    expect(r.scripts[3].findings).toEqual(['loadstring']);
+    expect(r).toMatchObject({ removed: 5, parts: 4, guis: 2, screenGuis: 1, size: [9, 8, 7] });
+  });
+  it('a script cut at the budget is a finding (its tail was never scanned)', async () => {
+    const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
+    const f = fakeStudio({ luau: () => env(JSON.stringify({ path: 'W.T', parts: 1, removed: 0, scripts: [{ path: 'W.T.Big', class: 'Script', source: 'print(1)', cut: true }], next: null })) });
+    const session = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    const r = await runSanitize(session, 'W.T', true);
+    expect(r.scripts[0].findings).toEqual([expect.stringMatching(/longer than 20000 characters: only the start was scanned/)]);
+    expect(sanitizeProgram('W.T', true)).toMatch(/cut = #src > BUDGET/);
+  });
+  it('program removes scripts only when no source is left unread', () => {
+    const p = sanitizeProgram('W.T', false, 3);
+    expect(p).toContain('local SKIP = 3');
+    expect(p).toMatch(/if nextSkip == nil and not KEEP then/);
   });
 });
 

@@ -40,9 +40,9 @@ kit {action:"list"} then kit {action:"apply", name} gives a tested loop (modules
 specs, design.json) to reskin and tune instead of writing systems from scratch. Kits sit on
 the boilerplate framework (Lifecycle services/controllers, Packet networking, ProfileStore
 data, safe receipts): follow FRAMEWORK.md. kit apply boilerplate = framework only.
-Before building a map or a UI from scratch, search the Creator Store for free map
-templates and UI packs (studio_tool search_asset), insert the best, sanitize it (Assets),
-then adapt it.
+Before building a map, a UI or a big prop from scratch: scout {action:"search", need, kind}
+finds free Creator Store templates/packs; try one (quarantined, inspected, verdict), then
+adopt (scripts stripped, provenance recorded) and adapt it — or discard and build.
 Unsure of a Roblox API or pattern (security, data, networking, GUI, physics, monetization…)?
 skill {} lists know-how skills; skill {name} loads one before you write that code.
 
