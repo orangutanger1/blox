@@ -27,7 +27,7 @@ const MUST_KEEP = [
   // efficiency + rules
   'same turn', "Don't re-read", 'Stop when every criterion passes',
   'Prefer tests over one-off probes', 'lost on reload', 'context server', 'context client', 'Never edit scripts in Studio',
-  'Screenshots only for visual', 'WaitForChild(x, 5)', 'DataStore and HttpService', 'Never Destroy/ClearAllChildren broadly', 'retry once', 'task {action:"block"}',
+  'Screenshots only for visual', 'run_luau context edit', 'LocalScript UI', 'kit apply boilerplate', 'strips scripts, flags backdoors', 'check {rig:<model path>}', 'start/stop/state', 'server_code/client_code to check', 'not a full dump', 'WaitForChild(x, 5)', 'DataStore and HttpService', 'Never Destroy/ClearAllChildren broadly', 'retry once', 'task {action:"block"}',
 ];
 
 describe('AGENT_GUIDE', () => {

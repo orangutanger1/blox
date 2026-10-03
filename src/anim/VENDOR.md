@@ -28,7 +28,8 @@ Spec C (rig building) adds rig-build (`planRigBuild`, `parseBuildJoints`,
 `planRigAdopt`, `builtRigMismatches`) with its tests
 (tests/anim.rig-build.test.ts) and the dog-pieces fixture
 (tests/fixtures/anim/dog-pieces.ts). Local changes: "Roqer's bound" →
-"blox's bound"; the read-back message `its RoqerRig …` → `its BloxRig …`.
+"blox's bound"; the read-back message `its RoqerRig …` → `its BloxRig …`;
+"rig built" refusals name `animate rig` (blox's tool name).
 The Studio side (Roqer's plugin handlers animationReadPieces /
 animationBuildRig) is not vendored: blox ports it to edit-thread Luau in
 src/anim/rigBuild.ts, with attributes BloxMadeRoot / BloxMadeWeld /

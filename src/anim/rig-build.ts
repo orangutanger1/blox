@@ -265,10 +265,10 @@ export function planRigBuild(reading: PiecesReading, request: RigBuildRequest): 
       return refuse('rig_not_built_here', [`${reading.path} already has ${reading.joints.length} joint${reading.joints.length === 1 ? '' : 's'} that rig did not build, so it leaves them alone. To declare what they are, call rig with model and plan or declarations and no joints`]);
     }
     if (current.builtRevision !== current.revision) {
-      return refuse('rig_edited_since_build', [`${reading.path}'s rig has changed since rig built it, so rig leaves it alone`]);
+      return refuse('rig_edited_since_build', [`${reading.path}'s rig has changed since animate rig built it, so animate rig leaves it alone`]);
     }
     if (request.expectedRevision === undefined) {
-      return refuse('revision_required', [`${reading.path} already has the rig rig built, revision ${current.revision}. Pass it as expected_revision to replace it`]);
+      return refuse('revision_required', [`${reading.path} already has a rig animate rig built, revision ${current.revision}. Pass it as expected_revision to replace it`]);
     }
     if (request.expectedRevision !== current.revision) {
       return refuse('revision_conflict', [`${reading.path}'s rig is revision ${current.revision}, not ${request.expectedRevision}; read it again before replacing it`]);

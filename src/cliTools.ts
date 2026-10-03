@@ -285,6 +285,17 @@ export function setupAgent(agent: string, projectPath: string): string[] {
   if (!existsSync(agentsMd)) {
     writeFileSync(agentsMd, AGENT_GUIDE);
     out.push(`wrote ${agentsMd}`);
+  } else {
+    // A guide blox wrote (its heading) that an older blox version wrote:
+    // refresh it, keeping the old one in .blox/ in case it was edited.
+    const cur = readFileSync(agentsMd, 'utf8');
+    if (cur !== AGENT_GUIDE && cur.startsWith(AGENT_GUIDE.split('\n')[0])) {
+      mkdirSync(join(projectPath, '.blox'), { recursive: true });
+      const prev = join(projectPath, '.blox', 'AGENTS.md.prev');
+      writeFileSync(prev, cur);
+      writeFileSync(agentsMd, AGENT_GUIDE);
+      out.push(`refreshed ${agentsMd} to this blox version's guide (previous copy: ${prev})`);
+    }
   }
   const entry = mcpServerEntry(projectPath);
   if (agent === 'claude') {

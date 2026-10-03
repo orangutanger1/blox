@@ -86,7 +86,7 @@ export async function rigBuildAction(a: Record<string, unknown>, ctx: ToolCtx): 
     const f = join(modelDir(P, id), 'export', 'pivots.json');
     if (!existsSync(f)) return err(`${relative(P, f)} not found: build the model with rig_rigid(armature, {bone: [pieces]}) and run model {action:"export", id:"${id}"}`, 'no pivots');
     const fit = fitBlenderPivots(JSON.parse(readFileSync(f, 'utf8')) as BlenderPivots, reading.parts);
-    if (!fit.ok) return err(`${reading.path} was not rigged; nothing was changed:\n${list(fit.errors)}`, 'fit failed');
+    if (!fit.ok) return err(`rig refused for ${reading.path}; nothing was changed:\n${list(fit.errors)}`, 'fit failed');
     raw = fit.joints;
     notes.push(...fit.notes);
   } else if (Array.isArray(a.joints)) {
@@ -107,7 +107,7 @@ export async function rigBuildAction(a: Record<string, unknown>, ctx: ToolCtx): 
     pivotSpace: 'world',
     ...(typeof a.expected_revision === 'string' ? { expectedRevision: a.expected_revision } : {}),
   });
-  if (!planned.ok) return err(`${reading.path} was not rigged; nothing was changed (${planned.errorCode}):\n${list(planned.errors)}`, planned.errorCode);
+  if (!planned.ok) return err(`rig refused for ${reading.path}; nothing was changed (${planned.errorCode}):\n${list(planned.errors)}`, planned.errorCode);
 
   const built = await buildRig(ctx.session, reading.path, planned.plan, read.fingerprint);
   if (!built.ok) {
