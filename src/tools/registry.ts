@@ -41,6 +41,7 @@ import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '.
 import { applyChanges, propose, type Proposal } from '../liveops/propose.js';
 import { isApproved, pushPayload } from '../liveops/push.js';
 import { isPathContained } from '../agent/guardrail.js';
+import { animateTool, animateShape, ANIMATE_DESCRIPTION } from '../anim/tool.js';
 import { OpenCloud, openCloudKey } from '../opencloud/client.js';
 import { formatCheck, runCheck } from '../check.js';
 import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
@@ -1076,6 +1077,12 @@ export const TOOLS: BloxTool[] = [
       await new OpenCloud().putConfigs(target.universeId as number, payload.entries);
       return { text: `pushed ${Object.keys(payload.entries).length} config value(s)${tail}`, summary: 'pushed' };
     },
+  },
+  {
+    name: 'animate',
+    description: ANIMATE_DESCRIPTION,
+    shape: animateShape,
+    handler: animateTool,
   },
   {
     name: 'scaffold',

@@ -1,0 +1,59 @@
+import { describe, it, expect } from 'vitest';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
+import { BloxConfigSchema } from '../src/config.js';
+import { loadRecipes } from '../src/anim/recipes.js';
+import type { StudioSession } from '../src/studio/session.js';
+
+export function ctx(session: Partial<StudioSession> = {}): ToolCtx {
+  const projectPath = mkdtempSync(join(tmpdir(), 'blox-anim-'));
+  return { session: session as StudioSession, projectPath, config: BloxConfigSchema.parse({ projectPath }), agent: 'test' };
+}
+const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('animate')!, args, c);
+const walk = () => structuredClone(loadRecipes().get('Walk')!);
+
+describe('animate recipes/check', () => {
+  it('lists recipes and returns one', async () => {
+    const c = ctx();
+    expect((await call({ action: 'recipes' }, c)).text).toMatch(/Walk.*WaveR6|WaveR6.*Walk/s);
+    const one = await call({ action: 'recipes', name: 'Walk' }, c);
+    expect(JSON.parse(one.text).name).toBe('Walk');
+    expect((await call({ action: 'recipes', name: 'Nope' }, c)).isError).toBe(true);
+  });
+
+  it('check compiles, reports checks, writes the files and returns the sheet image', async () => {
+    const c = ctx();
+    const r = await call({ action: 'check', animation: walk(), locomotion: true, grounded: true }, c);
+    expect(r.isError).toBeFalsy();
+    expect(r.text).toMatch(/footSliding/);
+    expect(r.images?.[0].mimeType).toBe('image/png');
+    for (const f of ['spec.json', 'sequence.json', 'report.json', 'sheet.png']) expect(existsSync(join(c.projectPath, '.blox/anims/Walk', f))).toBe(true);
+  });
+
+  it('check reports every compile error at once', async () => {
+    const r = await call({ action: 'check', animation: { name: 'Bad', rig: 'R15', keyframes: [{ time: 0, joints: { NoSuchJoint: {} } }, { time: -1, joints: {} }] } }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.text.split('\n').filter((l) => l.startsWith('  ')).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a failed check is listed with its measurement; waiving it records the waiver', async () => {
+    const c = ctx();
+    const jump = structuredClone(loadRecipes().get('Jump')!);
+    const r = await call({ action: 'check', animation: jump, grounded: true }, c);
+    expect(r.text).toMatch(/groundContact.*fail|fail.*groundContact/s);
+    const w = await call({ action: 'check', animation: jump, grounded: true, waive: ['groundContact'] }, c);
+    expect(w.text).toMatch(/waived: groundContact/);
+  });
+
+  it('refuses names that are not plain identifiers before writing anything', async () => {
+    for (const name of ['../x', 'a b', 'x"]']) {
+      const c = ctx();
+      const r = await call({ action: 'check', animation: { ...walk(), name } }, c);
+      expect(r.isError).toBe(true);
+      expect(r.text).toMatch(/name/);
+      expect(existsSync(join(c.projectPath, '.blox/anims'))).toBe(false);
+    }
+  });
+});
