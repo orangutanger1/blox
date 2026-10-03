@@ -72,6 +72,11 @@ describe('lintAssets', () => {
       ].sort(),
     );
   });
+  it('a rejected Creator Store entry no longer in the place needs no sanitize record', () => {
+    // scout discard: the quarantine copy is gone, the entry stays as a record.
+    expect(lint([{ ...entry({ id: 'x' }), status: 'rejected', ref: { assetId: 5 } }])).toEqual([]);
+    expect(lint([{ ...entry({ id: 'y' }), status: 'rejected', ref: { assetId: 5, path: 'Workspace.Y' } }]).sort()).toEqual(['rejected:error:y', 'sanitized:error:y']);
+  });
   it('results per rule', () => {
     const r = assetResults([{ rule: 'licence', severity: 'error', asset: 'a', detail: 'x' }]);
     expect(r.find((x) => x.id === 'asset:licence')!.ok).toBe(false);

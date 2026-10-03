@@ -13,7 +13,7 @@ import {
 } from './scout.js';
 
 export const SCOUT_DESCRIPTION =
-  'Find free Creator Store templates/packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8} (free only, ranked, saved) | try {asset_id, id} (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its children) | discard {id}. Nothing is bought or uploaded.';
+  'Find free Creator Store templates/packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8} (free only, ranked, saved) | try {asset_id, id} (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | discard {id}. Nothing is bought or uploaded.';
 
 export const scoutShape = {
   action: z.enum(['search', 'try', 'adopt', 'discard']),
@@ -78,7 +78,16 @@ function moveLuau(from: string, to: string, unpack: boolean): string {
 local HttpService = game:GetService("HttpService")
 ${RESOLVE}
 local src, dst = resolve(${longString(from)}), resolve(${longString(to)})
-local items = ${unpack ? 'src:GetChildren()' : '{ src }'}
+local items = { src }
+if ${unpack ? 'true' : 'false'} then
+	-- GUI packs often nest their ScreenGui inside wrapper Models: move the
+	-- top-most GUI containers when there are any, else the direct children.
+	items = {}
+	for _, d in src:GetDescendants() do
+		if d:IsA("LayerCollector") and not d:FindFirstAncestorWhichIsA("LayerCollector") then table.insert(items, d) end
+	end
+	if #items == 0 then items = src:GetChildren() end
+end
 for _, c in items do
 	if dst:FindFirstChild(c.Name) then error(dst:GetFullName() .. " already has " .. c.Name, 0) end
 end

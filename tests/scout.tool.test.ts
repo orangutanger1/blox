@@ -9,6 +9,8 @@ import { loadManifest } from '../src/assets/manifest.js';
 import { readJson } from '../src/state/store.js';
 import { cliArgs, parseFlags, TOOL_COMMANDS } from '../src/cliTools.js';
 import { fakeStudio, type FakeStudio } from './fakeStudio.js';
+import { luneBin, luneCheck } from './helpers/lune.js';
+import { writeFileSync } from 'node:fs';
 
 const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
 const hit = (assetId: string, name: string, extra: Record<string, unknown> = {}) => ({
@@ -105,6 +107,16 @@ describe('scout tool', () => {
     expect(e.sanitized!.findings[0]).toMatch(/loadstring/);
   });
 
+  it('adopt unpack moves the top-most GUI containers when there are any', async () => {
+    const { c, luau } = ctx();
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    await call({ action: 'adopt', id: 'obby', to: 'StarterGui', unpack: true }, c);
+    const mv = luau.find((l) => l.includes('BLOX_SCOUT_MOVE'))!;
+    expect(mv).toMatch(/IsA\("LayerCollector"\)/);
+    expect(mv).toMatch(/src:GetChildren\(\)/);
+  });
+
   it('discard destroys the copy and rejects the entry', async () => {
     const { c, luau } = ctx();
     await call({ action: 'search', need: 'obby', kind: 'map' }, c);
@@ -121,6 +133,26 @@ describe('scout tool', () => {
     const { c } = ctx();
     expect((await call({ action: 'adopt', id: 'nope', to: 'Workspace' }, c)).isError).toBe(true);
     expect((await call({ action: 'discard', id: 'nope' }, c)).isError).toBe(true);
+  });
+});
+
+describe('scout Luau', () => {
+  it.skipIf(!luneBin())('every generated program compiles', async () => {
+    const { c, luau } = ctx();
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    await call({ action: 'adopt', id: 'obby', to: 'StarterGui', unpack: true }, c);
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '12', id: 'obby2' }, c);
+    await call({ action: 'discard', id: 'obby2' }, c);
+    const d = mkdtempSync(join(tmpdir(), 'blox-scout-luau-'));
+    const files = luau.map((code, i) => {
+      const f = join(d, `p${i}.luau`);
+      writeFileSync(f, code);
+      return f;
+    });
+    expect(files.length).toBeGreaterThan(4);
+    expect(luneCheck(files)).toEqual([]);
   });
 });
 

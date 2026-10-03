@@ -24,7 +24,7 @@ export function lintAssets(m: AssetManifest, scan?: ScanSummary): AssetFinding[]
     if (a.licence === 'unknown') add('licence', 'error', a.id, 'licence unknown — record it before shipping');
     else if (a.licence === 'cc-by' && !a.attribution) add('licence', 'error', a.id, 'cc-by needs an attribution line');
     if (!a.provenance.tool.trim()) add('provenance', 'error', a.id, 'provenance.tool is empty');
-    if (a.source === 'creator-store' && !a.sanitized) add('sanitized', 'error', a.id, 'Creator Store model not sanitized — asset {action:"sanitize", path}');
+    if (a.source === 'creator-store' && !a.sanitized && !(a.status === 'rejected' && !a.ref.path)) add('sanitized', 'error', a.id, 'Creator Store model not sanitized — asset {action:"sanitize", path}');
     const tris = a.budget?.tris;
     if (tris !== undefined && tris > MAX_TRIS) add('budget', 'error', a.id, `${tris} triangles > ${MAX_TRIS} (MeshPart limit) — asset {action:"normalize"}`);
     else if (tris !== undefined && tris > TARGET_TRIS) add('budget', 'warn', a.id, `${tris} triangles > ${TARGET_TRIS} mobile target`);
