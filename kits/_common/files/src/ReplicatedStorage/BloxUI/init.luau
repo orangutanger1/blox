@@ -9,7 +9,7 @@
 --   rail.buttons.Shop.Activated:Connect(...)
 --   local shop = UI.Modal(gui, { name = "Shop", title = "Shop" })   shop.open()  shop.list
 --   UI.Row(shop.list, { name = "pet", text = "Pet", action = "10 coins" }).button.Activated:Connect(...)
---   local toasts = UI.Toast(gui)   toasts.show("Saved!")
+--   local toasts = UI.Toast(gui)   toasts.show("Saved!")   (one shared stack per client)
 --   local reveal = UI.Reveal(gui)  reveal.show("Mythic Dragon", "1 in 500")
 -- Components only build instances (plus close/expiry wiring); callers connect gameplay.
 local Theme = require(script.Theme)
@@ -309,24 +309,50 @@ function BloxUI.Row(list: Instance, opts: any)
 	return { frame = row, label = label, button = button }
 end
 
--- Toast stack above the bottom edge. show(text, seconds?) → label (auto-removed).
+-- Toast stack above the bottom edge, shared by every script on this client:
+-- HUD and menus calling Toast() get the same stack, so toasts never overlap.
+-- It lives in its own ScreenGui above menus when a PlayerGui is reachable.
+-- show(text, seconds?) → toast frame (auto-removed); style(fn) skins every
+-- toast (fn(toast) runs on each new one).
+local sharedToasts: any = nil
+
 function BloxUI.Toast(parent: Instance)
-	local stack = Instance.new("Frame")
-	stack.Name = "Toasts"
-	stack.AnchorPoint = Vector2.new(0.5, 1)
-	stack.Position = UDim2.fromScale(0.5, 0.97)
-	stack.Size = UDim2.fromScale(0.5, 0.3)
-	stack.BackgroundTransparency = 1
-	local l = Instance.new("UIListLayout")
-	l.VerticalAlignment = Enum.VerticalAlignment.Bottom
-	l.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	l.Padding = UDim.new(0, 6)
-	l.SortOrder = Enum.SortOrder.LayoutOrder
-	l.Parent = stack
-	stack.Parent = parent
+	if sharedToasts and sharedToasts.frame.Parent then
+		return sharedToasts
+	end
+	local ok, pg = pcall(function()
+		local lp = game:GetService("Players").LocalPlayer
+		return parent:FindFirstAncestorOfClass("PlayerGui") or (lp and lp:FindFirstChildOfClass("PlayerGui"))
+	end)
+	local host = parent
+	if ok and pg then
+		host = pg:FindFirstChild("BloxToasts") or BloxUI.screen("BloxToasts", pg)
+		;(host :: ScreenGui).DisplayOrder = 100
+	end
+	-- A script with its own module copy (another VM) still joins the stack.
+	local existing = host ~= parent and host:FindFirstChild("Toasts")
+	local stack = existing or Instance.new("Frame")
+	if not existing then
+		stack.Name = "Toasts"
+		stack.AnchorPoint = Vector2.new(0.5, 1)
+		stack.Position = UDim2.fromScale(0.5, 0.97)
+		stack.Size = UDim2.fromScale(0.5, 0.3)
+		stack.BackgroundTransparency = 1
+		local l = Instance.new("UIListLayout")
+		l.VerticalAlignment = Enum.VerticalAlignment.Bottom
+		l.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		l.Padding = UDim.new(0, 6)
+		l.SortOrder = Enum.SortOrder.LayoutOrder
+		l.Parent = stack
+		stack.Parent = host
+	end
 	local n = 0
-	return {
+	local skin: ((Frame) -> ())? = nil
+	sharedToasts = {
 		frame = stack,
+		style = function(fn: (Frame) -> ())
+			skin = fn
+		end,
 		show = function(text: string, seconds: number?)
 			n += 1
 			local t = Instance.new("Frame")
@@ -342,6 +368,9 @@ function BloxUI.Toast(parent: Instance)
 				text,
 				{ size = UDim2.fromScale(0.94, 0.8), position = UDim2.fromScale(0.03, 0.1) }
 			)
+			if skin then
+				skin(t)
+			end
 			t.Parent = stack
 			local kids = 0
 			for _, c in stack:GetChildren() do
@@ -365,6 +394,7 @@ function BloxUI.Toast(parent: Instance)
 			return t
 		end,
 	}
+	return sharedToasts
 end
 
 -- Full-screen reward reveal: show(title, subtitle?) / hide(); tap "Nice!" to close.

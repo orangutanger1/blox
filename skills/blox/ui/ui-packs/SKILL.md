@@ -61,8 +61,9 @@ id into the module. Re-run sheet to add icons (it needs a new upload).
 
 ## Toasts and pop-ups
 
-One shared toast stack for HUD and menus (BloxUI Toast, or the pack's toast
-panel cloned into one queue module). Two stacks overlap on small screens.
+One shared toast stack for HUD and menus: every BloxUI.Toast() call on a
+client returns the same stack (its own ScreenGui above menus); skin it once
+with toasts.style(fn). Two stacks overlap on small screens.
 
 ## Conventions top games share
 
