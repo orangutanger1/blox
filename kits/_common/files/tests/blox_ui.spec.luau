@@ -70,3 +70,18 @@ test("reveal show/hide", function()
 	reveal.hide()
 	expect(reveal.frame.Visible).toBe(false)
 end)
+
+test("every Toast() call on a client shares one stack, and style skins each toast", function()
+	local a = UI.Toast(UI.screen("A", nil))
+	local b = UI.Toast(UI.screen("B", nil))
+	expect(a).toBe(b)
+	local seen = 0
+	a.style(function(t)
+		seen += 1
+		t.BackgroundTransparency = 0.5
+	end)
+	local t = b.show("hi", 0.01)
+	expect(seen).toBe(1)
+	expect(t.BackgroundTransparency).toBe(0.5)
+	expect(t.Parent).toBe(a.frame)
+end)
