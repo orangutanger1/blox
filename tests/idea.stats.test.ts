@@ -54,6 +54,23 @@ describe('themes', () => {
     expect(normalizeName('Grow a Garden (x2 LUCK!)')).toBe('Grow a Garden');
     expect(normalizeName('🆕 UPDATE Pet Sim 99 NEW')).toBe('Pet Sim 99');
     expect(normalizeName('[🔥] 🥚🥚')).toBe('');
+    expect(normalizeName('Mukbang Game [Testing')).toBe('Mukbang Game'); // unclosed tag
+    expect(normalizeName('+1 Speed Keyboard Escape | Candy & Chocolate')).toBe('+1 Speed Keyboard Escape'); // subtitle after |
+  });
+  it('description words count only when some chart name uses them (filler like "welcome" is not a theme)', () => {
+    const s = snap([
+      g(1, { name: 'Steal An Egg', description: 'Welcome! Steal eggs from other players and earn cash', ccu: 999 }),
+      g(2, { name: 'Egg Farm', description: 'Welcome to the farm, update soon', ccu: 99 }),
+    ]);
+    const terms = themeCounts(s).map((t) => t.term);
+    expect(terms).toContain('egg');
+    expect(terms).toContain('steal');
+    expect(terms).not.toContain('welcome');
+    expect(terms).not.toContain('earn');
+    expect(terms).not.toContain('update');
+    expect(themeCounts(s).find((t) => t.term === 'egg')!.games).toBe(2);
+    const filler = themeCounts(snap([g(3, { name: 'Welcome Players: How To Make One Experience', description: 'welcome players' })])).map((t) => t.term);
+    expect(filler.filter((t) => !t.includes(' '))).toEqual([]); // filler words are stopwords even in names
   });
   it('counts words and name bigrams once per game, weighted by log ccu', () => {
     const s = snap([
