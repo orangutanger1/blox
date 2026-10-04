@@ -116,8 +116,8 @@ function provenanceGates(projectPath: string, code: CodeAssetRefs): Gate[] {
         ? { id: 'provenance', required: true, status: 'pass', detail: `${inGame.length} asset(s) in use, all approved` }
         : { id: 'provenance', required: false, status: 'n/a', detail: 'no assets in use' },
   ];
-  const placeOnly = inGame.filter((a) => !quarantined(a) && !a.uploaded && !a.ref.file && a.source === 'creator-store');
-  if (placeOnly.length) gates.push({ id: 'place-only', required: false, status: 'fail', detail: `${placeOnly.length} adopted pack(s) exist only in the Studio place (${placeOnly.slice(0, 4).map((a) => a.ref.path).join(', ')}): save the place file — sync from files will not recreate them` });
+  const placeOnly = inGame.filter((a) => !quarantined(a) && !a.uploaded && !(a.ref.file && existsSync(join(projectPath, a.ref.file))) && a.source === 'creator-store');
+  if (placeOnly.length) gates.push({ id: 'place-only', required: false, status: 'fail', detail: `${placeOnly.length} adopted pack(s) exist only in the Studio place (${placeOnly.slice(0, 4).map((a) => a.ref.path).join(', ')}): \`blox asset save\` writes them to assets/packs/ so sync can put them back (and save the place file)` });
   return gates;
 }
 

@@ -39,6 +39,7 @@ import { realSpawn, rojoBin } from '../sync/rojo.js';
 import { recordImageId, uploadAsset } from '../assets/upload.js';
 import { resolveDecalImage } from '../assets/decal.js';
 import { refreshRefs, relinkAsset } from '../assets/locate.js';
+import { saveAllPacks, savePack } from '../assets/packs.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
@@ -702,9 +703,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'asset',
     description:
-      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal) | relink {id, path} (point an entry at the instance now at path; blox tags placed assets and follows renames itself, so this is only for entries scan reports as not found).',
+      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal) | save {id?} (write an adopted pack — every instance carrying its tag — to assets/packs/<id>.rbxm so sync can put it back; no id saves all; re-run after adapting a pack) | relink {id, path} (point an entry at the instance now at path; blox tags placed assets and follows renames itself, so this is only for entries scan reports as not found).',
     shape: {
-      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve', 'relink']),
+      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve', 'relink', 'save']),
       entry: z.unknown().optional(),
       path: z.string().optional(),
       id: z.string().optional(),
@@ -756,6 +757,18 @@ export const TOOLS: BloxTool[] = [
           id ? `recorded on asset "${id}"` : 'pass id to record this in .blox/assets.json',
         ];
         return { text: lines.join('\n'), summary: `${findings.length} risks` };
+      }
+      if (a.action === 'save') {
+        try {
+          if (typeof a.id === 'string') {
+            const r = await savePack(ctx.session, P, a.id);
+            return { text: `saved ${a.id} → ${r.file} (${r.instances} instance(s), ${Math.round(r.bytes / 1024)} KB); sync puts it back if the place loses it`, summary: 'saved' };
+          }
+          const r = await saveAllPacks(ctx.session, P);
+          return { text: [`saved ${r.saved.length} pack(s)`, ...r.saved.map((x) => `  ${x}`), ...r.errors.map((x) => `  ERROR ${x}`)].join('\n'), isError: r.errors.length > 0, summary: `${r.saved.length} saved` };
+        } catch (e) {
+          return { text: (e as Error).message, isError: true, summary: 'failed' };
+        }
       }
       if (a.action === 'relink') {
         if (typeof a.id !== 'string' || typeof a.path !== 'string') return { text: 'relink needs id and path', isError: true, summary: 'missing args' };
