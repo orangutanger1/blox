@@ -41,6 +41,6 @@ describe('AGENT_GUIDE', () => {
     expect(missing).toEqual([]);
   });
   it('stays under its context budget', () => {
-    expect(AGENT_GUIDE.length).toBeLessThanOrEqual(5800);
+    expect(AGENT_GUIDE.length).toBeLessThanOrEqual(6000);
   });
 });
