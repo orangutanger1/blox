@@ -1,11 +1,27 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, normalize, sep } from 'node:path';
+import { basename, dirname, join, normalize, sep } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
 // Unpack a .zip with Node alone (no unzip binary on native Windows): read the
 // central directory, inflate stored/deflated entries. Entries that would land
 // outside `dir` (zip-slip) or use other methods are skipped and reported.
-export function unzipTo(buf: Buffer, dir: string, maxBytes = 500 * 1024 * 1024): { files: string[]; skipped: string[] } {
+// `only` picks entries; `flat` writes each picked file straight into `dir`.
+export interface UnzipOptions {
+  maxBytes?: number;
+  only?: (name: string) => boolean;
+  flat?: boolean;
+}
+
+// Entry names (files only), read from the central directory without unpacking.
+export function listZip(buf: Buffer): string[] {
+  const names: string[] = [];
+  walkZip(buf, (name) => {
+    if (!name.endsWith('/')) names.push(name);
+  });
+  return names;
+}
+
+function walkZip(buf: Buffer, each: (name: string, at: { method: number; csize: number; usize: number; local: number }) => void): void {
   let eocd = -1;
   for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65_557); i--) {
     if (buf.readUInt32LE(i) === 0x06054b50) {
@@ -16,9 +32,6 @@ export function unzipTo(buf: Buffer, dir: string, maxBytes = 500 * 1024 * 1024):
   if (eocd < 0) throw new Error('not a zip file (no end-of-central-directory record)');
   const count = buf.readUInt16LE(eocd + 10);
   let p = buf.readUInt32LE(eocd + 16);
-  const files: string[] = [];
-  const skipped: string[] = [];
-  let total = 0;
   for (let k = 0; k < count; k++) {
     if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('corrupt zip central directory');
     const method = buf.readUInt16LE(p + 10);
@@ -30,15 +43,25 @@ export function unzipTo(buf: Buffer, dir: string, maxBytes = 500 * 1024 * 1024):
     const local = buf.readUInt32LE(p + 42);
     const name = buf.subarray(p + 46, p + 46 + nlen).toString('utf8');
     p += 46 + nlen + xlen + clen;
-    if (name.endsWith('/')) continue;
+    each(name, { method, csize, usize, local });
+  }
+}
+
+export function unzipTo(buf: Buffer, dir: string, o: UnzipOptions = {}): { files: string[]; skipped: string[] } {
+  const maxBytes = o.maxBytes ?? 500 * 1024 * 1024;
+  const files: string[] = [];
+  const skipped: string[] = [];
+  let total = 0;
+  walkZip(buf, (name, { method, csize, usize, local }) => {
+    if (name.endsWith('/') || (o.only && !o.only(name))) return;
     const rel = normalize(name).replace(/^([/\\])+/, '');
     if (rel.startsWith('..') || rel.includes(`${sep}..${sep}`) || /^[a-zA-Z]:/.test(rel)) {
       skipped.push(`${name} (outside the folder)`);
-      continue;
+      return;
     }
     if (method !== 0 && method !== 8) {
       skipped.push(`${name} (compression method ${method})`);
-      continue;
+      return;
     }
     total += usize;
     if (total > maxBytes) throw new Error(`zip unpacks to more than ${Math.round(maxBytes / 1e6)} MB`);
@@ -47,10 +70,11 @@ export function unzipTo(buf: Buffer, dir: string, maxBytes = 500 * 1024 * 1024):
     const start = local + 30 + ln + lx;
     const raw = buf.subarray(start, start + csize);
     const data = method === 0 ? raw : inflateRawSync(raw);
-    const out = join(dir, rel);
+    const outRel = o.flat ? basename(rel) : rel;
+    const out = join(dir, outRel);
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, data);
-    files.push(rel);
-  }
+    files.push(outRel);
+  });
   return { files, skipped };
 }

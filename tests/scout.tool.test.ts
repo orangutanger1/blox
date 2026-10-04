@@ -10,7 +10,7 @@ import { readJson } from '../src/state/store.js';
 import { cliArgs, parseFlags, TOOL_COMMANDS } from '../src/cliTools.js';
 import { fakeStudio, type FakeStudio } from './fakeStudio.js';
 import { luneBin, luneCheck } from './helpers/lune.js';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { unzipTo } from '../src/assets/unzip.js';
 import { crc32, deflateRawSync } from 'node:zlib';
 
@@ -162,15 +162,56 @@ describe('scout tool', () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
     const { c } = ctx({ web: {
       'https://kenney.nl/coin.png': png,
-      'https://itch.io/page': new TextEncoder().encode('<!DOCTYPE html><html>download</html>'),
+      'https://example.com/page': new TextEncoder().encode('<!DOCTYPE html><html>download</html>'),
     } });
     expect((await call({ action: 'import', url: 'https://kenney.nl/coin.png', id: 'coinIcon' }, c)).text).toMatch(/needs licence/);
-    expect((await call({ action: 'import', url: 'https://itch.io/page', id: 'x', licence: 'cc0' }, c)).text).toMatch(/web page, not a file/);
+    const page = await call({ action: 'import', url: 'https://example.com/page', id: 'x', licence: 'cc0' }, c);
+    expect(page.text).toMatch(/web page, not a file/);
+    expect(page.text).toMatch(/import.*file/);
+    expect(existsSync(join(c.projectPath, 'assets', 'vendor', 'x'))).toBe(false);
     expect((await call({ action: 'import', url: 'http://kenney.nl/coin.png', id: 'x', licence: 'cc0' }, c)).text).toMatch(/https/);
     const r = await call({ action: 'import', url: 'https://kenney.nl/coin.png', id: 'coinIcon', licence: 'cc0', source_url: 'https://kenney.nl/assets/ui-pack', attribution: 'Kenney' }, c);
     expect(r.isError).toBeFalsy();
     expect(r.text).toMatch(/blox asset approve coinIcon/);
     expect(loadManifest(c.projectPath).assets[0]).toMatchObject({ id: 'coinIcon', kind: 'image', source: 'external', licence: 'cc0', attribution: 'Kenney', status: 'candidate', ref: { file: 'assets/vendor/coinIcon/coin.png' }, provenance: { url: 'https://kenney.nl/assets/ui-pack' } });
+  });
+
+  // Dog Walk: an itch.io pack page only serves files behind a browser download button.
+  it('import says plainly that itch.io needs a manual download, without fetching', async () => {
+    const fetched: string[] = [];
+    const { c } = ctx({ fetched });
+    const r = await call({ action: 'import', url: 'https://kenney.itch.io/ui-pack', id: 'uiPack', licence: 'cc0' }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/itch\.io/);
+    expect(r.text).toMatch(/browser/);
+    expect(r.text).toMatch(/blox scout import <file>/);
+    expect(r.text).toMatch(/source_url:"https:\/\/kenney\.itch\.io\/ui-pack"/);
+    expect(fetched).toEqual([]);
+  });
+
+  it('listing a zip leaves nothing behind; a pick unpacks only that file and the licence', async () => {
+    const { c } = ctx();
+    mkdirSync(join(c.projectPath, 'dl'));
+    writeFileSync(join(c.projectPath, 'dl', 'pack.zip'), makeZip({ 'pack/PNG/star.png': 'x', 'pack/PNG/coin.png': 'c', 'pack/License.txt': 'CC0', 'pack/readme.txt': 'x' }));
+    const list = await call({ action: 'import', file: 'dl/pack.zip', id: 'uiPack', licence: 'cc0', source_url: 'https://kenney.nl' }, c);
+    expect(list.text).toMatch(/pick/);
+    expect(existsSync(join(c.projectPath, 'assets'))).toBe(false);
+    const r = await call({ action: 'import', file: 'dl/pack.zip', pick: 'coin.png', id: 'uiPack', licence: 'cc0', source_url: 'https://kenney.nl' }, c);
+    expect(r.isError).toBeFalsy();
+    expect(readdirSync(join(c.projectPath, 'assets', 'vendor', 'uiPack')).sort()).toEqual(['License.txt', 'coin.png']);
+  });
+
+  it('a downloaded zip is listed from a cache outside the project and fetched once', async () => {
+    const fetched: string[] = [];
+    const url = `https://kenney.nl/pack-${Date.now()}-${Math.random()}.zip`;
+    const { c } = ctx({ fetched, web: { [url]: new Uint8Array(makeZip({ 'a/coin.png': 'c', 'a/star.png': 's' })) } });
+    const list = await call({ action: 'import', url, id: 'pack', licence: 'cc0' }, c);
+    expect(list.text).toMatch(/2 usable/);
+    expect(existsSync(join(c.projectPath, 'assets'))).toBe(false);
+    const r = await call({ action: 'import', url, pick: 'star.png', id: 'pack', licence: 'cc0' }, c);
+    expect(r.isError).toBeFalsy();
+    expect(loadManifest(c.projectPath).assets[0].ref.file).toBe('assets/vendor/pack/star.png');
+    expect(fetched.filter((f) => f === url)).toHaveLength(1);
   });
 
   it('import lists a zip and records the picked file', async () => {
@@ -188,7 +229,7 @@ describe('scout tool', () => {
     expect(loadManifest(c.projectPath).assets).toEqual([]);
     const r = await call({ action: 'import', file: 'dl/pack.zip', pick: 'PNG/coin.png', id: 'uiPack', licence: 'cc0', source_url: 'https://kenney.nl' }, c);
     expect(r.isError).toBeFalsy();
-    expect(loadManifest(c.projectPath).assets[0].ref.file).toBe('assets/vendor/uiPack/unzipped/pack/PNG/coin.png');
+    expect(loadManifest(c.projectPath).assets[0].ref.file).toBe('assets/vendor/uiPack/coin.png');
   });
 
   it('try takes this project\'s uploaded import by its asset id, keeping its licence', async () => {
