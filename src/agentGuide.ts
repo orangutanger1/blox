@@ -31,6 +31,7 @@ code}}, {kind:"click",args:{target:"PlayerGui.HUD.Button"}}] then server_code/cl
 successful tool call.
 
 ## Start from a kit, template or pack
+No game picked yet? idea research → propose (cite snapshot games) → human picks from idea list → idea brief; read .blox/brief.json before design.
 kit {action:"list"} / kit {action:"apply", name}: a tested loop (modules, world, specs,
 design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, ProfileStore, safe
 receipts) — follow FRAMEWORK.md; kit apply boilerplate = framework only. Before building a map, UI

@@ -233,6 +233,16 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action } };
       }
     }
+    case 'idea': {
+      const sub = f.rest[0] ?? 'list';
+      if (sub === 'research') return { tool: 'idea', args: { action: 'research', ...(o.fresh === true ? { fresh: true } : {}), ...(typeof o.device === 'string' ? { device: o.device } : {}) } };
+      if (sub === 'propose') {
+        const raw = JSON.parse(f.rest.slice(1).join(' ')) as unknown;
+        return { tool: 'idea', args: { action: 'propose', ideas: Array.isArray(raw) ? raw : (raw as { ideas?: unknown }).ideas } };
+      }
+      if (sub === 'brief') return { tool: 'idea', args: { action: 'brief', id: f.rest[1] } };
+      return { tool: 'idea', args: { action: 'list' } };
+    }
     case 'scout': {
       const sub = f.rest[0];
       if (sub === 'preview') {
@@ -368,6 +378,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] [--no-phone] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
+           blox idea research [--fresh] [--device all|phone|computer|tablet|console] | propose '<json ideas>' | list | brief <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)

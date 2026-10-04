@@ -49,6 +49,7 @@ import { isApproved, pushPayload } from '../liveops/push.js';
 import { isPathContained } from '../agent/guardrail.js';
 import { animateTool, animateShape, ANIMATE_DESCRIPTION } from '../anim/tool.js';
 import { scoutTool, scoutShape, SCOUT_DESCRIPTION } from '../assets/scoutTool.js';
+import { ideaTool, ideaShape, IDEA_DESCRIPTION } from '../idea/tool.js';
 import { OpenCloud, openCloudKey } from '../opencloud/client.js';
 import { formatCheck, runCheck } from '../check.js';
 import { UNVERIFIED_ENDPOINTS } from '../opencloud/endpoints.js';
@@ -902,6 +903,12 @@ export const TOOLS: BloxTool[] = [
     description: SCOUT_DESCRIPTION,
     shape: scoutShape,
     handler: scoutTool,
+  },
+  {
+    name: 'idea',
+    description: IDEA_DESCRIPTION,
+    shape: ideaShape,
+    handler: ideaTool,
   },
   {
     name: 'model',

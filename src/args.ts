@@ -1,5 +1,5 @@
 /** The toolset verbs (src/cliTools.ts handles them before the agent runner). */
-export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'scout', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
+export const TOOL_COMMANDS = new Set(['status', 'sync', 'test', 'playtest', 'luau', 'play', 'logs', 'screenshot', 'task', 'design', 'check', 'kit', 'metrics', 'ui', 'present', 'multiplayer', 'asset', 'scout', 'idea', 'model', 'release', 'liveops', 'animate', 'tool', 'mcp', 'new', 'setup', 'help', '--help', '-h']);
 /** The runner's own subcommands (parseArgs below). */
 export const RUNNER_COMMANDS = ['init', 'doctor', 'serve', 'panel', 'auth', 'model', 'report', 'relay', 'eval'] as const;
 /** Flags that take a value, so the word after them is not part of the prompt. */
