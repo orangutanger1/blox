@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
@@ -11,12 +12,22 @@ import { fakeStudio } from './fakeStudio.js';
 
 const env = (values: unknown[]) => JSON.stringify({ ok: true, n: values.length, values: Object.fromEntries(values.map((v, i) => [`v${i + 1}`, v])), logs: [] });
 
-function ctx(devices: Record<string, unknown[]>, seen: string[] = []): ToolCtx {
+// The probe asks for one device page at a time: answer with up to `pageSize`
+// elements from SKIP and the next index while more remain.
+export function probePage(code: string, devices: Record<string, unknown[]>, pageSize = Infinity): string {
+  const device = /"name":"([^"]+)"/.exec(code)![1];
+  const skip = Number(/local SKIP = (\d+)/.exec(code)![1]);
+  const all = devices[device] ?? [];
+  const elements = all.slice(skip, skip + pageSize);
+  return JSON.stringify({ sources: 1, device, elements, ...(skip + elements.length < all.length ? { next: skip + elements.length } : {}) });
+}
+
+function ctx(devices: Record<string, unknown[]>, seen: string[] = [], pageSize = Infinity): ToolCtx {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-ui-'));
   const f = fakeStudio({
     luau: (code, dm) => {
       seen.push(`${dm}:${code}`);
-      if (code.includes('__BloxUiLint')) return env([JSON.stringify({ sources: 1, devices })]);
+      if (code.includes('__BloxUiLint')) return env([probePage(code, devices, pageSize)]);
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('LocalPlayer')) return env([true]);
       return env([]);
@@ -29,7 +40,9 @@ function ctx(devices: Record<string, unknown[]>, seen: string[] = []): ToolCtx {
     agent: 'test',
   };
 }
-const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('ui')!, args, c);
+// Sync needs rojo + a project file; only the sync tests exercise it.
+const call = (args: Record<string, unknown>, c: ToolCtx) => invokeTool(findTool('ui')!, { sync: false, ...args }, c);
+const hasRojo = (() => { try { execFileSync(process.env.BLOX_ROJO_BIN ?? 'rojo', ['--version']); return true; } catch { return false; } })();
 const btn = (o: Record<string, unknown>) => ({ path: 'HUD.B', cls: 'TextButton', x: 100, y: 100, w: 60, h: 60, button: true, ...o });
 
 describe('ui tool', () => {
@@ -53,6 +66,28 @@ describe('ui tool', () => {
     const r = await call({ action: 'lint', seconds: 0 }, ctx({}));
     expect(r.text).toMatch(/no visible GUI elements/);
   });
+  it('pages large GUIs: one device per call, resuming at next', async () => {
+    const seen: string[] = [];
+    const many = Array.from({ length: 7 }, (_, i) => btn({ path: `HUD.B${i}`, y: 10 + i * 50 }));
+    const c = ctx({ desktop: many }, seen, 3);
+    await call({ action: 'lint', seconds: 0, devices: ['desktop'] }, c);
+    const probes = seen.filter((s) => s.includes('__BloxUiLint'));
+    expect(probes.map((p) => Number(/local SKIP = (\d+)/.exec(p)![1]))).toEqual([0, 3, 6]);
+    expect(readJson<{ elements: Record<string, number> }>(c.projectPath, 'ui-report.json')!.elements).toEqual({ desktop: 7 });
+  });
+  it.skipIf(!hasRojo)('syncs before linting (Edit mode)', async () => {
+    const c = ctx({ desktop: [btn({})] });
+    writeFileSync(join(c.projectPath, 'default.project.json'), JSON.stringify({ name: 't', tree: { $className: 'DataModel' } }));
+    const r = await call({ action: 'lint', seconds: 0, devices: ['desktop'], sync: true }, c);
+    expect(r.text.split('\n')[0]).toMatch(/sync/i);
+    expect(readJson(c.projectPath, 'last-sync.json')).not.toBeNull();
+  });
+  it('sync:false skips the push', async () => {
+    const c = ctx({ desktop: [btn({})] });
+    const r = await call({ action: 'lint', seconds: 0, devices: ['desktop'], sync: false }, c);
+    expect(r.isError).toBeFalsy();
+    expect(readJson(c.projectPath, 'last-sync.json')).toBeNull();
+  });
   it('unknown device is rejected', async () => {
     const r = await call({ action: 'lint', devices: ['fridge'] }, ctx({}));
     expect(r.isError).toBe(true);
@@ -67,5 +102,6 @@ describe('ui tool', () => {
   it('cli mapping', () => {
     expect(cliArgs('ui', parseFlags(['lint', '--devices', 'tablet,desktop', '--seconds', '5']))).toEqual({ tool: 'ui', args: { action: 'lint', devices: ['tablet', 'desktop'], seconds: 5 } });
     expect(cliArgs('ui', parseFlags([]))).toEqual({ tool: 'ui', args: { action: 'lint' } });
+    expect(cliArgs('ui', parseFlags(['lint', '--no-sync']))).toEqual({ tool: 'ui', args: { action: 'lint', sync: false } });
   });
 });

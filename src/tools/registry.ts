@@ -36,7 +36,8 @@ import { runNormalize } from '../assets/blender.js';
 import { briefText, checkImages, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
 import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, type AnimJson, type BuildResult } from '../model/anim.js';
 import { realSpawn, rojoBin } from '../sync/rojo.js';
-import { uploadAsset } from '../assets/upload.js';
+import { recordImageId, uploadAsset } from '../assets/upload.js';
+import { resolveDecalImage } from '../assets/decal.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
@@ -561,12 +562,13 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'ui',
     description:
-      'Deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit: screen, Button, CurrencyBar, Rail, Modal, Toast, Reveal — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
+      'Sync, then deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit: screen, Button, CurrencyBar, Rail, Modal, Toast, Reveal — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
     shape: {
       action: z.enum(['lint', 'install']),
       seconds: z.number().min(0).max(120).optional(),
       prepare: z.string().optional(),
       devices: z.array(z.string()).optional(),
+      sync: z.boolean().optional().describe('lint: push files first (default true; skipped while a playtest is already running)'),
     },
     async handler(a, ctx) {
       if (a.action === 'install') {
@@ -586,6 +588,19 @@ export const TOOLS: BloxTool[] = [
           summary: `${created.length} files`,
         };
       }
+      // Lint what the files say, not what Studio held at the last sync.
+      let pre = '';
+      if (a.sync !== false) {
+        const st = await ctx.session.state();
+        if (st.mode === 'Edit') {
+          const s = await pushProject(ctx.session, ctx.projectPath, { worldDir: ctx.config.worldDir });
+          writeJson(ctx.projectPath, 'last-sync.json', { ...s, at: new Date().toISOString() });
+          if (!s.ok) return { text: formatSyncResult(s), isError: true, summary: 'sync failed' };
+          pre = formatSyncResult(s).split('\n')[0] + '\n';
+        } else {
+          pre = 'not synced: a playtest is running — linting the running game as it is\n';
+        }
+      }
       const report = await runUiLint(ctx.session, {
         seconds: (a.seconds as number | undefined) ?? 3,
         prepare: a.prepare as string | undefined,
@@ -594,7 +609,7 @@ export const TOOLS: BloxTool[] = [
       writeJson(ctx.projectPath, 'ui-report.json', report);
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
-      return { text: formatUiReport(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} rules` };
+      return { text: pre + formatUiReport(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} rules` };
     },
   },
   {
@@ -686,9 +701,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'asset',
     description:
-      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run).',
+      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal).',
     shape: {
-      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload']),
+      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve']),
       entry: z.unknown().optional(),
       path: z.string().optional(),
       id: z.string().optional(),
@@ -778,6 +793,14 @@ export const TOOLS: BloxTool[] = [
         }
         return { text: `normalized → ${out}: ${r.trisBefore} → ${r.trisAfter} triangles, size ${r.size.join(' × ')} studs${note}`, artifacts: [out], summary: `${r.trisAfter} tris` };
       }
+      if (a.action === 'resolve') {
+        const e = typeof a.id === 'string' ? loadManifest(P).assets.find((x) => x.id === a.id) : undefined;
+        const decal = e?.uploaded?.assetId ?? (a.asset_id as number | undefined);
+        if (!decal) return { text: 'resolve needs id of an uploaded image (or asset_id of a decal)', isError: true, summary: 'no decal' };
+        const imageId = await resolveDecalImage(ctx.session, decal);
+        if (e?.uploaded) recordImageId(P, e.id, imageId);
+        return { text: `decal ${decal} → image ${imageId}${e?.uploaded ? ` (recorded on "${e.id}" as ref.assetId)` : ''}. Use rbxassetid://${imageId}.`, summary: `image ${imageId}` };
+      }
       if (typeof a.id !== 'string') return { text: 'upload needs id', isError: true, summary: 'no id' };
       const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
       // Live 2026-10-02: an FBX through Open Cloud arrived 100× too big (cm units) with
@@ -789,6 +812,16 @@ export const TOOLS: BloxTool[] = [
       const meshNote = /\.(glb|gltf|fbx)$/i.test(loadManifest(P).assets.find((x) => x.id === a.id)?.ref.file ?? '')
         ? `\nInsert: studio_tool {name:"insert_asset", args:{assetId:"${r.assetId}", assetName:"${a.id}"}}, then set every MeshPart's Color to Color3.new(1, 1, 1): Studio multiplies vertex colours by it (default grey makes the model ~35% darker).`
         : '';
+      if (r.assetType === 'Decal') {
+        // ImageLabel.Image can't show a Decal id: resolve the Image inside it.
+        try {
+          const imageId = await resolveDecalImage(ctx.session, r.assetId);
+          recordImageId(P, a.id, imageId);
+          return { text: `uploaded ${a.id} → decal ${r.assetId}, image ${imageId} (${r.operation}). Use rbxassetid://${imageId} in ImageLabel.Image / Decal.Texture (recorded as ref.assetId).`, summary: `image ${imageId}` };
+        } catch (e) {
+          return { text: `uploaded ${a.id} → decal ${r.assetId} (${r.operation}), but its image id is not resolved yet: ${(e as Error).message}\nThe decal id does NOT display in an ImageLabel. Retry: asset {action:"resolve", id:"${a.id}"} (Studio open; moderation can take a minute).`, isError: true, summary: 'image id unresolved' };
+        }
+      }
       return { text: `uploaded ${a.id} → asset ${r.assetId} (${r.operation})${meshNote}`, summary: 'uploaded' };
     },
   },

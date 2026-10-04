@@ -52,7 +52,7 @@ export function planUpload(projectPath: string, id: string): { plan: UploadPlan;
   };
 }
 
-export async function uploadAsset(projectPath: string, id: string, o: { confirm?: boolean; client?: OpenCloud; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ dryRun: true; plan: UploadPlan } | { dryRun: false; assetId: number; operation: string }> {
+export async function uploadAsset(projectPath: string, id: string, o: { confirm?: boolean; client?: OpenCloud; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ dryRun: true; plan: UploadPlan } | { dryRun: false; assetId: number; operation: string; assetType: string }> {
   const { plan } = planUpload(projectPath, id);
   if (!o.confirm) return { dryRun: true, plan };
   if (!o.client && !openCloudKey()) throw new Error(NO_KEY);
@@ -66,5 +66,15 @@ export async function uploadAsset(projectPath: string, id: string, o: { confirm?
   e.uploaded = { assetId, operation: op.path, at: new Date().toISOString() };
   e.ref.assetId = assetId;
   saveManifest(projectPath, m);
-  return { dryRun: false, assetId, operation: op.path };
+  return { dryRun: false, assetId, operation: op.path, assetType: plan.assetType };
+}
+
+// After a Decal upload: point ref.assetId at the Image inside it.
+export function recordImageId(projectPath: string, id: string, imageId: number): void {
+  const m = loadManifest(projectPath);
+  const e = m.assets.find((a) => a.id === id);
+  if (!e?.uploaded) throw new Error(`"${id}" has not been uploaded`);
+  e.uploaded.imageId = imageId;
+  e.ref.assetId = imageId;
+  saveManifest(projectPath, m);
 }

@@ -36,7 +36,7 @@ design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, Profile
 receipts) — follow FRAMEWORK.md; kit apply boilerplate = framework only. Before building a map, UI
 or big prop: scout {action:"search", need, kind} finds free packs (Store, DevForum, web
 leads); try (quarantined, verdict) → adopt (scripts stripped, provenance
-recorded) and adapt, or discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
+recorded) and adapt, or discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} first.
 
 ## Multiplayer
 PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multiplayer",
@@ -60,8 +60,8 @@ state} → verify.
 release {action:"check"} lists every gate; publishing, live config and monetization are
 human decisions: prepare and dry-run, never confirm unless asked. After launch: liveops
 report → propose → apply (local), then a new release.
-UI: BloxUI (ui {action:"install"}): scale-sized, 44px touch targets, safe area; then
-ui {action:"lint"} on every device size, fix all errors.
+UI pack? scout preview, clone its panels (skill ui-packs); else BloxUI (ui install,
+44px targets). Then ui {action:"lint"} on all device sizes, fix every error.
 Store page: present {action:"generate"} → fix shot cameras → present {action:"render"}
 (16:9 viewport) → present {action:"lint"}; final title/art and upload are human.
 

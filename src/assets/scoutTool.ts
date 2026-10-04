@@ -8,6 +8,7 @@ import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
 import { addAsset, loadManifest, saveManifest, type AssetEntry } from './manifest.js';
 import { runSanitize } from './scan.js';
+import { formatPreview, MAX_PANELS, runPreview } from './preview.js';
 import {
   adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
@@ -15,10 +16,13 @@ import {
 import { assetDetails, assetTypeName, devforumSearch, kindAllows, type FetchLike, type OffsiteLead } from './scoutWeb.js';
 
 export const SCOUT_DESCRIPTION =
-  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | discard {id}. Nothing is bought or uploaded.';
+  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | preview {id or path, panels?, show_all?, max?=12} (for UI packs: one playtest that shows each panel — a GuiObject directly under a ScreenGui, Folder or the pack root — alone, centred, made visible, sized if it had no size, and returns a screenshot of each; use it after try, before judging or adopting, and when building menus from a pack) | discard {id}. Nothing is bought or uploaded.';
 
 export const scoutShape = {
-  action: z.enum(['search', 'try', 'adopt', 'discard', 'import']),
+  action: z.enum(['search', 'try', 'adopt', 'discard', 'import', 'preview']),
+  path: z.string().optional(),
+  panels: z.array(z.string()).optional(),
+  show_all: z.boolean().optional(),
   need: z.string().optional(),
   kind: z.enum(SCOUT_KINDS as [ScoutKind, ...ScoutKind[]]).optional(),
   max: z.number().int().positive().max(20).optional(),
@@ -339,6 +343,27 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
   }
 
   if (a.action === 'import') return importPack(a, P, fetchOf(ctx));
+
+  if (a.action === 'preview') {
+    const e = typeof a.id === 'string' ? loadManifest(P).assets.find((x) => x.id === a.id) : undefined;
+    const path = typeof a.path === 'string' ? a.path.replace(/^game\./, '') : e?.ref.path;
+    if (!path) return err(typeof a.id === 'string' && !e ? `no asset "${a.id}" in .blox/assets.json — pass path` : 'preview needs id (a tried/adopted asset) or path', 'no path');
+    const id = typeof a.id === 'string' ? a.id : path.split('.').pop()!;
+    const r = await runPreview(ctx.session, P, {
+      id, path,
+      ...(Array.isArray(a.panels) ? { panels: a.panels as string[] } : {}),
+      showAll: a.show_all === true,
+      max: typeof a.max === 'number' ? Math.min(a.max, MAX_PANELS) : MAX_PANELS,
+    });
+    const shots = r.shots.filter((s) => s.screenshot);
+    return {
+      text: formatPreview(id, path, r),
+      images: shots.map((s) => ({ data: s.screenshot!.data, mimeType: s.screenshot!.mimeType })),
+      artifacts: shots.map((s) => s.screenshot!.path),
+      isError: r.shots.length > 0 && shots.length === 0,
+      summary: `${shots.length}/${r.shots.length} panels`,
+    };
+  }
 
   if (a.action === 'try') {
     if (a.asset_id === undefined || typeof a.id !== 'string') return err('try needs asset_id (from a search) and id (manifest id, e.g. "obbyMap")', 'missing args');

@@ -128,6 +128,7 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.seconds === 'string' ? { seconds: Number(o.seconds) } : {}),
           ...(typeof o.prepare === 'string' ? { prepare: o.prepare } : {}),
           ...(typeof o.devices === 'string' ? { devices: o.devices.split(',') } : {}),
+          ...(o['no-sync'] ? { sync: false } : {}),
         },
       };
     case 'present': {
@@ -220,12 +221,27 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action, file: f.rest[1], ...(typeof o.out === 'string' ? { out: o.out } : {}), ...num('tris'), ...num('height'), ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
         case 'upload':
           return { tool: 'asset', args: { action, id: f.rest[1], ...(o.confirm === true ? { confirm: true } : {}) } };
+        case 'resolve':
+          return { tool: 'asset', args: { action, ...(/^\d+$/.test(f.rest[1] ?? '') ? { asset_id: Number(f.rest[1]) } : { id: f.rest[1] }) } };
         default:
           return { tool: 'asset', args: { action } };
       }
     }
     case 'scout': {
       const sub = f.rest[0];
+      if (sub === 'preview') {
+        const target = f.rest[1] ?? '';
+        return {
+          tool: 'scout',
+          args: {
+            action: 'preview',
+            ...(target.includes('.') ? { path: target } : { id: target }),
+            ...(typeof o.panels === 'string' ? { panels: o.panels.split(',') } : {}),
+            ...(o['show-all'] === true ? { show_all: true } : {}),
+            ...(typeof o.max === 'string' ? { max: Number(o.max) } : {}),
+          },
+        };
+      }
       if (sub === 'try') return { tool: 'scout', args: { action: 'try', asset_id: f.rest[1], ...(typeof o.id === 'string' ? { id: o.id } : {}), ...(typeof o.kind === 'string' ? { kind: o.kind } : {}) } };
       if (sub === 'import') {
         const src = f.rest[1] ?? '';
@@ -339,12 +355,12 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox check [--fix]             (stylua + luau-lsp + rojo build, no Studio)
            blox kit [list]                blox kit apply <name>   (format kits: proven loops)
            blox metrics ftue|soak|install [--seconds N] [--bot walk|idle|<file>] [--archetype id]
-           blox ui lint|install [--devices a,b] [--prepare '<client luau>']
+           blox ui lint|install [--devices a,b] [--prepare '<client luau>'] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
-           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]
+           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
-           blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
+           blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
            blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
