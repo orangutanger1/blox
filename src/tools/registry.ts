@@ -40,6 +40,7 @@ import { recordImageId, uploadAsset } from '../assets/upload.js';
 import { resolveDecalImage } from '../assets/decal.js';
 import { refreshRefs, relinkAsset } from '../assets/locate.js';
 import { saveAllPacks, savePack } from '../assets/packs.js';
+import { setSheetImage, writeSheet } from '../assets/sheet.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
@@ -703,9 +704,16 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'asset',
     description:
-      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal) | save {id?} (write an adopted pack — every instance carrying its tag — to assets/packs/<id>.rbxm so sync can put it back; no id saves all; re-run after adapting a pack) | relink {id, path} (point an entry at the instance now at path; blox tags placed assets and follows renames itself, so this is only for entries scan reports as not found).',
+      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal) | sheet {id, files (PNGs or folders), licence, attribution?, source_url?, cell?=128, pad?=2, out?, module?} (pack icons into one image — one upload instead of one per icon — plus a Luau module: require it and Sheet.apply(imageLabel, "coin"); upload fills in the image id; re-run to change icons) | save {id?} (write an adopted pack — every instance carrying its tag — to assets/packs/<id>.rbxm so sync can put it back; no id saves all; re-run after adapting a pack) | relink {id, path} (point an entry at the instance now at path; blox tags placed assets and follows renames itself, so this is only for entries scan reports as not found).',
     shape: {
-      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve', 'relink', 'save']),
+      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve', 'relink', 'save', 'sheet']),
+      files: z.array(z.string()).optional(),
+      cell: z.number().int().positive().optional(),
+      pad: z.number().int().nonnegative().optional(),
+      module: z.string().optional(),
+      licence: z.enum(['owned', 'cc0', 'cc-by', 'generated-roblox', 'unknown']).optional(),
+      attribution: z.string().optional(),
+      source_url: z.string().optional(),
       entry: z.unknown().optional(),
       path: z.string().optional(),
       id: z.string().optional(),
@@ -757,6 +765,42 @@ export const TOOLS: BloxTool[] = [
           id ? `recorded on asset "${id}"` : 'pass id to record this in .blox/assets.json',
         ];
         return { text: lines.join('\n'), summary: `${findings.length} risks` };
+      }
+      if (a.action === 'sheet') {
+        if (typeof a.id !== 'string' || !Array.isArray(a.files) || typeof a.licence !== 'string') return { text: 'sheet needs id, files (PNG paths or folders) and licence (of the icons: owned | cc0 | cc-by | generated-roblox | unknown)', isError: true, summary: 'missing args' };
+        const bad = [...(a.files as string[]), a.out, a.module].find((f) => typeof f === 'string' && !isPathContained(P, f));
+        if (bad) return { text: `${bad} is outside the project`, isError: true, summary: 'outside project' };
+        let r;
+        try {
+          r = writeSheet(P, { id: a.id, files: a.files as string[], cell: a.cell as number | undefined, pad: a.pad as number | undefined, out: a.out as string | undefined, module: a.module as string | undefined });
+        } catch (e) {
+          return { text: `sheet failed: ${(e as Error).message}`, isError: true, summary: 'failed' };
+        }
+        const m = loadManifest(P);
+        const old = m.assets.find((x) => x.id === a.id);
+        const provenance = { tool: 'sheet', prompt: `icons: ${r.files.join(', ')}`.slice(0, 2000), ...(typeof a.source_url === 'string' ? { url: a.source_url } : {}), createdAt: new Date().toISOString() };
+        if (old && old.provenance.tool !== 'sheet') return { text: `asset id "${a.id}" is already used by a ${old.provenance.tool} entry — pick another id`, isError: true, summary: 'id taken' };
+        if (old) {
+          // New pixels: the old upload and approval no longer describe this image.
+          Object.assign(old, { licence: a.licence, ref: { file: r.map.image }, provenance, status: 'candidate' });
+          if (typeof a.attribution === 'string') old.attribution = a.attribution;
+          delete old.uploaded;
+          saveManifest(P, m);
+        } else {
+          const added = addAsset(P, { id: a.id, kind: 'image', source: a.licence === 'owned' ? 'generated' : 'external', licence: a.licence, ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}), ref: { file: r.map.image }, provenance });
+          if (!added.ok) return { text: `could not record ${a.id}: ${added.errors.join('; ')}`, isError: true, summary: 'invalid' };
+        }
+        const names = Object.keys(r.map.icons);
+        return {
+          text: [
+            `packed ${names.length} icon(s) into ${r.map.image} (${r.w}×${r.h}, ${r.map.cell}px cells); module ${r.map.module}`,
+            `icons: ${names.join(', ')}`,
+            `Use: local Sheet = require(<the module>); Sheet.apply(imageLabel, "${names[0]}")`,
+            `"${a.id}" is a candidate${old ? ' again (the pixels changed)' : ''}: a human approves it (\`blox asset approve ${a.id}\`), then asset {action:"upload", id:"${a.id}", confirm:true} sets the module's image id.`,
+          ].join('\n'),
+          artifacts: [r.map.image],
+          summary: `${names.length} icons`,
+        };
       }
       if (a.action === 'save') {
         try {
@@ -825,8 +869,8 @@ export const TOOLS: BloxTool[] = [
         const decal = e?.uploaded?.assetId ?? (a.asset_id as number | undefined);
         if (!decal) return { text: 'resolve needs id of an uploaded image (or asset_id of a decal)', isError: true, summary: 'no decal' };
         const imageId = await resolveDecalImage(ctx.session, decal);
-        if (e?.uploaded) recordImageId(P, e.id, imageId);
-        return { text: `decal ${decal} → image ${imageId}${e?.uploaded ? ` (recorded on "${e.id}" as ref.assetId)` : ''}. Use rbxassetid://${imageId}.`, summary: `image ${imageId}` };
+        const mod = e?.uploaded ? (recordImageId(P, e.id, imageId), setSheetImage(P, e.id, e.ref.file, imageId)) : null;
+        return { text: `decal ${decal} → image ${imageId}${e?.uploaded ? ` (recorded on "${e.id}" as ref.assetId)` : ''}${mod ? `; ${mod} now uses it` : ''}. Use rbxassetid://${imageId}.`, summary: `image ${imageId}` };
       }
       if (typeof a.id !== 'string') return { text: 'upload needs id', isError: true, summary: 'no id' };
       const r = await uploadAsset(P, a.id, { confirm: a.confirm === true });
@@ -844,7 +888,8 @@ export const TOOLS: BloxTool[] = [
         try {
           const imageId = await resolveDecalImage(ctx.session, r.assetId);
           recordImageId(P, a.id, imageId);
-          return { text: `uploaded ${a.id} → decal ${r.assetId}, image ${imageId} (${r.operation}). Use rbxassetid://${imageId} in ImageLabel.Image / Decal.Texture (recorded as ref.assetId).`, summary: `image ${imageId}` };
+          const mod = setSheetImage(P, a.id, loadManifest(P).assets.find((x) => x.id === a.id)?.ref.file, imageId);
+          return { text: `uploaded ${a.id} → decal ${r.assetId}, image ${imageId} (${r.operation}). Use rbxassetid://${imageId} in ImageLabel.Image / Decal.Texture (recorded as ref.assetId)${mod ? `; ${mod} now uses it` : ''}.`, summary: `image ${imageId}` };
         } catch (e) {
           return { text: `uploaded ${a.id} → decal ${r.assetId} (${r.operation}), but its image id is not resolved yet: ${(e as Error).message}\nThe decal id does NOT display in an ImageLabel. Retry: asset {action:"resolve", id:"${a.id}"} (Studio open; moderation can take a minute).`, isError: true, summary: 'image id unresolved' };
         }
