@@ -24,6 +24,7 @@ function ctx(seen: { dm: string; code: string }[], shots = true): ToolCtx {
   addAsset(projectPath, { id: 'pack', kind: 'model', source: 'creator-store', licence: 'roblox-creator-store', ref: { assetId: 1, path: 'ServerStorage.BloxScout.pack' }, provenance: { tool: 'scout', createdAt: 'x' } });
   const f = fakeStudio({
     luau: (code, dm) => {
+      if (code.includes('BLOX_LOCATE')) return env([JSON.stringify({ result: [] })]);
       seen.push({ dm, code });
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('local WANT')) return env([JSON.stringify({ panels, total: 3 })]);

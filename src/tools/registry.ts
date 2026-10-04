@@ -38,6 +38,7 @@ import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, t
 import { realSpawn, rojoBin } from '../sync/rojo.js';
 import { recordImageId, uploadAsset } from '../assets/upload.js';
 import { resolveDecalImage } from '../assets/decal.js';
+import { refreshRefs, relinkAsset } from '../assets/locate.js';
 import { formatRelease, releaseCheck } from '../release/check.js';
 import { buildPlace, loadTarget, publishRelease } from '../release/publish.js';
 import { AnalyticsSchema, fetchAnalytics, gradeAnalytics, type Finding } from '../liveops/analytics.js';
@@ -701,9 +702,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'asset',
     description:
-      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal).',
+      'Asset manifest (.blox/assets.json: licence, provenance, sanitize record, budget, human approval) and pipeline. list | add {entry} (status starts as candidate) | sanitize {path, id?, asset_id?, keep_scripts?} (inspect an inserted Creator Store model for backdoors — remote require, getfenv, loadstring, HttpService, obfuscation — and remove its scripts) | scan (asset ids referenced in the place vs the manifest) | lint (asset:<rule>) | normalize {file, out?, tris?=10000, height?, id?} (headless Blender: decimate, scale, pivot, FBX) | upload {id, confirm?} (Open Cloud; only for human-approved entries — approval is `blox asset approve <id>`, a human CLI step — with confirm and ROBLOX_OPEN_CLOUD_KEY; without confirm it is a dry run; an image upload also resolves the Image id inside the Decal and records it as ref.assetId) | resolve {id | asset_id} (decal → image id, when that step failed or for any decal) | relink {id, path} (point an entry at the instance now at path; blox tags placed assets and follows renames itself, so this is only for entries scan reports as not found).',
     shape: {
-      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve']),
+      action: z.enum(['list', 'add', 'sanitize', 'scan', 'lint', 'normalize', 'upload', 'resolve', 'relink']),
       entry: z.unknown().optional(),
       path: z.string().optional(),
       id: z.string().optional(),
@@ -756,14 +757,25 @@ export const TOOLS: BloxTool[] = [
         ];
         return { text: lines.join('\n'), summary: `${findings.length} risks` };
       }
+      if (a.action === 'relink') {
+        if (typeof a.id !== 'string' || typeof a.path !== 'string') return { text: 'relink needs id and path', isError: true, summary: 'missing args' };
+        try {
+          const notes = await relinkAsset(ctx.session, P, a.id, a.path);
+          const e = loadManifest(P).assets.find((x) => x.id === a.id)!;
+          return { text: [`${a.id} → ${e.ref.path} (tag ${e.ref.tag})`, ...notes.map((n) => `  ${n}`)].join('\n'), summary: 'relinked' };
+        } catch (e) {
+          return { text: (e as Error).message, isError: true, summary: 'failed' };
+        }
+      }
       if (a.action === 'scan') {
+        const moved = await refreshRefs(ctx.session, P);
         const m = loadManifest(P);
         const r = await runLuau(ctx.session, scanProgram(trackedPaths(m)), 'edit', { chunkName: 'assetScan', timeoutMs: 60_000 });
         if (!r.ok) return { text: `scan failed: ${r.error?.message}`, isError: true, summary: 'failed' };
         const untracked = untrackedFromScan(r.values[0], m);
         // covered: ids inside tracked models, so code that names one (release code-ids) is not flagged
         writeJson(P, 'asset-scan.json', { at: new Date().toISOString(), untracked, covered: coveredFromScan(r.values[0], m) });
-        return { text: [`${untracked.length} untracked asset id(s)`, ...untracked.slice(0, 30).map((u) => `  ${u.id}  ${u.where}`)].join('\n'), summary: `${untracked.length} untracked` };
+        return { text: [...(moved.length ? ['asset paths updated:', ...moved.map((x) => `  ${x}`)] : []), `${untracked.length} untracked asset id(s)`, ...untracked.slice(0, 30).map((u) => `  ${u.id}  ${u.where}`)].join('\n'), summary: `${untracked.length} untracked` };
       }
       if (a.action === 'lint') {
         const scan = readJson<{ untracked: { id: string; where: string }[] }>(P, 'asset-scan.json') ?? undefined;

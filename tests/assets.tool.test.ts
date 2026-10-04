@@ -15,6 +15,7 @@ function ctx(): ToolCtx {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-atool-'));
   const f = fakeStudio({
     luau: (code) => {
+      if (code.includes('BLOX_LOCATE')) return env(JSON.stringify({ result: [] }));
       if (code.includes('PROPS')) return env(JSON.stringify([{ id: 555, where: 'Workspace.Rock.MeshId', count: 1 }]));
       if (code.includes('LuaSourceContainer')) return env(JSON.stringify({ path: 'Workspace.Tree', removed: 1, parts: 12, meshParts: 2, textures: 1, scripts: [{ path: 'Workspace.Tree.Spread', class: 'Script', source: 'require(1234567890)' }] }));
       return env(null);
