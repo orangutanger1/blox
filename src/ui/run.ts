@@ -22,6 +22,24 @@ export function pickDevices(names?: string[]): Device[] {
   });
 }
 
+// Lays the player's GUI out at device d (client context, play mode), page by page.
+export async function probeDevice(session: StudioSession, d: Device): Promise<{ elements: UiElement[]; sources: number }> {
+  const elements: UiElement[] = [];
+  let sources = 0;
+  let skip = 0;
+  for (let i = 0; ; i++) {
+    if (i >= MAX_PAGES) throw new Error(`ui probe: more than ${MAX_PAGES} pages of elements on ${d.name}`);
+    const r = await runLuau(session, uiProbeProgram(d, skip), 'client', { chunkName: 'uiProbe', timeoutMs: 60_000 });
+    if (!r.ok) throw new Error(`ui probe failed on ${d.name}: ${r.error?.message}`);
+    const page = parseProbePage(r.values[0]);
+    sources = page.sources;
+    elements.push(...page.elements);
+    if (page.next === null) return { elements, sources };
+    if (page.next <= skip) throw new Error(`ui probe made no progress on ${d.name} at element ${skip}`);
+    skip = page.next;
+  }
+}
+
 export async function runUiLint(session: StudioSession, o: UiLintOptions): Promise<UiReport> {
   const devices = pickDevices(o.devices);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -36,20 +54,9 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
       if (!p.ok) notes.push(`prepare failed: ${p.error?.message}`);
     }
     for (const d of devices) {
-      const els: UiElement[] = [];
-      let skip = 0;
-      for (let i = 0; ; i++) {
-        if (i >= MAX_PAGES) throw new Error(`ui probe: more than ${MAX_PAGES} pages of elements on ${d.name}`);
-        const r = await runLuau(session, uiProbeProgram(d, skip), 'client', { chunkName: 'uiProbe', timeoutMs: 60_000 });
-        if (!r.ok) throw new Error(`ui probe failed on ${d.name}: ${r.error?.message}`);
-        const page = parseProbePage(r.values[0]);
-        sources = page.sources;
-        els.push(...page.elements);
-        if (page.next === null) break;
-        if (page.next <= skip) throw new Error(`ui probe made no progress on ${d.name} at element ${skip}`);
-        skip = page.next;
-      }
-      pages[d.name] = els;
+      const p = await probeDevice(session, d);
+      sources = p.sources;
+      pages[d.name] = p.elements;
     }
   } finally {
     if (!info.alreadyRunning) await stopPlay(session).catch(() => false);
