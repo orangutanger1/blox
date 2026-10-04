@@ -17,6 +17,8 @@ export interface SearchHit {
   isFree?: boolean;
   priceCents?: number;
   creatorStoreUrl?: string;
+  sourceUrl?: string; // the DevForum thread that announced it
+  licenceNote?: string;
 }
 export interface Ranked extends SearchHit {
   hits: number;
@@ -53,14 +55,19 @@ export function mergeResults(perQuery: SearchHit[][], need: string, _kind: Scout
       if (!isFreeHit(h) || seen.has(h.assetId)) continue;
       seen.add(h.assetId);
       const prev = byId.get(h.assetId);
-      if (prev) prev.hits++;
+      if (prev) {
+        prev.hits++;
+        if (h.sourceUrl && !prev.sourceUrl) Object.assign(prev, { sourceUrl: h.sourceUrl, ...(h.licenceNote ? { licenceNote: h.licenceNote } : {}) });
+      }
       else byId.set(h.assetId, { ...h, hits: 1, score: 0, order: order++ });
     }
   }
   const needWords = new Set(words(need));
   const out = [...byId.values()].map((r) => {
     const nameWords = [...new Set(words(r.name))];
-    const score = 2 * r.hits + nameWords.filter((w) => needWords.has(w)).length + (KIND_WORDS.test(r.name) ? 1 : 0);
+    // A pack announced in a DevForum resources thread was published on purpose
+    // and discussed in public: rank it above keyword-stuffed store uploads.
+    const score = 2 * r.hits + nameWords.filter((w) => needWords.has(w)).length + (KIND_WORDS.test(r.name) ? 1 : 0) + (r.sourceUrl ? 3 : 0);
     return { ...r, score };
   });
   out.sort((a, b) => b.score - a.score || a.order - b.order);

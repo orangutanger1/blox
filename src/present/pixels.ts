@@ -31,7 +31,16 @@ export function decodePng(b: Buffer): SmallImage | null {
   }
 }
 
-function png(b: Buffer): SmallImage | null {
+// Full resolution (no 8× box-downsample), for image edits like the icon crop.
+export function decodePngFull(b: Buffer): SmallImage | null {
+  try {
+    return png(b, 1);
+  } catch {
+    return null;
+  }
+}
+
+function png(b: Buffer, scale = SCALE): SmallImage | null {
   if (b.length < 33 || b.readUInt32BE(0) !== 0x89504e47) return null;
   let i = 8;
   let w = 0, h = 0, depth = 0, type = -1, interlace = 0;
@@ -59,7 +68,7 @@ function png(b: Buffer): SmallImage | null {
   // Bounded: a tiny IDAT must not inflate past what the header declares.
   const raw = inflateSync(Buffer.concat(idat), { maxOutputLength: h * (stride + 1) });
   if (raw.length < h * (stride + 1)) return null;
-  const sw = Math.ceil(w / SCALE), sh = Math.ceil(h / SCALE);
+  const sw = Math.ceil(w / scale), sh = Math.ceil(h / scale);
   const sum = new Float64Array(sw * sh * 3);
   const cnt = new Float64Array(sw * sh);
   let prev = new Uint8Array(stride);
@@ -82,7 +91,7 @@ function png(b: Buffer): SmallImage | null {
       row[x] = (src[x] + pred) & 255;
     }
     prev = row;
-    const sy = Math.floor(y / SCALE);
+    const sy = Math.floor(y / scale);
     for (let x = 0; x < w; x++) {
       const o = x * ch;
       let r: number, g: number, bl: number;
@@ -92,7 +101,7 @@ function png(b: Buffer): SmallImage | null {
         [r, g, bl] = [palette![p], palette![p + 1], palette![p + 2]];
       } else if (ch <= 2) r = g = bl = row[o];
       else [r, g, bl] = [row[o], row[o + 1], row[o + 2]];
-      const k = sy * sw + Math.floor(x / SCALE);
+      const k = sy * sw + Math.floor(x / scale);
       sum[k * 3] += r;
       sum[k * 3 + 1] += g;
       sum[k * 3 + 2] += bl;

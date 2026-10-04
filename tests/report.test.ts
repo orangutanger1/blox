@@ -19,6 +19,12 @@ describe('formatReport', () => {
     expect(out).toContain('$0.0123');
   });
 
+  it('prints the agent\'s closing report before the changed files', () => {
+    const out = formatReport({ prompt: 'p', changedFiles: ['a.luau'], commitSha: null, numTurns: 1, costUsd: 0, status: 'success', finalText: 'Built the HUD.\nScouted: lowPolyPack.' });
+    expect(out).toMatch(/agent report:\n  Built the HUD\.\n  Scouted: lowPolyPack\.\nchanged files/);
+    expect(formatReport({ prompt: 'p', changedFiles: [], commitSha: null, numTurns: 1, costUsd: 0, status: 'success' })).not.toMatch(/agent report/);
+  });
+
   it('shows "(none)" when there is no commit', () => {
     const r: RunReport = {
       prompt: 'noop',

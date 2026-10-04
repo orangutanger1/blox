@@ -173,6 +173,7 @@ export async function runOnce(config: BloxConfig, prompt: string, deps: RunOnceD
     status,
     stopReason: agent.stopReason,
     detail: sync.ok ? agent.detail : sync.detail,
+    ...(agent.finalText ? { finalText: agent.finalText } : {}),
     mode: config.mode,
     effort: config.effort,
     sessionId: agent.sessionId,

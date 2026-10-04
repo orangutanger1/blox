@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { longString } from '../studio/luau.js';
 import { RESOLVE_LUAU } from './modelRig.js';
 import type { ModelState } from './animation-tool.js';
@@ -249,4 +249,27 @@ export function readWired(projectPath: string): Wired {
 export function saveWired(projectPath: string, wired: Wired): void {
   mkdirSync(dirname(wiredFile(projectPath)), { recursive: true });
   writeFileSync(wiredFile(projectPath), JSON.stringify(wired, null, 2));
+}
+
+// Project scripts that already play animations on this model (by its name):
+// with the loader too, two scripts load tracks on one Animator and fight.
+export function otherAnimators(projectPath: string, modelName: string): string[] {
+  const root = join(projectPath, 'src');
+  if (!existsSync(root) || !modelName) return [];
+  const out: string[] = [];
+  const name = new RegExp(`["'.]${modelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  const walk = (d: string) => {
+    for (const e of readdirSync(d)) {
+      const f = join(d, e);
+      if (statSync(f).isDirectory()) walk(f);
+      else if (/\.luau?$/.test(e)) {
+        const rel = relative(projectPath, f).split(sep).join('/');
+        if (rel === MODEL_LOADER_PATH) continue;
+        const src = readFileSync(f, 'utf8');
+        if (name.test(src) && /:LoadAnimation\(/.test(src)) out.push(rel);
+      }
+    }
+  };
+  walk(root);
+  return out.sort();
 }

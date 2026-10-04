@@ -177,6 +177,7 @@ export async function runOpenAiAgent(
       status: ok ? 'success' : 'error',
       stopReason: gatedStop ? 'gated' : stopReason(r.stop),
       detail: gatedStop ? 'gated' : r.stop === 'done' ? 'success' : r.error ? `model API: ${r.error}` : r.stop,
+      ...(r.final.trim() ? { finalText: r.final.trim() } : {}),
     };
   } catch (e) {
     save();

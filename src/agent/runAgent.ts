@@ -104,6 +104,8 @@ export interface AgentRunResult {
   status: 'success' | 'error';
   stopReason: StopReason;
   detail: string;
+  // The agent's closing message (its own report of what it did).
+  finalText?: string;
   sessionId: string | null;
   gatedActions: GatedAction[];
   deniedByUser: string[];
@@ -166,6 +168,7 @@ export function summarizeResult(
     status: gated ? 'error' : baseStatus,
     stopReason: gated ? 'gated' : apiError ? 'error' : classifyStop(message.subtype),
     detail: gated ? 'gated' : apiError ? String(message.result ?? 'API error').slice(0, 300) : message.subtype,
+    ...(!apiError && typeof message.result === 'string' && message.result.trim() ? { finalText: message.result.trim() } : {}),
     sessionId: message.session_id,
     gatedActions,
     deniedByUser,

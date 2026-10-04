@@ -71,3 +71,16 @@ describe('scoutFile', () => {
     expect(scoutFile('Lava Obby!', 'map')).toBe('scout/lava-obby-map.json');
   });
 });
+
+describe('mergeResults DevForum boost', () => {
+  it('ranks a DevForum-announced pack above a store hit with the same words, and keeps its thread when found twice', async () => {
+    const { mergeResults } = await import('../src/assets/scout.js');
+    const store = { assetId: '1', name: 'park pack', isFree: true, priceCents: 0 };
+    const forum = { assetId: '2', name: 'park pack', isFree: true, priceCents: 0, sourceUrl: 'https://devforum.roblox.com/t/x/2' };
+    const both = { ...store, sourceUrl: 'https://devforum.roblox.com/t/y/1', licenceNote: 'free to use' };
+    const r = mergeResults([[store], [forum]], 'park', 'model');
+    expect(r.map((x) => x.assetId)).toEqual(['2', '1']);
+    const r2 = mergeResults([[store], [both]], 'park', 'model');
+    expect(r2[0]).toMatchObject({ assetId: '1', hits: 2, sourceUrl: 'https://devforum.roblox.com/t/y/1', licenceNote: 'free to use' });
+  });
+});

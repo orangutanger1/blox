@@ -34,9 +34,9 @@ successful tool call.
 kit {action:"list"} / kit {action:"apply", name}: a tested loop (modules, world, specs,
 design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, ProfileStore, safe
 receipts) — follow FRAMEWORK.md; kit apply boilerplate = framework only. Before building a map, UI
-or big prop: scout {action:"search", need, kind} finds free Creator Store templates/packs;
-try (quarantined, verdict) → adopt (scripts stripped, provenance recorded) and adapt, or
-discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
+or big prop: scout {action:"search", need, kind} finds free packs (Store, DevForum, web
+leads); try (quarantined, verdict) → adopt (scripts stripped, provenance
+recorded) and adapt, or discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} before writing that code.
 
 ## Multiplayer
 PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multiplayer",

@@ -14,7 +14,7 @@ import { makePng } from './helpers/png.js';
 let n = 0;
 const capture = () => {
   const i = n++;
-  return makePng(160, 90, 2, (x) => (x < 20 + (i % 6) * 24 ? [40 * (i % 6), 20, 200 - 30 * (i % 6)] : [250, 240 - 35 * (i % 6), 120]));
+  return makePng(160, 90, 2, (x, y) => (x < 20 + (i % 6) * 24 && y > 12 ? [40 * (i % 6), 20, 200 - 30 * (i % 6)] : [250, 240 - 35 * (i % 6), 120]));
 };
 function ctx(): ToolCtx {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-ptool-'));

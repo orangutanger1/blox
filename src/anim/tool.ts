@@ -6,7 +6,7 @@ import { rigFor } from './rigs.js';
 import { loadRecipes } from './recipes.js';
 import { ANIM_NAME, clearRigReading, loadReport, loadRigReading, saveChecked, saveRigReading } from './store.js';
 import { RIGS } from './rigs.js';
-import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, planModelLoader, readWired, saveWired, wireModelProgram, writeModelLoader } from './npc.js';
+import { MODEL_LOADER_PATH, MODEL_TAG, NPC_NAME, npcProgram, otherAnimators, planModelLoader, readWired, saveWired, wireModelProgram, writeModelLoader } from './npc.js';
 import { LOADER_PACE, MAX_GROUND_SPEED, judgeMovement, type ModelState } from './animation-tool.js';
 import { relative } from 'node:path';
 import { runLuau } from '../studio/luau.js';
@@ -341,6 +341,8 @@ async function wireModel(a: Record<string, unknown>, ctx: ToolCtx): Promise<Tool
     const s = await syncLoader(ctx, lines);
     if (!s) return { text: lines.join('\n'), isError: true, summary: 'sync failed' };
   }
+  const others = otherAnimators(P, at.split('.').pop() ?? '');
+  if (others.length) lines.push(`warning: ${others.join(', ')} also load${others.length === 1 ? 's' : ''} animations on ${at}; with ${MODEL_LOADER_PATH} both play tracks on its Animator and fight — let one own it (drop that script's LoadAnimation, or don't wire the loader)`);
   lines.push(`Next: animate {action:"verify", model:"${at}", name:"${seq.name}"}`);
   return { text: lines.join('\n'), summary: `wired ${state}` };
 }

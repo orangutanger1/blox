@@ -30,6 +30,19 @@ const DOC = {
 };
 
 describe('design tool', () => {
+  it('example is a valid doc that simulates with every assertion passing, and a failed set shows it', async () => {
+    const c = ctx();
+    const ex = await call('design', { action: 'example' }, c);
+    const doc = JSON.parse(ex.text.split('\n')[0]);
+    expect((await call('design', { action: 'set', doc }, c)).isError).toBeFalsy();
+    const sim = await call('design', { action: 'simulate', runs: 5 }, c);
+    expect(sim.isError, sim.text).toBeFalsy();
+    const bad = await call('design', { action: 'set', doc: { version: 1, meta: { name: 'x' } } }, c);
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/A valid doc to copy shapes from:\n\{"version":1/);
+    expect((await call('design', { action: 'get' }, ctx())).text).toMatch(/design \{action:"example"\}/);
+  });
+
   it('set → validate → simulate → codegen, without Studio', async () => {
     const c = ctx();
     expect((await call('design', { action: 'set', doc: DOC }, c)).isError).toBeFalsy();
