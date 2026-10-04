@@ -60,12 +60,13 @@ function makeZip(files: Record<string, string>): Buffer {
 }
 const details = (name: string, typeId: number, free: boolean) => ({ Name: name, Description: '', AssetTypeId: typeId, IsPublicDomain: free, PriceInRobux: null, Creator: { Name: 'Forumer' } });
 
-function ctx(opts: { scripts?: { path: string; class: string; source: string }[]; moveFails?: boolean; left?: number; web?: Web; fetched?: string[] } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
+function ctx(opts: { scripts?: { path: string; class: string; source: string }[]; moveFails?: boolean; left?: number; web?: Web; fetched?: string[]; located?: Record<string, { paths: string[]; tagged: boolean }> } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-scout-'));
   const luau: string[] = [];
   const f = fakeStudio({
     luau: (code) => {
       luau.push(code);
+      if (code.includes('BLOX_LOCATE')) return env(JSON.stringify({ result: opts.located ?? [] }));
       if (code.includes('local KEEP = ')) {
         const strip = code.includes('local KEEP = false');
         return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', className: 'Model', parts: 120, meshParts: 3, textures: 0, guis: 0, screenGuis: 0, sounds: 0, size: [200, 30, 150], removed: strip ? (opts.scripts ?? []).length : 0, scripts: opts.scripts ?? [], next: null }));
@@ -284,6 +285,22 @@ describe('scout tool', () => {
     const e = loadManifest(c.projectPath).assets[0];
     expect(e.status).toBe('rejected');
     expect(e.ref.path).toBeUndefined();
+  });
+
+  // Dog Walk: the agent renamed a scouted copy and its ref.path went stale.
+  it('try tags the copy; adopt follows the tag to where it is now', async () => {
+    const located: Record<string, { paths: string[]; tagged: boolean }> = {};
+    const { c, luau } = ctx({ located });
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    expect(loadManifest(c.projectPath).assets[0].ref).toMatchObject({ path: 'ServerStorage.BloxScout.obby', tag: 'BloxAsset_obby' });
+    expect(luau.some((l) => l.includes('AddTag([==[BloxAsset_obby]==])') || l.includes('AddTag([[BloxAsset_obby]])'))).toBe(true);
+    located.obby = { paths: ['game.ServerStorage.BloxScout.ObbyCourse'], tagged: false };
+    const r = await call({ action: 'adopt', id: 'obby', to: 'Workspace' }, c);
+    expect(r.isError).toBeFalsy();
+    const mv = luau.find((l) => l.includes('BLOX_SCOUT_MOVE'))!;
+    expect(mv).toContain('ServerStorage.BloxScout.ObbyCourse');
+    expect(mv).toMatch(/AddTag\(\[=*\[BloxAsset_obby\]=*\]\)/);
   });
 
   it('discard cleans the quarantine even when try failed before recording', async () => {

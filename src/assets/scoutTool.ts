@@ -4,6 +4,7 @@ import { basename, extname, join, relative, resolve as resolvePath } from 'node:
 import { z } from 'zod';
 import { resultText } from '../studio/session.js';
 import { longString, runLuau } from '../studio/luau.js';
+import { assetTag, refreshRefs, RESOLVE } from './locate.js';
 import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
 import { addAsset, loadManifest, saveManifest, type AssetEntry } from './manifest.js';
@@ -59,21 +60,6 @@ interface TryRecord {
 
 const err = (text: string, summary: string): ToolOutput => ({ text, isError: true, summary });
 
-// Lua resolver for a dot path; `error`s with "not found: <path>".
-const RESOLVE = `local function resolve(p)
-	local cur = game
-	for name in string.gmatch(p, "[^%.]+") do
-		if cur == game and name == "game" then continue end
-		local nxt = cur:FindFirstChild(name)
-		if not nxt and cur == game then
-			local ok, svc = pcall(function() return game:GetService(name) end)
-			nxt = ok and svc or nil
-		end
-		if not nxt then error("not found: " .. p, 0) end
-		cur = nxt
-	end
-	return cur
-end`;
 
 function quarantineLuau(name: string): string {
   return `local f = game:GetService("ServerStorage"):FindFirstChild("BloxScout")
@@ -87,7 +73,7 @@ if old then old:Destroy() end
 return "ok"`;
 }
 
-function moveLuau(from: string, to: string, unpack: boolean): string {
+function moveLuau(from: string, to: string, unpack: boolean, tag: string): string {
   return `-- BLOX_SCOUT_MOVE
 local HttpService = game:GetService("HttpService")
 ${RESOLVE}
@@ -108,6 +94,7 @@ end
 local paths = {}
 for _, c in items do
 	c.Parent = dst
+	c:AddTag(${longString(tag)})
 	table.insert(paths, c:GetFullName())
 end
 -- Unpacking leaves what it did not move (non-GUI parts of a GUI pack) in the
@@ -345,6 +332,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
   if (a.action === 'import') return importPack(a, P, fetchOf(ctx));
 
   if (a.action === 'preview') {
+    if (typeof a.id === 'string' && typeof a.path !== 'string' && loadManifest(P).assets.some((x) => x.id === a.id)) await refreshRefs(ctx.session, P, [a.id]);
     const e = typeof a.id === 'string' ? loadManifest(P).assets.find((x) => x.id === a.id) : undefined;
     const path = typeof a.path === 'string' ? a.path.replace(/^game\./, '') : e?.ref.path;
     if (!path) return err(typeof a.id === 'string' && !e ? `no asset "${a.id}" in .blox/assets.json — pass path` : 'preview needs id (a tried/adopted asset) or path', 'no path');
@@ -405,11 +393,14 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     const added = addAsset(P, {
       id, kind: manifestKind, source: found.imported?.source ?? 'creator-store', licence: found.imported?.licence ?? 'roblox-creator-store',
       ...(found.imported?.attribution ?? found.hit.creatorName ? { attribution: found.imported?.attribution ?? found.hit.creatorName } : {}),
-      ref: { assetId: Number(assetId), path },
+      ref: { assetId: Number(assetId), path, tag: assetTag(id) },
       provenance: { tool: 'scout', prompt: found.save.need, ...((found.hit as { sourceUrl?: string }).sourceUrl ?? found.hit.creatorStoreUrl ? { url: (found.hit as { sourceUrl?: string }).sourceUrl ?? found.hit.creatorStoreUrl } : {}), createdAt: new Date().toISOString() },
       budget: { parts: g.stats.parts },
     });
     if (!added.ok) return err(`could not record ${id}: ${added.errors.join('; ')}`, 'invalid');
+    // Tag the copy so the entry follows it through renames and moves.
+    const tagged = await runLuau(ctx.session, `${RESOLVE}\nresolve(${longString(path)}):AddTag(${longString(assetTag(id))})\nreturn "ok"`, 'edit', { chunkName: 'scoutTag' });
+    if (!tagged.ok) return err(`could not tag ${path}: ${tagged.error?.message}`, 'failed');
     ensureScoutDirs(P);
     writeJson(P, tryFile(id), { need: found.save.need, kind, findings: g.findings } satisfies TryRecord);
     const s = g.stats;
@@ -431,6 +422,8 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
   if (a.action === 'adopt' || a.action === 'discard') {
     if (typeof a.id !== 'string') return err(`${a.action} needs id`, 'no id');
     const id = a.id;
+    // The agent may have renamed or moved the copy since the try.
+    if (loadManifest(P).assets.some((x) => x.id === id)) await refreshRefs(ctx.session, P, [id]);
     const m = loadManifest(P);
     const e = m.assets.find((x) => x.id === id);
     const rec = readJson<TryRecord>(P, tryFile(id));
@@ -441,7 +434,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
       return { text: `no manifest entry "${id}"; quarantine copy ${r.values[0] === 'destroyed' ? 'removed' : 'was already gone'}`, summary: 'discarded' };
     }
     if (!e || e.provenance.tool !== 'scout' || !rec || !e.ref.path?.startsWith(`${QUARANTINE}.`)) {
-      return err(`"${id}" is not a scout try waiting in ${QUARANTINE}`, 'not tried');
+      return err(`"${id}" is not a scout try waiting in ${QUARANTINE}${e?.ref.path ? ` (it is at ${e.ref.path})` : ''}`, 'not tried');
     }
     const from = e.ref.path;
     if (a.action === 'discard') {
@@ -472,7 +465,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     e1.sanitized = { at: new Date().toISOString(), scriptsRemoved: removed, findings: [...new Set([...(e1.ref.path === from ? e1.sanitized?.findings ?? [] : []), ...findingsOf(g)])] };
     e1.budget = { ...(e1.budget ?? {}), parts: g.parts };
     saveManifest(P, m1);
-    const mv = await runLuau(ctx.session, moveLuau(from, to, a.unpack === true), 'edit', { chunkName: 'scoutMove' });
+    const mv = await runLuau(ctx.session, moveLuau(from, to, a.unpack === true, e1.ref.tag ?? assetTag(id)), 'edit', { chunkName: 'scoutMove' });
     if (!mv.ok) return err(`move failed: ${mv.error?.message} (scripts ${keep ? 'kept' : `stripped: ${removed}`}; the copy is still in ${QUARANTINE})`, 'failed');
     let moved: { paths: string[]; moved: number; left: number };
     try {
