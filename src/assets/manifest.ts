@@ -16,7 +16,9 @@ const Entry = z
     sanitized: z.object({ at: z.string(), scriptsRemoved: z.number().int().nonnegative(), findings: z.array(z.string()) }).strict().optional(),
     budget: z.object({ tris: z.number().int().nonnegative().optional(), parts: z.number().int().nonnegative().optional() }).strict().optional(),
     status: z.enum(['candidate', 'approved', 'rejected']).default('candidate'),
-    uploaded: z.object({ assetId: z.number().int().positive(), operation: z.string(), at: z.string() }).strict().optional(),
+    // assetId is what Open Cloud created (a Decal for images); imageId is the Image
+    // inside it, which ref.assetId then holds because that is the id code uses.
+    uploaded: z.object({ assetId: z.number().int().positive(), imageId: z.number().int().positive().optional(), operation: z.string(), at: z.string() }).strict().optional(),
   })
   .strict();
 

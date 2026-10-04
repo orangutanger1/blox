@@ -8,17 +8,27 @@ import { TOPBAR, type Device, type UiElement } from './lint.js';
 // resolved scale, constraints, list layouts and TextFits; the probe reports
 // each visible GuiObject's rect relative to the device.
 //
+// execute_luau replies are capped (live: 50KB fine, 100KB cut off), so one call
+// lays out one device and returns elements from index SKIP until about BUDGET
+// characters of JSON, with \`next\` = where the following call resumes (null when
+// done). Layout is rebuilt each call; descendant order of the clones is stable.
+//
 // Inset approximation: IgnoreGuiInset → full screen; otherwise the top bar
 // (and a top notch) is excluded, and with ScreenInsets ≠ None the device's
 // side/bottom safe insets too.
-export function uiProbeProgram(devices: Device[]): string {
+export const PROBE_BUDGET = 20_000;
+const MAX_ELEMENTS = 2000;
+
+export function uiProbeProgram(device: Device, skip = 0, budget = PROBE_BUDGET): string {
   return `local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local player = game:GetService("Players").LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
-local DEVICES = HttpService:JSONDecode(${longString(JSON.stringify(devices))})
+local DEVICES = { HttpService:JSONDecode(${longString(JSON.stringify(device))}) }
 local TOPBAR = ${TOPBAR}
-local MAX_ELEMENTS = 2000
+local SKIP = ${Math.max(0, Math.floor(skip))}
+local BUDGET = ${Math.max(1, Math.floor(budget))}
+local MAX_ELEMENTS = ${MAX_ELEMENTS}
 
 local root = Instance.new("ScreenGui")
 root.Name = "__BloxUiLint"
@@ -81,61 +91,68 @@ local function rel(o, D)
 	end
 	return table.concat(names, ".")
 end
-local out = {}
-for i, d in DEVICES do
-	local D = frames[i]
-	local ox, oy = D.AbsolutePosition.X, D.AbsolutePosition.Y
-	local els = {}
-	for _, o in D:GetDescendants() do
-		if #els >= MAX_ELEMENTS then break end
-		if o:IsA("GuiObject") and o.Parent ~= D then
-			local visible, clipped, hidden = true, false, false
-			local x0, y0 = o.AbsolutePosition.X, o.AbsolutePosition.Y
-			local x1, y1 = x0 + o.AbsoluteSize.X, y0 + o.AbsoluteSize.Y
-			local a = o
-			while a and a ~= D do
-				if a:IsA("GuiObject") then
-					if not a.Visible then visible = false break end
-					if a ~= o and a.ClipsDescendants then
-						local ax0, ay0 = a.AbsolutePosition.X, a.AbsolutePosition.Y
-						local ax1, ay1 = ax0 + a.AbsoluteSize.X, ay0 + a.AbsoluteSize.Y
-						if x1 <= ax0 or x0 >= ax1 or y1 <= ay0 or y0 >= ay1 then hidden = true break end
-						if x0 < ax0 or y0 < ay0 or x1 > ax1 or y1 > ay1 then clipped = true end
-					end
+local D = frames[1]
+local ox, oy = D.AbsolutePosition.X, D.AbsolutePosition.Y
+local els, idx, used, nextSkip = {}, 0, 0, nil
+for _, o in D:GetDescendants() do
+	if idx >= MAX_ELEMENTS then break end
+	if o:IsA("GuiObject") and o.Parent ~= D then
+		local visible, clipped, hidden = true, false, false
+		local x0, y0 = o.AbsolutePosition.X, o.AbsolutePosition.Y
+		local x1, y1 = x0 + o.AbsoluteSize.X, y0 + o.AbsoluteSize.Y
+		local a = o
+		while a and a ~= D do
+			if a:IsA("GuiObject") then
+				if not a.Visible then visible = false break end
+				if a ~= o and a.ClipsDescendants then
+					local ax0, ay0 = a.AbsolutePosition.X, a.AbsolutePosition.Y
+					local ax1, ay1 = ax0 + a.AbsoluteSize.X, ay0 + a.AbsoluteSize.Y
+					if x1 <= ax0 or x0 >= ax1 or y1 <= ay0 or y0 >= ay1 then hidden = true break end
+					if x0 < ax0 or y0 < ay0 or x1 > ax1 or y1 > ay1 then clipped = true end
 				end
-				a = a.Parent
 			end
-			if visible and not hidden then
+			a = a.Parent
+		end
+		if visible and not hidden then
+			idx += 1
+			if idx > SKIP then
 				local e = {
 					path = rel(o, D), cls = o.ClassName,
 					x = x0 - ox, y = y0 - oy, w = o.AbsoluteSize.X, h = o.AbsoluteSize.Y,
 					button = o:IsA("GuiButton"), clipped = clipped,
 				}
 				if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
-					e.text = o.Text
+					e.text = string.sub(o.Text, 1, 200)
 					e.textScaled = o.TextScaled
 					e.textFits = o.TextFits
 					e.textHeight = o.TextBounds.Y
 				end
+				local cost = #HttpService:JSONEncode(e) + 1
+				if used > 0 and used + cost > BUDGET then nextSkip = idx - 1 break end
+				used += cost
 				table.insert(els, e)
 			end
 		end
 	end
-	out[d.name] = els
 end
 root:Destroy()
-return HttpService:JSONEncode({ sources = #sources, devices = out })`;
+return HttpService:JSONEncode({ sources = #sources, device = DEVICES[1].name, elements = els, next = nextSkip })`;
 }
 
-export interface ProbeResult {
+export interface ProbePage {
   sources: number;
-  devices: Record<string, UiElement[]>;
+  device: string;
+  elements: UiElement[];
+  next: number | null;
 }
 
-export function parseProbe(raw: unknown): ProbeResult {
+export function parseProbePage(raw: unknown): ProbePage {
   if (typeof raw !== 'string') throw new Error('ui probe returned no data');
-  const j = JSON.parse(raw) as { sources?: number; devices?: Record<string, unknown> };
-  const devices: Record<string, UiElement[]> = {};
-  for (const [name, els] of Object.entries(j.devices && !Array.isArray(j.devices) ? j.devices : {})) devices[name] = Array.isArray(els) ? (els as UiElement[]) : [];
-  return { sources: j.sources ?? 0, devices };
+  const j = JSON.parse(raw) as { sources?: number; device?: string; elements?: unknown; next?: unknown };
+  return {
+    sources: j.sources ?? 0,
+    device: j.device ?? '',
+    elements: Array.isArray(j.elements) ? (j.elements as UiElement[]) : [],
+    next: typeof j.next === 'number' ? j.next : null,
+  };
 }

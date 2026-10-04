@@ -52,7 +52,7 @@ describe('uploadAsset (fake Open Cloud)', () => {
     const p = project();
     const log: { url: string; method?: string; headers?: Record<string, string>; body?: unknown }[] = [];
     const r = await uploadAsset(p, 'rock', { confirm: true, client: new OpenCloud({ apiKey: 'test-key', fetch: fakeFetch(log) }), sleep: async () => {} });
-    expect(r).toEqual({ dryRun: false, assetId: 9876, operation: 'operations/op1' });
+    expect(r).toEqual({ dryRun: false, assetId: 9876, operation: 'operations/op1', assetType: 'Model' });
     expect(log[0]).toMatchObject({ url: 'https://apis.roblox.com/assets/v1/assets', method: 'POST', headers: { 'x-api-key': 'test-key' } });
     const form = log[0].body as FormData;
     expect(JSON.parse(String(form.get('request')))).toMatchObject({ assetType: 'Model', creationContext: { creator: { userId: '42' } } });

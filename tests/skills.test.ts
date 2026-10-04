@@ -5,8 +5,8 @@ import { TOOLS, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 describe('skills', () => {
   it('lists the vendored roblox-brain skills and the blox skills by library', () => {
     const all = listSkills();
-    expect(all.length).toBe(30);
-    expect(new Set(all.map((s) => s.library))).toEqual(new Set(['core', 'gameplay', 'design', 'tools', 'animation']));
+    expect(all.length).toBe(31);
+    expect(new Set(all.map((s) => s.library))).toEqual(new Set(['core', 'gameplay', 'design', 'tools', 'animation', 'ui']));
     expect(all.every((s) => s.description.length > 10)).toBe(true);
     expect(formatSkillList(all)).toMatch(/roblox-security — /);
   });
