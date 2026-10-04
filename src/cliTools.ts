@@ -221,6 +221,8 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           return { tool: 'asset', args: { action, file: f.rest[1], ...(typeof o.out === 'string' ? { out: o.out } : {}), ...num('tris'), ...num('height'), ...(typeof o.id === 'string' ? { id: o.id } : {}) } };
         case 'upload':
           return { tool: 'asset', args: { action, id: f.rest[1], ...(o.confirm === true ? { confirm: true } : {}) } };
+        case 'sheet':
+          return { tool: 'asset', args: { action, id: f.rest[1], files: f.rest.slice(2), ...(typeof o.licence === 'string' ? { licence: o.licence } : {}), ...(typeof o.attribution === 'string' ? { attribution: o.attribution } : {}), ...(typeof o['source-url'] === 'string' ? { source_url: o['source-url'] } : {}), ...(typeof o.module === 'string' ? { module: o.module } : {}), ...(typeof o.out === 'string' ? { out: o.out } : {}), ...num('cell'), ...num('pad') } };
         case 'save':
           return { tool: 'asset', args: { action, ...(f.rest[1] ? { id: f.rest[1] } : {}) } };
         case 'relink':
@@ -362,7 +364,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox ui lint|install [--devices a,b] [--prepare '<client luau>'] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
-           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]
+           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]

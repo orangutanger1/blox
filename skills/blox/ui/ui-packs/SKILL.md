@@ -51,6 +51,14 @@ UISizeConstraint (min touch target 44px for buttons, close X included — packs'
 X buttons are often 24–32px; enlarge the hit area with a transparent parent
 button rather than stretching the art).
 
+## Icons
+
+Pack loose icon PNGs (Kenney, your own) into one sheet: one upload, one
+moderation wait, one id. asset {action:"sheet", id, files:["assets/vendor/icons"],
+licence, attribution?, source_url?} writes the PNG and a module; in code
+`Sheet.apply(imageLabel, "coin")`. After approval, asset upload puts the image
+id into the module. Re-run sheet to add icons (it needs a new upload).
+
 ## Toasts and pop-ups
 
 One shared toast stack for HUD and menus (BloxUI Toast, or the pack's toast

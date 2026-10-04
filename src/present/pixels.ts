@@ -40,11 +40,22 @@ export function decodePngFull(b: Buffer): SmallImage | null {
   }
 }
 
-function png(b: Buffer, scale = SCALE): SmallImage | null {
+interface PngInfo {
+  w: number;
+  h: number;
+  ch: number;
+  type: number;
+  palette: Buffer | null;
+  trns: Buffer | null;
+}
+
+// Decodes an 8-bit, non-interlaced PNG row by row (unfiltered bytes).
+function pngRows(b: Buffer, each: (row: Uint8Array, y: number, info: PngInfo) => void): PngInfo | null {
   if (b.length < 33 || b.readUInt32BE(0) !== 0x89504e47) return null;
   let i = 8;
   let w = 0, h = 0, depth = 0, type = -1, interlace = 0;
   let palette: Buffer | null = null;
+  let trns: Buffer | null = null;
   const idat: Buffer[] = [];
   while (i + 8 <= b.length) {
     const len = b.readUInt32BE(i);
@@ -58,19 +69,18 @@ function png(b: Buffer, scale = SCALE): SmallImage | null {
       type = data[9];
       interlace = data[12];
     } else if (kind === 'PLTE') palette = data;
+    else if (kind === 'tRNS') trns = data;
     else if (kind === 'IDAT') idat.push(data);
     else if (kind === 'IEND') break;
     i += 12 + len;
   }
   const ch = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
   if (!ch || depth !== 8 || interlace !== 0 || !w || !h || w > MAX_SIDE || h > MAX_SIDE || (type === 3 && !palette)) return null;
+  const info = { w, h, ch, type, palette, trns };
   const stride = w * ch;
   // Bounded: a tiny IDAT must not inflate past what the header declares.
   const raw = inflateSync(Buffer.concat(idat), { maxOutputLength: h * (stride + 1) });
   if (raw.length < h * (stride + 1)) return null;
-  const sw = Math.ceil(w / scale), sh = Math.ceil(h / scale);
-  const sum = new Float64Array(sw * sh * 3);
-  const cnt = new Float64Array(sw * sh);
   let prev = new Uint8Array(stride);
   for (let y = 0; y < h; y++) {
     const f = raw[y * (stride + 1)];
@@ -91,26 +101,85 @@ function png(b: Buffer, scale = SCALE): SmallImage | null {
       row[x] = (src[x] + pred) & 255;
     }
     prev = row;
+    each(row, y, info);
+  }
+  return info;
+}
+
+function png(b: Buffer, scale = SCALE): SmallImage | null {
+  let sw = 0, sh = 0;
+  let sum: Float64Array | null = null;
+  let cnt: Float64Array | null = null;
+  let bad = false;
+  const info = pngRows(b, (row, y, { w, h, ch, type, palette }) => {
+    if (!sum) {
+      sw = Math.ceil(w / scale);
+      sh = Math.ceil(h / scale);
+      sum = new Float64Array(sw * sh * 3);
+      cnt = new Float64Array(sw * sh);
+    }
     const sy = Math.floor(y / scale);
     for (let x = 0; x < w; x++) {
       const o = x * ch;
       let r: number, g: number, bl: number;
       if (type === 3) {
         const p = row[o] * 3;
-        if (p + 2 >= palette!.length) return null;
+        if (p + 2 >= palette!.length) {
+          bad = true;
+          return;
+        }
         [r, g, bl] = [palette![p], palette![p + 1], palette![p + 2]];
       } else if (ch <= 2) r = g = bl = row[o];
       else [r, g, bl] = [row[o], row[o + 1], row[o + 2]];
       const k = sy * sw + Math.floor(x / scale);
-      sum[k * 3] += r;
-      sum[k * 3 + 1] += g;
-      sum[k * 3 + 2] += bl;
-      cnt[k]++;
+      sum![k * 3] += r;
+      sum![k * 3 + 1] += g;
+      sum![k * 3 + 2] += bl;
+      cnt![k]++;
     }
-  }
+  });
+  if (!info || bad || !sum || !cnt) return null;
   const rgb = new Float32Array(sw * sh * 3);
-  for (let k = 0; k < sw * sh; k++) for (let c = 0; c < 3; c++) rgb[k * 3 + c] = sum[k * 3 + c] / cnt[k];
+  for (let k = 0; k < sw * sh; k++) for (let c = 0; c < 3; c++) rgb[k * 3 + c] = (sum as Float64Array)[k * 3 + c] / (cnt as Float64Array)[k];
   return fromRgb(sw, sh, rgb);
+}
+
+// Full-resolution RGBA (alpha kept), for building icon sheets.
+export function decodePngRgba(b: Buffer): { w: number; h: number; rgba: Uint8Array } | null {
+  let out: Uint8Array | null = null;
+  let bad = false;
+  let info: PngInfo | null;
+  try {
+    info = pngRows(b, (row, y, { w, h, ch, type, palette, trns }) => {
+      out ??= new Uint8Array(w * h * 4);
+      for (let x = 0; x < w; x++) {
+        const o = x * ch;
+        const d = (y * w + x) * 4;
+        if (type === 3) {
+          const p = row[o];
+          if (p * 3 + 2 >= palette!.length) {
+            bad = true;
+            return;
+          }
+          out[d] = palette![p * 3];
+          out[d + 1] = palette![p * 3 + 1];
+          out[d + 2] = palette![p * 3 + 2];
+          out[d + 3] = trns && p < trns.length ? trns[p] : 255;
+        } else if (ch <= 2) {
+          out[d] = out[d + 1] = out[d + 2] = row[o];
+          out[d + 3] = ch === 2 ? row[o + 1] : 255;
+        } else {
+          out[d] = row[o];
+          out[d + 1] = row[o + 1];
+          out[d + 2] = row[o + 2];
+          out[d + 3] = ch === 4 ? row[o + 3] : 255;
+        }
+      }
+    });
+  } catch {
+    return null;
+  }
+  return info && out && !bad ? { w: info.w, h: info.h, rgba: out } : null;
 }
 
 // ---- JPEG (baseline / extended sequential Huffman, DC only) --------------
