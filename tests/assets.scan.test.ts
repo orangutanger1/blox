@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { riskFindings, runSanitize, sanitizeProgram, gradeSanitize, SCAN_LUAU, untrackedFromScan } from '../src/assets/scan.js';
+import { riskFindings, runSanitize, sanitizeProgram, gradeSanitize, scanProgram, untrackedFromScan, coveredFromScan } from '../src/assets/scan.js';
 import { StudioSession } from '../src/studio/session.js';
 import { fakeStudio } from './fakeStudio.js';
 import { luneBin, luneCheck, runLune } from './helpers/lune.js';
@@ -77,6 +77,15 @@ describe('gradeSanitize + untracked', () => {
     const m = { version: 1 as const, assets: [{ id: 'c', kind: 'model' as const, source: 'creator-store' as const, licence: 'roblox-creator-store' as const, ref: { assetId: 5, path: 'Workspace.Crate' }, provenance: { tool: 'x', createdAt: 'y' }, status: 'candidate' as const }] };
     expect(untrackedFromScan(scan, m)).toEqual([{ id: 'rbxassetid://8', where: 'Workspace.CrateOther.MeshId' }]);
   });
+  // Dog Walk: Park.luau clones a pack's mesas into Workspace, so an id's first
+  // location is outside the pack; the scan flags ids seen anywhere inside one.
+  it('an id seen anywhere inside a tracked model is covered by it', () => {
+    const scan = JSON.stringify([{ id: 7, where: 'Workspace.Mesa.MeshPart.TextureID', count: 4, tracked: true }, { id: 8, where: 'Workspace.Other.MeshId', count: 1 }]);
+    const m = { version: 1 as const, assets: [{ id: 'c', kind: 'model' as const, source: 'creator-store' as const, licence: 'roblox-creator-store' as const, ref: { assetId: 5, path: 'ServerStorage.Pack' }, provenance: { tool: 'x', createdAt: 'y' }, status: 'approved' as const }] };
+    expect(untrackedFromScan(scan, m).map((u) => u.id)).toEqual(['rbxassetid://8']);
+    expect(coveredFromScan(scan, m)).toEqual([7]);
+    expect(scanProgram(['ServerStorage.Pack', 'Workspace."q"'])).toContain('local TRACKED = { "ServerStorage.Pack.", "Workspace.\\"q\\"." }');
+  });
   it.skipIf(!luneBin())('sanitize chunks by JSON-escaped size in a real DataModel (Lune)', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-san-run-'));
     const budget = 100;
@@ -118,7 +127,7 @@ print(fn())
   });
   it.skipIf(!luneBin())('Luau programs compile', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-scan-'));
-    writeFileSync(join(d, 'scan.luau'), SCAN_LUAU);
+    writeFileSync(join(d, 'scan.luau'), scanProgram(['Workspace.Crate']));
     writeFileSync(join(d, 'san.luau'), sanitizeProgram('Workspace.Tree', false));
     expect(luneCheck([join(d, 'scan.luau'), join(d, 'san.luau')])).toEqual([]);
   });

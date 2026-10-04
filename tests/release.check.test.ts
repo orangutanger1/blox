@@ -74,6 +74,47 @@ describe('releaseCheck', () => {
     expect(status(p).provenance).toBe('pass');
     expect(releaseCheck(p).ready).toBe(true);
   });
+  // Dog Walk 2026-10-03: sounds stayed quarantined candidates while Menus.client
+  // played them by id, so the gate saw "no assets in use" and passed.
+  it('assets used by id in code count as in use, even when still quarantined', () => {
+    const p = ready();
+    writeJson(p, 'asset-report.json', ok(['asset:licence']));
+    const e = (id: string, extra: Record<string, unknown>) => ({ id, kind: 'audio', source: 'creator-store', licence: 'roblox-creator-store', ref: {}, provenance: { tool: 'scout', createdAt: 'x' }, status: 'candidate', ...extra });
+    writeJson(p, 'assets.json', { version: 1, assets: [
+      e('sfxCoin', { ref: { assetId: 113730061669739, path: 'ServerStorage.BloxScout.sfxCoin' } }),
+      e('icons', { kind: 'image', source: 'external', licence: 'cc0', status: 'approved', ref: { assetId: 87029758011762, file: 'i.png' }, uploaded: { assetId: 76179550581703, imageId: 87029758011762, operation: 'o', at: 'x' } }),
+    ] });
+    mkdirSync(join(p, 'src'));
+    writeFileSync(join(p, 'src/Menus.client.luau'), 'local SFX = { coin = "rbxassetid://113730061669739" }\nlocal ICONS = "rbxassetid://87029758011762"\n');
+    const r = releaseCheck(p);
+    expect(r.ready).toBe(false);
+    const g = r.gates.find((x) => x.id === 'provenance')!;
+    expect(g.status).toBe('fail');
+    expect(g.detail).toMatch(/1 in use but not approved: sfxCoin/);
+    expect(r.gates.find((x) => x.id === 'code-ids')).toMatchObject({ status: 'pass' });
+    // played by id, so the quarantined Sound instance is not needed in the place
+    expect(r.gates.find((x) => x.id === 'place-only')).toBeUndefined();
+    // a quarantined try that is not used anywhere still does not count
+    writeFileSync(join(p, 'src/Menus.client.luau'), 'local ICONS = "rbxassetid://87029758011762"\n');
+    expect(status(p).provenance).toBe('pass');
+  });
+  it('asset ids in code with no manifest entry block the release', () => {
+    const p = ready();
+    mkdirSync(join(p, 'src'));
+    writeFileSync(join(p, 'src/Hud.client.luau'), 'trophy.Image = "rbxassetid://9345770739"\nlocal PRODUCT = 1234567890\n');
+    const r = releaseCheck(p);
+    expect(r.ready).toBe(false);
+    const g = r.gates.find((x) => x.id === 'code-ids')!;
+    expect(g).toMatchObject({ required: true, status: 'fail' });
+    expect(g.detail).toMatch(/rbxassetid:\/\/9345770739 \(src\/Hud\.client\.luau\)/);
+    expect(g.detail).not.toMatch(/1234567890/);
+    // a texture inside a tracked pack (found there by asset scan) is covered by the pack
+    writeJson(p, 'asset-scan.json', { at: 'x', untracked: [], covered: [9345770739] });
+    expect(status(p)['code-ids']).toBe('pass');
+    writeFileSync(join(p, 'src/Hud.client.luau'), 'local PRODUCT = 1234567890\n');
+    expect(status(p)['code-ids']).toBe('n/a');
+    expect(releaseCheck(p).ready).toBe(true);
+  });
   it('soak is advisory', () => {
     const p = ready();
     writeJson(p, 'metrics-report.json', ok(['ftue:first-step']));
