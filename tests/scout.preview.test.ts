@@ -28,6 +28,12 @@ function ctx(seen: { dm: string; code: string }[], shots = true): ToolCtx {
       seen.push({ dm, code });
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('local WANT')) return env([JSON.stringify({ panels, total: 3 })]);
+      if (code.includes('__BloxUiLint')) {
+        // panel 2's close button is 28px on phones; panel 1 fits
+        const small = seen.filter((s) => s.code.includes('local sized')).length === 2;
+        const els = [{ path: '__BloxPreviewGui.Frame.P1', cls: 'Frame', x: 20, y: 60, w: 300, h: 200, button: false }, ...(small ? [{ path: '__BloxPreviewGui.Frame.P2.Close', cls: 'ImageButton', x: 280, y: 70, w: 28, h: 28, button: true }] : [])];
+        return env([JSON.stringify({ sources: 1, device: 'x', elements: els, next: null })]);
+      }
       if (code.includes('__BloxPreviewGui')) return env([JSON.stringify({ sized: code.includes('"P1"'), scaled: 1 })]);
       if (code.includes('LocalPlayer')) return env([true]);
       return env([]);
@@ -78,7 +84,11 @@ describe('scout preview', () => {
     const r = await invokeTool(findTool('scout')!, { action: 'preview', id: 'pack' }, c);
     expect(r.isError).toBeFalsy();
     expect(seen.find((s) => s.code.includes('local WANT'))!.dm).toBe('Server');
-    expect(seen.filter((s) => s.code.includes('__BloxPreviewGui')).map((s) => s.dm)).toEqual(['Client', 'Client']);
+    expect(seen.filter((s) => s.code.includes('local sized')).map((s) => s.dm)).toEqual(['Client', 'Client']);
+    expect(seen.filter((s) => s.code.includes('__BloxUiLint')).map((s) => s.dm)).toEqual(['Client', 'Client', 'Client', 'Client']);
+    expect(r.text).toMatch(/\[1\] ShopFrame[^\n]*\n\s+phone: fits/);
+    expect(r.text).toMatch(/phone-landscape: touch-target ×1 \(Close: button 28×28px, needs >= 44px\)/);
+    expect(r.text).toMatch(/budget the fixes/);
     expect(r.images).toHaveLength(2);
     expect(r.artifacts!.every((p) => existsSync(join(c.projectPath, p)))).toBe(true);
     expect(r.text).toMatch(/3 panel\(s\) under ServerStorage\.BloxScout\.pack, showing 2/);
@@ -102,5 +112,6 @@ describe('scout preview', () => {
   it('cli', () => {
     expect(cliArgs('scout', parseFlags(['preview', 'pack', '--panels', 'Shop,Settings', '--show-all']))).toEqual({ tool: 'scout', args: { action: 'preview', id: 'pack', panels: ['Shop', 'Settings'], show_all: true } });
     expect(cliArgs('scout', parseFlags(['preview', 'StarterGui.Pack', '--max', '3']))).toEqual({ tool: 'scout', args: { action: 'preview', path: 'StarterGui.Pack', max: 3 } });
+    expect(cliArgs('scout', parseFlags(['preview', 'pack', '--no-phone']))).toEqual({ tool: 'scout', args: { action: 'preview', id: 'pack', phone: false } });
   });
 });

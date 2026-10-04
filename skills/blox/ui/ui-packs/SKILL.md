@@ -45,7 +45,9 @@ panels as templates.
 ## Phones
 
 Check before building on a pack: many packs size panels with offsets designed
-at 1920×1080. Preview, then ui lint on phone-landscape/phone-portrait.
+at 1920×1080. scout preview lays each panel out on phone-landscape and
+phone-portrait and lists what breaks (offscreen, buttons < 44px, tiny text);
+weigh that fix work when choosing between packs. After building, ui lint.
 Fix by switching outer frames to scale sizes with UIAspectRatioConstraint and a
 UISizeConstraint (min touch target 44px for buttons, close X included — packs'
 X buttons are often 24–32px; enlarge the hit area with a transparent parent

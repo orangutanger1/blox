@@ -2,6 +2,8 @@ import { longString, runLuau } from '../studio/luau.js';
 import type { StudioSession } from '../studio/session.js';
 import { startPlay, stopPlay } from '../studio/play.js';
 import { captureScreenshot, type Screenshot } from '../testing/playtest.js';
+import { DEVICES, lintSnapshot, type UiFinding } from '../ui/lint.js';
+import { probeDevice } from '../ui/run.js';
 
 // See a GUI pack before judging it. Packs often ship their panels hidden
 // (Visible=false, or Size 0 waiting for an open tween), so a summary of
@@ -31,8 +33,19 @@ export interface PanelShot {
   screenshot: Screenshot | null;
   sized: boolean; // had no size; shown at 60% of the screen
   scaled: number; // < 1 when shrunk to fit the screen
+  // The panel as authored, laid out on each phone size (ui lint rules).
+  phone?: { device: string; findings: UiFinding[] }[];
+  phoneError?: string;
   error?: string;
 }
+
+const PHONES = DEVICES.filter((d) => d.kind === 'phone');
+const SCALE_NAME = '__BloxPreviewScale';
+// Drop the fit-to-screen UIScale so phones see the panel at its real size.
+const UNSCALE = `local sg = game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("${PREVIEW_GUI}")
+local u = sg and sg:FindFirstChild("${SCALE_NAME}", true)
+if u then u:Destroy() end
+return "ok"`;
 
 const RESOLVE = `local function resolve(p)
 	local cur = game
@@ -175,6 +188,7 @@ local vs = bg.AbsoluteSize
 local s = math.min(1, 0.9 * vs.X / math.max(1, c.AbsoluteSize.X), 0.9 * vs.Y / math.max(1, c.AbsoluteSize.Y))
 if s < 1 then
 	local u = Instance.new("UIScale")
+	u.Name = "${SCALE_NAME}"
 	u.Scale = s
 	u.Parent = c
 end
@@ -192,7 +206,7 @@ export function parsePanels(raw: unknown): { panels: PanelInfo[]; total: number 
 export async function runPreview(
   session: StudioSession,
   projectPath: string,
-  o: { id: string; path: string; panels?: string[]; showAll?: boolean; max?: number },
+  o: { id: string; path: string; panels?: string[]; showAll?: boolean; max?: number; phone?: boolean },
 ): Promise<{ total: number; shots: PanelShot[] }> {
   const info = await startPlay(session);
   try {
@@ -213,13 +227,41 @@ export async function runPreview(
         // keep defaults
       }
       const shot = await captureScreenshot(session, projectPath, `preview-${o.id}-${p.name}`);
-      shots.push({ panel: p, screenshot: shot, ...shown, ...(shot ? {} : { error: 'screen_capture returned no image' }) });
+      const ps: PanelShot = { panel: p, screenshot: shot, ...shown, ...(shot ? {} : { error: 'screen_capture returned no image' }) };
+      if (o.phone !== false) {
+        try {
+          await runLuau(session, UNSCALE, 'client', { chunkName: 'previewUnscale' });
+          ps.phone = [];
+          for (const d of PHONES) ps.phone.push({ device: d.name, findings: lintSnapshot({ device: d, elements: (await probeDevice(session, d)).elements }) });
+        } catch (e) {
+          ps.phoneError = (e as Error).message;
+        }
+      }
+      shots.push(ps);
     }
     return { total, shots };
   } finally {
     await runLuau(session, `local f = game:GetService("ReplicatedStorage"):FindFirstChild("${PREVIEW_FOLDER}") if f then f:Destroy() end`, 'server').catch(() => undefined);
     if (!info.alreadyRunning) await stopPlay(session).catch(() => false);
   }
+}
+
+const short = (path: string) => path.replace(new RegExp(`^${PREVIEW_GUI}\\.Frame\\.P\\d+\\.?`), '') || '(panel)';
+
+export function phoneSummary(s: PanelShot): string | null {
+  if (s.phoneError) return `phone check failed: ${s.phoneError}`;
+  if (!s.phone) return null;
+  const bad = s.phone.filter((p) => p.findings.length);
+  if (!bad.length) return 'phone: fits';
+  return bad
+    .map((p) => {
+      const rules = [...new Set(p.findings.map((f) => f.rule))];
+      return `${p.device}: ${rules.map((r) => {
+        const fs = p.findings.filter((f) => f.rule === r);
+        return `${r} ×${fs.length} (${short(fs[0].path)}: ${fs[0].detail})`;
+      }).join(', ')}`;
+    })
+    .join('; ');
 }
 
 export function formatPreview(id: string, path: string, r: { total: number; shots: PanelShot[] }): string {
@@ -234,7 +276,12 @@ export function formatPreview(id: string, path: string, r: { total: number; shot
       p.hidden ? `${p.hidden}/${p.descendants} inner element(s) hidden (show_all reveals them)` : '',
     ].filter(Boolean);
     lines.push(`  [${n + 1}] ${p.name} (${p.cls}, ${p.path})${flags.length ? ` — ${flags.join('; ')}` : ''}${s.error ? ` — ERROR ${s.error}` : s.screenshot ? ` → ${s.screenshot.path}` : ''}`);
+    const ph = phoneSummary(s);
+    if (ph) lines.push(`      ${ph}`);
   });
+  if (r.shots.some((s) => s.phone?.some((p) => p.findings.length))) {
+    lines.push('Phone problems above exist in the pack as made: budget the fixes (scale sizes + UISizeConstraint, 44px hit areas around small buttons) before choosing it, or pick another pack.');
+  }
   lines.push('Build menus by cloning these panels (keep their art; rewire text and buttons), not by restyling BloxUI.');
   return lines.join('\n');
 }
