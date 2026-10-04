@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { realSpawn, rojoBin, type SpawnFn } from './rojo.js';
+import { restorePacks } from '../assets/packs.js';
 import { longString } from '../studio/luau.js';
 import { StudioError, resultText, type StudioSession } from '../studio/session.js';
 
@@ -72,6 +73,8 @@ export interface SyncResult {
   conflicts: { key: string; file?: string; op: 'overwrite' | 'delete' }[];
   // Edited in Studio, file unchanged: Studio has code the files don't.
   studioEdits: { key: string; file?: string }[];
+  // Adopted packs put back from assets/packs/*.rbxm (missing from the place).
+  packs?: string[];
   durationMs: number;
 }
 
@@ -589,6 +592,9 @@ export async function pushProject(session: StudioSession, projectPath: string, o
       todo = [...made, ...waiting];
     }
   }
+  const packs = await restorePacks(session, projectPath);
+  if (packs.restored.length) result.packs = packs.restored;
+  result.errors.push(...packs.errors);
   if (d.builders.length || d.deletes.length || d.stamps.length) await apply([], d.builders, d.deletes, d.stamps);
   result.ok = result.errors.length === 0 && result.conflicts.length === 0 && result.builders.every((b) => b.status !== 'error');
   result.durationMs = Date.now() - t0;
@@ -603,6 +609,7 @@ export function formatSyncResult(r: SyncResult): string {
   for (const b of r.builders) {
     if (b.status !== 'unchanged') lines.push(`  world ${b.name}: ${b.status}${b.parts !== undefined ? ` (${b.parts} parts)` : ''}${b.error ? ` — ${b.error}` : ''}`);
   }
+  for (const p of r.packs ?? []) lines.push(`  pack restored ${p}`);
   for (const s of r.skipped) lines.push(`  skipped ${s.file}: ${s.reason}`);
   for (const e of r.errors) lines.push(`  ERROR ${e}`);
   for (const c of r.conflicts) {

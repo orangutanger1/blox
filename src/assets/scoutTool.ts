@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { resultText } from '../studio/session.js';
 import { longString, runLuau } from '../studio/luau.js';
 import { assetTag, refreshRefs, RESOLVE } from './locate.js';
+import { savePack } from './packs.js';
 import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
 import { addAsset, loadManifest, saveManifest, type AssetEntry } from './manifest.js';
@@ -509,10 +510,17 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     else e2.ref.path = moved.paths.length === 1 ? moved.paths[0].replace(/^game\./, '') : to;
     saveManifest(P, m2);
     const where = moved.paths.map((x) => x.replace(/^game\./, '')).join(', ');
+    // A first copy on disk, so a lost place file does not lose the pack.
+    let saved: string;
+    try {
+      saved = moved.left > 0 ? '' : `saved to ${(await savePack(ctx.session, P, id)).file}; asset {action:"save", id:"${id}"} again after adapting it`;
+    } catch (e) {
+      saved = `not saved to disk (${(e as Error).message}); asset {action:"save", id:"${id}"} later`;
+    }
     return {
       text: [
         `adopted ${id} → ${where} (${moved.moved} instance(s) moved; ${keep ? 'scripts kept' : `${removed} script(s) stripped`}). Now adapt it: rename, recolour, wire it to your game's code.`,
-        ...(moved.left > 0 ? [`${moved.left} instance(s) that were not GUI stayed in ${from}: look at them, then scout {action:"discard", id:"${id}"} when done`] : []),
+        ...(moved.left > 0 ? [`${moved.left} instance(s) that were not GUI stayed in ${from}: look at them, then scout {action:"discard", id:"${id}"} when done`] : [saved]),
       ].join('\n'),
       summary: 'adopted',
     };
