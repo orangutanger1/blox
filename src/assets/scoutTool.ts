@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { unzipTo } from './unzip.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { listZip, unzipTo } from './unzip.js';
 import { basename, extname, join, relative, resolve as resolvePath } from 'node:path';
 import { z } from 'zod';
 import { resultText } from '../studio/session.js';
@@ -167,16 +169,11 @@ const IMPORT_EXT: Record<string, AssetEntry['kind']> = {
   '.mp3': 'audio', '.ogg': 'audio', '.wav': 'audio', '.flac': 'audio',
 };
 const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
+// Hosts whose files sit behind a browser-only download button.
+const BROWSER_ONLY = ['itch.io', 'gumroad.com', 'mega.nz', 'patreon.com'];
+const SCOUT_CACHE = join(tmpdir(), 'blox-scout-cache');
+const LICENCE_FILE = /^(licen[cs]e|copying|credits?|attribution)\b[^/]*\.(txt|md)$|^(licen[cs]e|copying)$/i;
 
-function listFiles(dir: string, root = dir): string[] {
-  const out: string[] = [];
-  for (const n of readdirSync(dir)) {
-    const f = join(dir, n);
-    if (statSync(f).isDirectory()) out.push(...listFiles(f, root));
-    else out.push(relative(root, f));
-  }
-  return out;
-}
 
 // Bring a free pack file from the web (or disk) into the project: assets/vendor/<id>.
 // A zip is unpacked and listed; pick names the file to record. Nothing is
@@ -189,67 +186,100 @@ async function importPack(a: Record<string, unknown>, P: string, fetch: FetchLik
   if (typeof a.source_url !== 'string' && typeof a.url !== 'string') return err('import needs source_url (the page that states the licence)', 'no source_url');
   if (loadManifest(P).assets.some((x) => x.id === id)) return err(`asset id "${id}" is already in .blox/assets.json — pick another id`, 'id taken');
   const dir = join(P, 'assets', 'vendor', id);
-  mkdirSync(dir, { recursive: true });
+  const manual = (why: string) => [
+    why,
+    `Download it by hand: open ${a.url ?? a.source_url} in a browser, download the file, save it in the project (e.g. assets/vendor/${id}/), then`,
+    `  scout {action:"import", file:"assets/vendor/${id}/<file>", id:"${id}", licence:"${a.licence}", source_url:"${a.source_url ?? a.url}"}`,
+    `  (CLI: blox scout import <file> --id ${id} --licence ${a.licence} --source-url ${a.source_url ?? a.url})`,
+  ].join('\n');
   let got: string;
+  let buf: Buffer;
   if (typeof a.url === 'string') {
     if (!/^https:\/\//.test(a.url)) return err('import url must be https://', 'bad url');
-    let r: Awaited<ReturnType<FetchLike>> & { arrayBuffer?: () => Promise<ArrayBuffer>; headers?: { get(n: string): string | null } };
-    try {
-      r = await fetch(a.url, { headers: { 'User-Agent': 'blox-scout' } });
-    } catch (e) {
-      return err(`download failed: ${(e as Error).message}`, 'download failed');
+    const host = new URL(a.url).hostname;
+    if (BROWSER_ONLY.some((h) => host === h || host.endsWith(`.${h}`))) {
+      return err(manual(`${host} only serves downloads through its download button in a browser, so blox cannot fetch it.`), 'needs browser');
     }
-    if (!r.ok || !r.arrayBuffer) return err(`download failed: HTTP ${r.status} — use a direct file link (pages behind a login or a download button, like itch.io, need a human to download; then import {file})`, 'download failed');
-    const buf = Buffer.from(await r.arrayBuffer());
-    if (buf.length > MAX_IMPORT_BYTES) return err(`download is ${Math.round(buf.length / 1e6)} MB (cap ${MAX_IMPORT_BYTES / 1e6} MB)`, 'too big');
-    if (buf.subarray(0, 64).toString('utf8').toLowerCase().includes('<!doctype html') || buf.subarray(0, 64).toString('utf8').toLowerCase().includes('<html')) return err('that url returned a web page, not a file — find the direct download link', 'not a file');
-    const name = basename(new URL(a.url).pathname) || `${id}.bin`;
-    got = join(dir, name);
-    writeFileSync(got, buf);
+    // Downloads are cached outside the project: listing a zip, then importing
+    // files from it one pick at a time, leaves nothing unrecorded behind.
+    const cached = join(SCOUT_CACHE, createHash('sha1').update(a.url).digest('hex') + extname(new URL(a.url).pathname).toLowerCase());
+    if (existsSync(cached)) buf = readFileSync(cached);
+    else {
+      let r: Awaited<ReturnType<FetchLike>> & { arrayBuffer?: () => Promise<ArrayBuffer>; headers?: { get(n: string): string | null } };
+      try {
+        r = await fetch(a.url, { headers: { 'User-Agent': 'blox-scout' } });
+      } catch (e) {
+        return err(`download failed: ${(e as Error).message}`, 'download failed');
+      }
+      if (!r.ok || !r.arrayBuffer) return err(manual(`download failed: HTTP ${r.status}. A page behind a login or a download button needs a person to download it.`), 'download failed');
+      buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > MAX_IMPORT_BYTES) return err(`download is ${Math.round(buf.length / 1e6)} MB (cap ${MAX_IMPORT_BYTES / 1e6} MB)`, 'too big');
+      const head = buf.subarray(0, 64).toString('utf8').toLowerCase();
+      if (head.includes('<!doctype html') || head.includes('<html')) return err(manual('that url returned a web page, not a file. Find the direct file link, or:'), 'not a file');
+      mkdirSync(SCOUT_CACHE, { recursive: true });
+      writeFileSync(cached, buf);
+    }
+    got = basename(new URL(a.url).pathname) || `${id}.bin`;
   } else {
     const src = resolvePath(P, a.file as string);
     if (!existsSync(src)) return err(`no file ${a.file}`, 'no file');
     got = src;
+    buf = readFileSync(src);
   }
-  let files: string[];
-  if (extname(got).toLowerCase() === '.zip') {
-    const out = join(dir, 'unzipped');
+  const isZip = extname(got).toLowerCase() === '.zip';
+  let usable: string[];
+  if (isZip) {
     try {
-      unzipTo(readFileSync(got), out);
+      usable = listZip(buf).filter((f) => IMPORT_EXT[extname(f).toLowerCase()]);
     } catch (e) {
-      return err(`could not unzip ${basename(got)}: ${(e as Error).message}`, 'unzip failed');
+      return err(`could not read ${basename(got)}: ${(e as Error).message}`, 'unzip failed');
     }
-    files = listFiles(out).filter((f) => IMPORT_EXT[extname(f).toLowerCase()]).map((f) => relative(P, join(out, f)));
-  } else files = [relative(P, got)];
-  const usable = files.filter((f) => IMPORT_EXT[extname(f).toLowerCase()]);
+  } else usable = IMPORT_EXT[extname(got).toLowerCase()] ? [got] : [];
   const pick = typeof a.pick === 'string' ? usable.find((f) => f === a.pick || f.endsWith(`/${a.pick}`)) : usable.length === 1 ? usable[0] : undefined;
   if (!pick) {
+    const src = typeof a.url === 'string' ? `url:"${a.url}"` : `file:"${a.file}"`;
     return {
       text: [
-        `${usable.length} usable file(s) in ${relative(P, dir)}${usable.length ? '' : ' — none with a known extension (.rbxm .fbx .glb .gltf .obj .png .jpg .mp3 .ogg …)'}:`,
+        `${usable.length} usable file(s) in ${basename(got)}${usable.length ? '' : ' — none with a known extension (.rbxm .fbx .glb .gltf .obj .png .jpg .mp3 .ogg …)'}${typeof a.pick === 'string' ? ` (none matches pick "${a.pick}")` : ''}:`,
         ...usable.slice(0, 60).map((f) => `  ${f}`),
         ...(usable.length > 60 ? [`  … ${usable.length - 60} more`] : []),
-        usable.length ? `Next: scout {action:"import", file:"<one of these>", id:"<new id>", licence, source_url} for each file you want (pick:<name> also works on the zip).` : '',
+        usable.length ? `Next: scout {action:"import", ${src}, pick:"<one of these>", id:"<new id>", licence, source_url} for each file you want (nothing is unpacked until you pick).` : '',
       ].filter(Boolean).join('\n'),
+      isError: typeof a.pick === 'string',
       summary: `${usable.length} files`,
     };
   }
+  let file: string;
+  if (isZip) {
+    // The picked file, plus the pack's licence file so the terms travel with it.
+    const keep = (n: string) => n === pick || LICENCE_FILE.test(basename(n));
+    try {
+      unzipTo(buf, dir, { only: keep, flat: true });
+    } catch (e) {
+      return err(`could not unzip ${basename(got)}: ${(e as Error).message}`, 'unzip failed');
+    }
+    file = relative(P, join(dir, basename(pick)));
+  } else if (typeof a.url === 'string') {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, got), buf);
+    file = relative(P, join(dir, got));
+  } else file = relative(P, got);
   const kind = IMPORT_EXT[extname(pick).toLowerCase()];
   const added = addAsset(P, {
     id, kind, source: 'external', licence: a.licence,
     ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}),
-    ref: { file: pick },
+    ref: { file: file.split('\\').join('/') },
     provenance: { tool: 'scout', prompt: `import ${a.url ?? a.file}`, ...(typeof a.source_url === 'string' ? { url: a.source_url } : typeof a.url === 'string' ? { url: a.url } : {}), createdAt: new Date().toISOString() },
   });
   if (!added.ok) return err(`could not record ${id}: ${added.errors.join('; ')}`, 'invalid');
   const next = kind === 'mesh'
-    ? `A mesh: run asset {action:"normalize", file:"${pick}"} (scale/axis/colours) before upload, or open it in the model tool.`
+    ? `A mesh: run asset {action:"normalize", file:"${file}"} (scale/axis/colours) before upload, or open it in the model tool.`
     : kind === 'image'
       ? 'An image: after upload use its asset id in ImageLabel.Image / Decal.Texture.'
       : `A model: after upload, scout {action:"try", asset_id:<uploaded id>, id:"${id}Try"} quarantines and sanitizes it like any pack.`;
   return {
     text: [
-      `imported ${pick} as "${id}" (${kind}, licence ${a.licence}${typeof a.attribution === 'string' ? `, by ${a.attribution}` : ''}) — candidate in .blox/assets.json`,
+      `imported ${file} as "${id}" (${kind}, licence ${a.licence}${typeof a.attribution === 'string' ? `, by ${a.attribution}` : ''}) — candidate in .blox/assets.json`,
       `A human must approve it (\`blox asset approve ${id}\`) before asset {action:"upload", id:"${id}", confirm:true}.`,
       next,
     ].join('\n'),
