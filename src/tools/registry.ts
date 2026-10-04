@@ -31,7 +31,7 @@ import { renderShots } from '../present/render.js';
 import { formatMp, runMultiplayer } from '../multiplayer/run.js';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { assetResults, formatAssetLint, lintAssets } from '../assets/lint.js';
-import { runSanitize, SCAN_LUAU, untrackedFromScan } from '../assets/scan.js';
+import { runSanitize, scanProgram, trackedPaths, untrackedFromScan, coveredFromScan } from '../assets/scan.js';
 import { runNormalize } from '../assets/blender.js';
 import { briefText, checkImages, formatStats, modelDir, previewLuau, readBrief, runModelPy, writeBrief, type ModelStats } from '../model/run.js';
 import { buildLuau, checkMotion, keyframeSequenceXml, PLAY_TOLERANCE, prepare, type AnimJson, type BuildResult } from '../model/anim.js';
@@ -757,10 +757,12 @@ export const TOOLS: BloxTool[] = [
         return { text: lines.join('\n'), summary: `${findings.length} risks` };
       }
       if (a.action === 'scan') {
-        const r = await runLuau(ctx.session, SCAN_LUAU, 'edit', { chunkName: 'assetScan', timeoutMs: 60_000 });
+        const m = loadManifest(P);
+        const r = await runLuau(ctx.session, scanProgram(trackedPaths(m)), 'edit', { chunkName: 'assetScan', timeoutMs: 60_000 });
         if (!r.ok) return { text: `scan failed: ${r.error?.message}`, isError: true, summary: 'failed' };
-        const untracked = untrackedFromScan(r.values[0], loadManifest(P));
-        writeJson(P, 'asset-scan.json', { at: new Date().toISOString(), untracked });
+        const untracked = untrackedFromScan(r.values[0], m);
+        // covered: ids inside tracked models, so code that names one (release code-ids) is not flagged
+        writeJson(P, 'asset-scan.json', { at: new Date().toISOString(), untracked, covered: coveredFromScan(r.values[0], m) });
         return { text: [`${untracked.length} untracked asset id(s)`, ...untracked.slice(0, 30).map((u) => `  ${u.id}  ${u.where}`)].join('\n'), summary: `${untracked.length} untracked` };
       }
       if (a.action === 'lint') {

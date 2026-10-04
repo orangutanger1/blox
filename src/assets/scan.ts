@@ -163,8 +163,10 @@ export async function runSanitize(session: StudioSession, path: string, keep: bo
   throw new Error(`sanitize: more than ${MAX_CHUNKS} chunks of scripts`);
 }
 
-// Edit-context: every asset id the place references, with one example location.
-export const SCAN_LUAU = `local HttpService = game:GetService("HttpService")
+// Edit-context: every asset id the place references, with one example location,
+// and whether any use of it sits inside a tracked model (TRACKED: path prefixes).
+export const scanProgram = (tracked: string[]): string => `local HttpService = game:GetService("HttpService")
+local TRACKED = { ${tracked.map((p) => JSON.stringify(p + '.')).join(', ')} }
 local PROPS = {
 	MeshPart = { "MeshId", "TextureID" }, SpecialMesh = { "MeshId", "TextureId" },
 	Decal = { "Texture" }, Texture = { "Texture" }, ImageLabel = { "Image" }, ImageButton = { "Image" },
@@ -178,6 +180,11 @@ local function note(v, where)
 	if not id then return end
 	if not found[id] then found[id] = { id = tonumber(id), where = where, count = 0 } table.insert(order, id) end
 	found[id].count += 1
+	if not found[id].tracked then
+		for _, p in TRACKED do
+			if string.sub(where, 1, #p) == p then found[id].tracked = true break end
+		end
+	end
 end
 for _, svcName in { "Workspace", "ReplicatedStorage", "ReplicatedFirst", "ServerStorage", "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "SoundService" } do
 	local ok, svc = pcall(function() return game:GetService(svcName) end)
@@ -197,15 +204,30 @@ local list = {}
 for _, id in order do table.insert(list, found[id]) end
 return HttpService:JSONEncode(list)`;
 
-export function untrackedFromScan(raw: unknown, m: AssetManifest): { id: string; where: string }[] {
+type ScanHit = { id: number; where: string; count: number; tracked?: boolean };
+
+function scanHits(raw: unknown): ScanHit[] {
   if (typeof raw !== 'string') throw new Error('scan returned no data');
-  const list = JSON.parse(raw) as { id: number; where: string; count: number }[] | Record<string, never>;
+  const list = JSON.parse(raw) as ScanHit[] | Record<string, never>;
+  return Array.isArray(list) ? list : [];
+}
+
+export const trackedPaths = (m: AssetManifest): string[] => m.assets.map((a) => a.ref.path).filter((p): p is string => !!p);
+
+// A tracked model's own meshes/textures are covered by its entry.
+const insideTracked = (x: ScanHit, m: AssetManifest) => x.tracked === true || trackedPaths(m).some((p) => x.where.startsWith(p + '.'));
+
+export function coveredFromScan(raw: unknown, m: AssetManifest): number[] {
+  return scanHits(raw).filter((x) => insideTracked(x, m)).map((x) => x.id);
+}
+
+export function untrackedFromScan(raw: unknown, m: AssetManifest): { id: string; where: string }[] {
+  const list = scanHits(raw);
   const known = new Set<number>();
   for (const a of m.assets) {
     if (a.ref.assetId) known.add(a.ref.assetId);
     if (a.uploaded) known.add(a.uploaded.assetId);
+    if (a.uploaded?.imageId) known.add(a.uploaded.imageId);
   }
-  // A tracked model's own meshes/textures are covered by its entry.
-  const inside = m.assets.map((a) => a.ref.path).filter((p): p is string => !!p).map((p) => p + '.');
-  return (Array.isArray(list) ? list : []).filter((x) => !known.has(x.id) && !inside.some((p) => x.where.startsWith(p))).map((x) => ({ id: `rbxassetid://${x.id}`, where: x.count > 1 ? `${x.where} (+${x.count - 1} more)` : x.where }));
+  return list.filter((x) => !known.has(x.id) && !insideTracked(x, m)).map((x) => ({ id: `rbxassetid://${x.id}`, where: x.count > 1 ? `${x.where} (+${x.count - 1} more)` : x.where }));
 }
