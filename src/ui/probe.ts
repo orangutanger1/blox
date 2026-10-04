@@ -4,7 +4,8 @@ import { TOPBAR, type Device, type UiElement } from './lint.js';
 // Client-context Luau that lays out the player's GUI at each device size
 // without plugin APIs: every enabled PlayerGui ScreenGui's children are cloned
 // (scripts stripped) into a Frame of the device's pixel size, inset the way
-// that ScreenGui would be on the device. Two frames later the layout engine has
+// that ScreenGui would be on the device. A GuiButton with Interactable=false (art
+// inside a bigger hit area) is not a touch target. Two frames later the layout engine has
 // resolved scale, constraints, list layouts and TextFits; the probe reports
 // each visible GuiObject's rect relative to the device.
 //
@@ -119,7 +120,7 @@ for _, o in D:GetDescendants() do
 				local e = {
 					path = rel(o, D), cls = o.ClassName,
 					x = x0 - ox, y = y0 - oy, w = o.AbsoluteSize.X, h = o.AbsoluteSize.Y,
-					button = o:IsA("GuiButton"), clipped = clipped,
+					button = o:IsA("GuiButton") and o.Interactable, clipped = clipped,
 				}
 				if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
 					e.text = string.sub(o.Text, 1, 200)

@@ -15,6 +15,9 @@ describe('ui probe', () => {
     expect(code).toMatch(/local BUDGET = 5000\n/);
     expect(code).toContain('return HttpService:JSONEncode');
   });
+  it('a non-interactable GuiButton (art inside a hit area) is not a touch target', () => {
+    expect(uiProbeProgram(DEVICES[0])).toContain('button = o:IsA("GuiButton") and o.Interactable');
+  });
   it('skips Roblox-injected GUIs (legacy chat etc.)', () => {
     expect(uiProbeProgram(DEVICES[0])).toMatch(/ENGINE_GUIS = \{ Chat = true/);
   });
