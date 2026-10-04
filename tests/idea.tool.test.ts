@@ -84,6 +84,17 @@ describe('idea tool', () => {
     expect(readJson<{ idea: { id: string } }>(P, 'brief.json')!.idea.id).toBe('c');
     expect(readJson(P, 'design.json')).toBeNull(); // never written
   });
+  it('brief refuses when the snapshot was re-fetched after propose (evidence could silently drop)', async () => {
+    const P = mkdtempSync(join(tmpdir(), 'idea-tool-'));
+    const at = (iso: string) => ({ ...ctxFor(P), now: new Date(iso) });
+    await invokeTool(tool(), { action: 'research' }, at('2026-10-03T08:00:00Z'));
+    await invokeTool(tool(), { action: 'propose', ideas: [idea('a', [1, 2]), idea('b', [1, 2]), idea('c', [2, 1])] }, at('2026-10-03T08:01:00Z'));
+    await invokeTool(tool(), { action: 'research', device: 'phone' }, at('2026-10-03T09:00:00Z'));
+    const out = await invokeTool(tool(), { action: 'brief', id: 'a' }, at('2026-10-03T09:01:00Z'));
+    expect(out.isError).toBe(true);
+    expect(out.text).toMatch(/propose again/);
+    expect(readJson(P, 'brief.json')).toBeNull();
+  });
   it('list with no ideas explains the order', async () => {
     const P = mkdtempSync(join(tmpdir(), 'idea-tool-'));
     const out = await invokeTool(tool(), { action: 'list' }, ctxFor(P));

@@ -23,7 +23,7 @@ export const ideaShape = {
   id: z.string().optional(),
 };
 
-interface IdeasFile { snapshot: string; at: string; ideas: RankedIdea[] }
+interface IdeasFile { snapshot: string; snapshotAt?: string; at: string; ideas: RankedIdea[] }
 
 const fetchOf = (ctx: ToolCtx): FetchLike => ctx.fetch ?? (globalThis.fetch as unknown as FetchLike);
 const err = (text: string, summary: string): ToolOutput => ({ text, isError: true, summary });
@@ -91,7 +91,7 @@ export async function ideaTool(a: Record<string, unknown>, ctx: ToolCtx & { now?
     if (!snap) return err('no snapshot yet — run idea {action:"research"} first', 'no snapshot');
     const v = validateIdeas(a.ideas, snap);
     if (!v.ok) return err(`ideas refused:\n${v.errors.map((e) => `  ${e}`).join('\n')}`, 'refused');
-    const f: IdeasFile = { snapshot: snap.date, at: now.toISOString(), ideas: rankIdeas(v.ideas, snap) };
+    const f: IdeasFile = { snapshot: snap.date, snapshotAt: snap.at, at: now.toISOString(), ideas: rankIdeas(v.ideas, snap) };
     writeJson(P, 'ideas.json', f);
     return { text: `saved .blox/ideas.json\n${listText(f)}`, summary: `${f.ideas.length} ideas` };
   }
@@ -106,6 +106,9 @@ export async function ideaTool(a: Record<string, unknown>, ctx: ToolCtx & { now?
     if (!pick) return err(`unknown idea "${String(a.id)}" — known: ${f.ideas.map((i) => i.id).join(', ')}`, 'unknown id');
     const snap = loadSnapshot(P, f.snapshot);
     if (!snap) return err(`snapshot ${f.snapshot} is missing — run idea {action:"research"} and propose again`, 'no snapshot');
+    // A same-day re-research replaces the file; cited games may be gone from it.
+    if (f.snapshotAt && snap.at !== f.snapshotAt)
+      return err(`snapshot ${f.snapshot} was re-fetched (${snap.at}, device ${snap.device}) after these ideas were proposed — propose again so the evidence matches`, 'stale snapshot');
     const b = buildBrief(pick, snap, now);
     writeJson(P, 'brief.json', b);
     return { text: `wrote .blox/brief.json\n${briefText(b)}`, summary: `brief ${pick.id}` };
