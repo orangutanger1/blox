@@ -2,7 +2,8 @@
 local Players = game:GetService("Players")
 local function root()
 	local p = waitFor(function() return Players:GetPlayers()[1] end, 10, "no player")
-	return waitFor(function() return p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character")
+	-- Wait for the avatar to finish loading: accessories added after a move can shift the character.
+	return waitFor(function() return p:HasAppearanceLoaded() and p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character")
 end
 test("door: opens when a player steps on the plate", function()
 	local door = workspace:WaitForChild("Door", 5)

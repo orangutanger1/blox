@@ -31,15 +31,22 @@ export function newRunId(): string {
 // Host script source. `program` is testProgram() output (top-level code ending
 // in `return { results, fileErrors }`). It is wrapped on the SAME first line so
 // host line N == program line N and spec positions map unchanged.
+// Avatar accessories load after CharacterAdded and can shift the character
+// (seen 2026-10-05: a wheelchair accessory made specs that teleport the
+// character miss touches). Specs start once the appearance is in, capped at 10s.
+export const APPEARANCE_WAIT = `if p then local t1 = os.clock() while not p:HasAppearanceLoaded() and os.clock() - t1 < 10 do task.wait(0.1) end end`;
+
 export function hostSource(program: string, ctx: PlayContext, runId: string): string {
   const wait = ctx === 'server'
     ? `local Players = game:GetService("Players")
 local t0 = os.clock()
 while #Players:GetPlayers() == 0 and os.clock() - t0 < 30 do task.wait(0.1) end
 local p = Players:GetPlayers()[1]
-if p and not p.Character then p.CharacterAdded:Wait() end`
+if p and not p.Character then p.CharacterAdded:Wait() end
+${APPEARANCE_WAIT}`
     : `local p = game:GetService("Players").LocalPlayer
-if not p.Character then p.CharacterAdded:Wait() end`;
+if not p.Character then p.CharacterAdded:Wait() end
+${APPEARANCE_WAIT}`;
   return `local function __blox_run() ${program}
 end
 ${wait}

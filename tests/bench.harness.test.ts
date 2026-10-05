@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -27,6 +27,20 @@ describe('bench helpers', () => {
     expect(agentSpec('blox', {}).argv).toContain('{prompt}');
     expect(() => agentSpec('legacy', {})).toThrow(/--legacy-cli/);
     expect(agentSpec('claude-code', { model: 'm' }).argv).toEqual(expect.arrayContaining(['claude', '-p', '--model', 'm']));
+    process.env.BLOX_STUDIO_MCP_CMD = '/x/StudioMCP.exe';
+    try {
+      const s = agentSpec('claude-code-studio', {});
+      expect(s.studioOnly).toBe(true);
+      expect(s.argv).toEqual(expect.arrayContaining(['--mcp-config', '{project}-cwd/.mcp.json', '--strict-mcp-config']));
+      const wd = mkdtempSync(join(tmpdir(), 'bench-cs-'));
+      mkdirSync(`${wd}-cwd`);
+      s.prepare!(wd);
+      const cfg = JSON.parse(readFileSync(join(`${wd}-cwd`, '.mcp.json'), 'utf8'));
+      expect(Object.keys(cfg.mcpServers)).toEqual(['roblox-studio']);
+      expect(cfg.mcpServers['roblox-studio'].command).toBe('/x/StudioMCP.exe');
+    } finally {
+      delete process.env.BLOX_STUDIO_MCP_CMD;
+    }
   });
   it('formats a markdown report with totals and failures', () => {
     const r: BenchReport = {

@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { join, resolve } from 'node:path';
 import { scaffoldProject } from '../scaffold.js';
 import { runLuau } from '../studio/luau.js';
-import { stopPlay } from '../studio/play.js';
+import { stopPlay, withPlay } from '../studio/play.js';
 import type { StudioSession } from '../studio/session.js';
 import { pushProject } from '../sync/push.js';
 import { runTests, type TestRunResult } from '../testing/runner.js';
@@ -58,6 +58,7 @@ export interface TaskRun {
   live?: CheckOutcome;
   synced?: CheckOutcome;
   pass: boolean; // all live checks passed
+  screenshot?: string; // viewport capture of what the agent left in Studio
   workdir: string;
   notes: string[];
 }
@@ -110,6 +111,27 @@ export async function resetStudio(session: StudioSession): Promise<void> {
   if (st.mode !== 'Edit') await stopPlay(session);
   const r = await runLuau(session, RESET_LUAU, 'edit', { freshRequire: false });
   if (!r.ok) throw new Error(`studio reset failed: ${r.error?.message}`);
+}
+
+// Best-effort viewport capture of what the agent left in Studio, taken a few
+// seconds into a play session (many games build their world at runtime, so an
+// edit-mode shot can be empty), so a reader can see the result beside the scores.
+export async function captureBenchShot(session: StudioSession, file: string): Promise<string | undefined> {
+  try {
+    const st = await session.state();
+    if (st.mode !== 'Edit') await stopPlay(session);
+    const r = await withPlay(session, async () => {
+      await new Promise((res) => setTimeout(res, 5000));
+      return session.call('screen_capture', { capture_id: 'bench' }, 30_000);
+    });
+    const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
+    if (!img?.data) return undefined;
+    const out = (img.mimeType ?? '').includes('png') ? file.replace(/\.jpg$/, '.png') : file;
+    writeFileSync(out, Buffer.from(img.data, 'base64'));
+    return out;
+  } catch {
+    return undefined;
+  }
 }
 
 export function prepareWorkdir(task: BenchTask, workdir: string, overlay: 'seed' | 'solution'): void {
@@ -181,6 +203,15 @@ export interface AgentSpec {
   env?: Record<string, string>;
   cwdIsProject?: boolean;
   prepare?: (workdir: string) => void; // e.g. write .mcp.json
+  // Agent works in Studio only (no project files): the harness pushes the seed
+  // into Studio first, runs the agent from an empty dir, and skips the synced
+  // score (its files are the untouched seed).
+  studioOnly?: boolean;
+}
+
+// Empty sibling of the workdir: cwd for studioOnly agents.
+export function studioOnlyCwd(workdir: string): string {
+  return `${workdir}-cwd`;
 }
 
 export function substitute(argv: string[], vars: Record<string, string>): string[] {
@@ -278,7 +309,7 @@ export function collectAgentStats(stdout: string, statsFile: string | null, pric
 export function runAgentProcess(spec: AgentSpec, argv: string[], workdir: string, logFile: string, timeoutSec: number, extraEnv: Record<string, string> = {}): Promise<{ code: number | null; timedOut: boolean; stdout: string }> {
   return new Promise((res) => {
     const child = spawn(argv[0], argv.slice(1), {
-      cwd: spec.cwdIsProject ? workdir : process.cwd(),
+      cwd: spec.studioOnly ? studioOnlyCwd(workdir) : spec.cwdIsProject ? workdir : process.cwd(),
       env: { ...process.env, ...(spec.env ?? {}), ...extraEnv },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -301,6 +332,7 @@ export interface BenchOptions {
   repeat?: number;
   timeoutSec?: number;
   evaluateSynced?: boolean;
+  screenshots?: boolean; // capture the viewport after each agent run (default on)
   log?: (s: string) => void;
   onRun?: (report: BenchReport) => void; // called after each task (incremental save)
 }
@@ -324,6 +356,12 @@ export async function runBench(session: StudioSession, opts: BenchOptions): Prom
       prepareWorkdir(task, workdir, 'seed');
       const run: TaskRun = { task: task.id, level: task.level, attempt, agentExit: null, timedOut: false, durationSec: 0, pass: false, workdir, notes: [] };
       await resetStudio(session);
+      if (opts.agent?.studioOnly) {
+        const s = await pushProject(session, workdir);
+        if (!s.ok) run.notes.push(`seed push problems: ${s.errors.join('; ')}`);
+        rmSync(studioOnlyCwd(workdir), { recursive: true, force: true });
+        mkdirSync(studioOnlyCwd(workdir), { recursive: true });
+      }
       const t0 = Date.now();
       if (opts.agent) {
         opts.agent.prepare?.(workdir);
@@ -349,12 +387,17 @@ export async function runBench(session: StudioSession, opts: BenchOptions): Prom
         run.bloxToolCalls = ev.length;
         run.bloxToolErrors = ev.filter((e) => !e.ok).length;
       }
+      if (opts.screenshots !== false) {
+        const shot = await captureBenchShot(session, join(runsDir, `${task.id}-${attempt}.jpg`));
+        if (shot) run.screenshot = shot;
+        else run.notes.push('screenshot failed');
+      }
       try {
         run.live = (await evaluate(session, task, workdir)).outcome;
       } catch (e) {
         run.notes.push(`live evaluation failed: ${(e as Error).message}`);
       }
-      if (opts.evaluateSynced !== false) {
+      if (opts.evaluateSynced !== false && !opts.agent?.studioOnly) {
         try {
           const s = await pushProject(session, workdir);
           if (!s.ok) run.notes.push(`harness sync problems: ${[...s.errors, ...s.builders.filter((b) => b.error).map((b) => `${b.name}: ${b.error}`)].join('; ')}`);

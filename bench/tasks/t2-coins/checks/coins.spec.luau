@@ -1,7 +1,7 @@
 -- @context server
 local Players = game:GetService("Players")
 local function player() return waitFor(function() return Players:GetPlayers()[1] end, 10, "no player") end
-local function root(p) return waitFor(function() return p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character") end
+local function root(p) return waitFor(function() return p:HasAppearanceLoaded() and p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character") end
 local function coinsValue(p)
 	return waitFor(function() local ls = p:FindFirstChild("leaderstats") return ls and ls:FindFirstChild("Coins") end, 10, "no leaderstats.Coins")
 end

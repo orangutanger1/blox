@@ -11,6 +11,8 @@ import { formatBenchMarkdown, runBench, validateTasks, type AgentSpec } from './
 //                 runs it on the vendor-neutral loop (needs --model)
 //   legacy        another blox checkout's runner: --legacy-cli <path/to/dist/cli.js>
 //   claude-code   `claude -p` with this checkout's blox MCP server wired in
+//   claude-code-studio  `claude -p` with only Roblox's own Studio MCP (no blox):
+//                 the plain "Claude + Studio MCP" baseline, scored live only
 //   openai        dist/bench/openaiAgent.js: any OpenAI-compatible endpoint
 //                 (OPENAI_BASE_URL, default OpenRouter) + blox MCP; needs --model
 //   custom        --agent-cmd '["prog","arg","{prompt}"]' ({project}, {promptFile})
@@ -50,6 +52,21 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
       prepare: (wd) => { setupAgent('claude', wd); },
     };
   }
+  if (name === 'claude-code-studio') {
+    const launch = resolveStudioLaunch();
+    return {
+      name: 'claude-code + Studio MCP (no blox)',
+      model: modelId,
+      argv: ['claude', '-p', '{prompt}', '--mcp-config', '{project}-cwd/.mcp.json', '--strict-mcp-config',
+        '--permission-mode', 'bypassPermissions', '--max-turns', turns, '--output-format', 'stream-json', '--verbose', ...model],
+      studioOnly: true,
+      billing: process.env.ANTHROPIC_API_KEY ? 'apiKey' : 'subscription',
+      prepare: (wd) => {
+        const server = { command: launch.command, args: launch.args, ...(launch.cwd ? { cwd: launch.cwd } : {}) };
+        writeFileSync(join(`${wd}-cwd`, '.mcp.json'), JSON.stringify({ mcpServers: { 'roblox-studio': server } }, null, 2));
+      },
+    };
+  }
   if (name === 'openai') {
     if (!modelId) throw new Error('--agent openai needs --model <provider model id>');
     return {
@@ -64,7 +81,7 @@ export function agentSpec(name: string, o: Record<string, string | boolean>): Ag
     if (typeof cmd !== 'string') throw new Error('--agent custom needs --agent-cmd \'["prog","{prompt}"]\'');
     return { name: `custom ${cmd}`, model: modelId, argv: JSON.parse(cmd) as string[], cwdIsProject: true };
   }
-  throw new Error(`unknown agent "${name}" (blox | legacy | claude-code | openai | custom)`);
+  throw new Error(`unknown agent "${name}" (blox | legacy | claude-code | claude-code-studio | openai | custom)`);
 }
 
 export async function runBenchCommand(argv: string[]): Promise<void> {

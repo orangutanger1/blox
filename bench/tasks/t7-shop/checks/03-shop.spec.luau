@@ -8,6 +8,7 @@ local function hud()
 		return nil
 	end, 5, "no ScreenGui named HUD in PlayerGui")
 end
+waitFor(function() return RS:GetAttribute("__BenchCoinsDone") end, 30, "server coin checks never finished")
 local function buy() return waitFor(function() return RS:FindFirstChild("BuySpeed") end, 5, "no ReplicatedStorage.BuySpeed") end
 test("shop: BuySpeed is a RemoteFunction", function()
 	expect(buy()).toBeA("RemoteFunction")
