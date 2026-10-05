@@ -221,22 +221,51 @@ function Economy:advance(s, dt: number, rates)
 	end
 end
 
+-- Opens gate `id` and pays its grants × the rebirth multiplier for each resource.
+function Economy:payGate(s, id: string)
+	s.open[id] = true
+	local rb = self.E.rebirth
+	for res, v in (self.E.gates[id] or {}).grants or {} do
+		local f = 1
+		if rb and (rb.mult.target == "*" or rb.mult.target == res) then
+			f = rb.mult.per ^ (s.owned.rebirth or 0)
+		end
+		s.bal[res] = (s.bal[res] or 0) + v * f
+	end
+end
+
+local function reached(self, s, id: string, g): boolean
+	return not s.open[id] and self:requiresMet(s, g.requires) and ge(s.bal[g.needs.res] or 0, g.needs.amount)
+end
+
 -- Opens threshold gates that are now reached; returns newly opened ids (sorted).
+-- Claim gates wait for claimGate (the game calls it, e.g. on a checkpoint touch).
 function Economy:openGates(s): { string }
 	local opened = {}
 	for _, id in sortedKeys(self.E.gates) do
 		local g = self.E.gates[id]
-		if
-			not g.needs.consume
-			and not s.open[id]
-			and self:requiresMet(s, g.requires)
-			and ge(s.bal[g.needs.res] or 0, g.needs.amount)
-		then
-			s.open[id] = true
+		if not g.needs.consume and not g.claim and reached(self, s, id, g) then
+			self:payGate(s, id)
 			table.insert(opened, id)
 		end
 	end
 	return opened
+end
+
+-- Opens a claim gate once its threshold is met (once per run; rebirth resets gates).
+function Economy:claimGate(s, id: string): (boolean, string?)
+	local g = (self.E.gates or {})[id]
+	if not g or not g.claim then
+		return false, "not a claim gate"
+	end
+	if s.open[id] then
+		return false, "already claimed"
+	end
+	if not reached(self, s, id, g) then
+		return false, "not reached"
+	end
+	self:payGate(s, id)
+	return true, nil
 end
 
 function Economy:tick(s, dt: number, online: boolean): { string }
@@ -318,7 +347,7 @@ function Economy:purchase(s, ref: string, rng: (() -> number)?): (boolean, strin
 	s.owned[ref] = self:count(s, ref) + 1
 	local outcome = nil
 	if it.kind == "gate" then
-		s.open[it.id] = true
+		self:payGate(s, it.id)
 	elseif it.kind == "chance" then
 		local ids, total = sortedKeys(it.def.outcomes), 0
 		for _, oid in ids do

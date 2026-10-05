@@ -440,7 +440,7 @@ export const TOOLS: BloxTool[] = [
       seed: z.number().int().optional(),
     },
     async handler(a, ctx) {
-      if (a.action === 'example') return { text: `${EXAMPLE_TEXT}\nTimeTo targets are gate:/upgrade:/generator:/action: refs; balanceAt needs res + at (wall clock). Kits ship full examples (kit {action:"list"}).`, summary: 'example' };
+      if (a.action === 'example') return { text: `${EXAMPLE_TEXT}\nTimeTo targets are gate:/upgrade:/generator:/action: refs; balanceAt needs res + at (wall clock). Gates can pay rewards when they open: grants {res: n} (× rebirth multiplier); claim:true = the game opens it (KitApi claimGate, e.g. a checkpoint touch) once the threshold is met. tunables.passiveActions:true = actions accrue without moving (+1 per second games). Kits ship full examples (kit {action:"list"}).`, summary: 'example' };
       if (a.action === 'set') {
         const v = validateDesign(a.doc);
         if (!v.ok) return { text: `design not saved — ${v.errors.length} error(s):\n${formatErrors(v.errors)}\nA valid doc to copy shapes from:\n${EXAMPLE_TEXT}`, isError: true, summary: 'invalid' };

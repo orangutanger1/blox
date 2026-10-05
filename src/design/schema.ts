@@ -84,6 +84,10 @@ export const DesignSchema = z
               .object({
                 id: Id,
                 needs: z.object({ res: Id, amount: z.number().positive(), consume: z.boolean().default(false) }).strict(),
+                // Paid once each time the gate opens (again after a rebirth that resets gates), × the rebirth multiplier.
+                grants: z.record(Id, z.number().positive()).optional(),
+                // Opened by the game (e.g. touching a checkpoint) once the threshold is met; the sim assumes at once.
+                claim: z.boolean().default(false),
                 requires: Ref.optional(),
               })
               .strict(),
@@ -242,11 +246,14 @@ function semanticErrors(doc: DesignDoc): DesignError[] {
     e.actions.some((a) => (a.yields[r] ?? 0) > 0) ||
     e.generators.some((g) => (g.produces[r] ?? 0) > 0) ||
     e.upgrades.some((u) => u.effect.target === r && (u.effect.add ?? 0) > 0) ||
-    e.chance.some((c) => c.outcomes.some((o) => (o.grants[`income:${r}`] ?? 0) > 0 || (o.grants[`res:${r}`] ?? 0) > 0));
+    e.chance.some((c) => c.outcomes.some((o) => (o.grants[`income:${r}`] ?? 0) > 0 || (o.grants[`res:${r}`] ?? 0) > 0)) ||
+    e.gates.some((g) => (g.grants?.[r] ?? 0) > 0);
   e.gates.forEach((g, i) => {
     const p = `economy.gates.${i}.needs.res`;
     if (!resIds.has(g.needs.res)) return err(p, `unknown resource "${g.needs.res}"`);
     if (g.needs.consume && !spendable.has(g.needs.res)) err(p, `cannot consume non-spendable "${g.needs.res}"`);
+    if (g.needs.consume && g.claim) err(`economy.gates.${i}.claim`, 'claim gates cannot consume (they open on a game event, not a purchase)');
+    for (const r of Object.keys(g.grants ?? {})) if (!resIds.has(r)) err(`economy.gates.${i}.grants.${r}`, `unknown resource "${r}"`);
     const start = e.resources.find((r) => r.id === g.needs.res)!.start;
     if (start < g.needs.amount && !producible(g.needs.res)) err(p, `nothing produces "${g.needs.res}"`);
     ref(`economy.gates.${i}.requires`, g.requires);

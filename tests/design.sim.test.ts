@@ -66,6 +66,29 @@ describe('simulate', () => {
     expect(first(tr, 'gate:z2')!.t).toBe(30);
     expect(first(tr, 'generator:g')!.t).toBe(30);
   });
+  it('gate grants pay on open (claim gates too), scaled by the rebirth multiplier', () => {
+    const d = doc({
+      economy: {
+        resources: [{ id: 'wins' }, { id: 'jump', spendable: false }],
+        actions: [{ id: 'train', yields: { jump: 1 }, perSec: 1 }],
+        gates: [
+          { id: 's1', needs: { res: 'jump', amount: 10 }, grants: { wins: 5 }, claim: true },
+          { id: 's2', needs: { res: 'jump', amount: 20 }, grants: { wins: 50 } },
+        ],
+        generators: [{ id: 'g', produces: { jump: 0 }, cost: { res: 'wins', base: 5 }, max: 1 }],
+        rebirth: { needs: { res: 'wins', base: 50, growth: 1.9 }, mult: { target: '*', per: 2 }, resets: ['wins', 'jump', 'gates'] },
+      },
+      archetypes: [{ id: 'a', session: { lengthSec: 86400, perDay: 1 }, policy: 'cheapest' }],
+    });
+    const tr = simulate(d, { archetype: 'a', horizonSec: 40, seed: 1 });
+    expect(first(tr, 'gate:s1')!.t).toBe(10);
+    expect(first(tr, 'generator:g')!.t).toBe(10); // the 5 wins from s1 buy it at once
+    expect(first(tr, 'rebirth')!.t).toBe(20);
+    // after rebirth (x2): jump resets, s1 reopens 5s later (2/s); s2 then pays 100 >= the 95 second rebirth
+    const s1 = tr.events.filter((e) => e.ref === 'gate:s1');
+    expect(s1[1].t).toBe(25);
+    expect(first(tr, 'rebirth', 2)!.t).toBe(30);
+  });
   it('offline earns fraction up to cap, actions stop offline', () => {
     const d = doc({
       economy: {

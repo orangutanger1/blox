@@ -71,6 +71,28 @@ describe('validateDesign', () => {
     (d.economy as any).gates = [{ id: 'z2', needs: { res: 'speed', amount: 5, consume: true } }];
     expect(errs(d).join()).toMatch(/cannot consume/);
   });
+  it('accepts gate grants and claim, rejects unknown grant resources and claim+consume', () => {
+    const d = minimal();
+    (d.economy as any).resources.push({ id: 'jump', spendable: false });
+    (d.economy as any).actions[0].yields.jump = 1;
+    (d.economy as any).gates = [{ id: 's1', needs: { res: 'jump', amount: 5 }, grants: { cash: 3 }, claim: true }];
+    expect(errs(d)).toEqual([]);
+    (d.economy as any).gates[0].grants = { gems: 1 };
+    expect(errs(d).join()).toMatch(/economy\.gates\.0\.grants\.gems: unknown resource "gems"/);
+    (d.economy as any).gates[0].grants = { cash: 1 };
+    (d.economy as any).gates[0].needs = { res: 'cash', amount: 5, consume: true };
+    expect(errs(d).join()).toMatch(/claim gates cannot consume/);
+  });
+  it('counts gate grants as producing a resource', () => {
+    const d = minimal();
+    (d.economy as any).resources.push({ id: 'jump', spendable: false }, { id: 'wins' });
+    (d.economy as any).actions[0].yields.jump = 1;
+    (d.economy as any).gates = [
+      { id: 's1', needs: { res: 'jump', amount: 5 }, grants: { wins: 3 } },
+      { id: 's2', needs: { res: 'wins', amount: 3 } },
+    ];
+    expect(errs(d)).toEqual([]);
+  });
   it('rejects sessions longer than their slot', () => {
     const d = minimal({ archetypes: [{ id: 'active', session: { lengthSec: 50000, perDay: 2 }, policy: 'roi' }] });
     expect(errs(d).join()).toMatch(/longer than its slot/);
