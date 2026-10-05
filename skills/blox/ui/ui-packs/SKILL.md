@@ -74,3 +74,16 @@ item grid with rarity-coloured cards and a tooltip card beside the selection;
 category icon strip on the panel's left edge; green = buy/confirm, red =
 close/cancel; currency pills top-right or a left stack; menu icon rail on one
 screen edge; one big bottom-centre action button on mobile.
+
+## Pack gotchas (seen on real packs)
+
+- Panel handlers often ship at Size 0×0 (an open tween grows them) or inside a
+  hidden container: give the handler a real size and make the container visible.
+- A child named like a property (`Name`, `Parent`, `Size`) is shadowed by it:
+  `card.NameHandler.Name` is a string — use `FindFirstChild("Name")`.
+- Grid rows sized as a fraction of a fixed CanvasSize shrink to nothing under
+  AutomaticCanvasSize; keep scale rows and recompute CanvasSize from the row count.
+- Clone a template before clearing its parent: destroying the parent's children
+  takes the template's children with it.
+- Buttons with a pack UIScale (hover effect) render under the 44px floor even
+  with a UISizeConstraint: reset the UIScale to 1.

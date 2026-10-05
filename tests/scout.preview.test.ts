@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatPreview, showPanelLuau, stagePanelsLuau } from '../src/assets/preview.js';
+import { formatPreview, modelCameras, MODEL_PREVIEW, showPanelLuau, stageModelLuau, stagePanelsLuau } from '../src/assets/preview.js';
 import { addAsset } from '../src/assets/manifest.js';
 import { StudioSession } from '../src/studio/session.js';
 import { findTool, invokeTool, type ToolCtx } from '../src/tools/registry.js';
@@ -19,12 +19,13 @@ const panels = [
   { i: 2, name: 'Settings', path: 'ServerStorage.BloxScout.pack.UI.Settings', cls: 'Frame', size: '{0.5, 0}, {0.5, 0}', visible: true, descendants: 12, hidden: 0 },
 ];
 
-function ctx(seen: { dm: string; code: string }[], shots = true): ToolCtx {
+function ctx(seen: { dm: string; code: string }[], shots = true, model?: unknown): ToolCtx {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-preview-'));
   addAsset(projectPath, { id: 'pack', kind: 'model', source: 'creator-store', licence: 'roblox-creator-store', ref: { assetId: 1, path: 'ServerStorage.BloxScout.pack' }, provenance: { tool: 'scout', createdAt: 'x' } });
   const f = fakeStudio({
     luau: (code, dm) => {
       if (code.includes('BLOX_LOCATE')) return env([JSON.stringify({ result: [] })]);
+      if (code.includes('BLOX_MODEL_PREVIEW')) return env([JSON.stringify(model ?? { parts: 0, guis: 40, sounds: [] })]);
       seen.push({ dm, code });
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('local WANT')) return env([JSON.stringify({ panels, total: 3 })]);
@@ -113,5 +114,36 @@ describe('scout preview', () => {
     expect(cliArgs('scout', parseFlags(['preview', 'pack', '--panels', 'Shop,Settings', '--show-all']))).toEqual({ tool: 'scout', args: { action: 'preview', id: 'pack', panels: ['Shop', 'Settings'], show_all: true } });
     expect(cliArgs('scout', parseFlags(['preview', 'StarterGui.Pack', '--max', '3']))).toEqual({ tool: 'scout', args: { action: 'preview', path: 'StarterGui.Pack', max: 3 } });
     expect(cliArgs('scout', parseFlags(['preview', 'pack', '--no-phone']))).toEqual({ tool: 'scout', args: { action: 'preview', id: 'pack', phone: false } });
+  });
+
+  it('model Luau: stages a script-free anchored clone far away and counts parts, GUIs and sound lengths', () => {
+    const code = stageModelLuau('ServerStorage.BloxScout.rocks');
+    expect(code).toContain('BLOX_MODEL_PREVIEW');
+    expect(code).toContain(MODEL_PREVIEW);
+    expect(code).toContain('LuaSourceContainer');
+    expect(code).toContain('TimeLength');
+    expect(code).toMatch(/Anchored = true/);
+  });
+  it('model cameras frame the bounding box from two angles', () => {
+    const cams = modelCameras([0, 3000, -30000], [10, 10, 40]);
+    expect(cams).toHaveLength(2);
+    for (const c of cams) expect(c.lookAt).toEqual([0, 3000, -30000]);
+    expect(cams[0].position[0]).toBeGreaterThan(20);
+  });
+  it('tool: a model gets two framed shots in edit mode, no playtest, and the staged copy is removed', async () => {
+    const seen: { dm: string; code: string }[] = [];
+    const c = ctx(seen, true, { parts: 9, guis: 0, sounds: [], center: [0, 3000, -30000], size: [11, 10, 41] });
+    const r = await invokeTool(findTool('scout')!, { action: 'preview', id: 'pack' }, c);
+    expect(r.isError, r.text).toBeFalsy();
+    expect(r.images).toHaveLength(2);
+    expect(r.text).toMatch(/9 part\(s\)/);
+    expect(seen.some((s) => s.code.includes(`workspace:FindFirstChild("${MODEL_PREVIEW}")`) && s.code.includes('Destroy'))).toBe(true);
+    expect(seen.some((s) => s.code.includes('local WANT'))).toBe(false); // no panel playtest
+  });
+  it('tool: a sound reports its length and flags a short one as a sting', async () => {
+    const c = ctx([], true, { parts: 0, guis: 0, sounds: [{ name: 'music', id: 'rbxassetid://1', seconds: 5.4 }] });
+    const r = await invokeTool(findTool('scout')!, { action: 'preview', id: 'pack' }, c);
+    expect(r.isError).toBeFalsy();
+    expect(r.text).toMatch(/5\.4s \(short: a sting\/SFX, not a music loop\)/);
   });
 });

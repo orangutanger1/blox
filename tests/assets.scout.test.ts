@@ -35,6 +35,12 @@ describe('mergeResults', () => {
     const r = mergeResults([[hit('1', 'Obby obby OBBY Obby'), hit('2', 'Obby Map Template')]], 'obby', 'map');
     expect(r.map((x) => x.assetId)).toEqual(['2', '1']);
   });
+  it('ranks Roblox-licensed audio (APM, ProSoundEffects) first and says why', () => {
+    const r = mergeResults([[hit('1', 'epic music loop', { creatorName: 'someone' }), hit('2', 'Recre Rock', { creatorName: 'APMOfficial' })]], 'epic music', 'audio');
+    expect(r[0].assetId).toBe('2');
+    expect(r[0].licenceNote).toMatch(/plays in every experience/);
+    expect(mergeResults([[hit('2', 'Recre Rock', { creatorName: 'APMOfficial' })]], 'rock', 'model')[0].licenceNote).toBeUndefined();
+  });
   it('treats a free flag with a price as paid', () => {
     expect(mergeResults([[hit('5', 'x', { priceCents: 100 })]], 'x', 'model')).toEqual([]);
   });

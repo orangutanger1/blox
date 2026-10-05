@@ -12,7 +12,7 @@ import { bloxDir, readJson, writeJson } from '../state/store.js';
 import type { ToolCtx, ToolOutput } from '../tools/registry.js';
 import { addAsset, loadManifest, saveManifest, type AssetEntry } from './manifest.js';
 import { runSanitize } from './scan.js';
-import { formatPreview, MAX_PANELS, runPreview } from './preview.js';
+import { formatModelPreview, formatPreview, MAX_PANELS, runModelPreview, runPreview } from './preview.js';
 import {
   adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
@@ -20,7 +20,7 @@ import {
 import { assetDetails, assetTypeName, devforumSearch, kindAllows, type FetchLike, type OffsiteLead } from './scoutWeb.js';
 
 export const SCOUT_DESCRIPTION =
-  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting; unpack moves its ScreenGuis, else its children) | preview {id or path, panels?, show_all?, max?=12, phone?=true} (for UI packs: one playtest that shows each panel — a GuiObject directly under a ScreenGui, Folder or the pack root — alone, centred, made visible, sized if it had no size, and returns a screenshot of each, plus a phone check: each panel as made, laid out at phone-landscape/portrait, with ui lint findings (offscreen, touch targets < 44px, text); use it after try, before judging or adopting, and when building menus from a pack) | discard {id}. Nothing is bought or uploaded.';
+  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting/SoundService, creating missing folders; unpack moves its ScreenGuis, else its children) | preview {id or path, panels?, show_all?, max?=12, phone?=true} (models/maps: two framed screenshots of a staged copy; sounds: their length — under ~20 s is a sting, not a music loop; for UI packs: one playtest that shows each panel — a GuiObject directly under a ScreenGui, Folder or the pack root — alone, centred, made visible, sized if it had no size, and returns a screenshot of each, plus a phone check: each panel as made, laid out at phone-landscape/portrait, with ui lint findings (offscreen, touch targets < 44px, text); use it after try, before judging or adopting, and when building menus from a pack) | discard {id}. Nothing is bought or uploaded.';
 
 export const scoutShape = {
   action: z.enum(['search', 'try', 'adopt', 'discard', 'import', 'preview']),
@@ -45,7 +45,7 @@ export const scoutShape = {
   pick: z.string().optional(),
 };
 
-const ADOPT_ROOTS = ['Workspace', 'StarterGui', 'ReplicatedStorage', 'ServerStorage', 'Lighting'];
+const ADOPT_ROOTS = ['Workspace', 'StarterGui', 'ReplicatedStorage', 'ServerStorage', 'Lighting', 'SoundService'];
 
 interface ScoutSave {
   need: string;
@@ -349,7 +349,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
       try {
         const w = await devforumSearch(a.need, kind, fetchOf(ctx));
         per.push(w.hits);
-        offsite = w.offsite;
+        offsite = kind === 'audio' ? [] : w.offsite; // off-site leads are packs/libraries, never playable audio
         errors.push(...w.errors);
         forumOk = true;
       } catch (e) {
@@ -363,7 +363,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     writeJson(P, file, { need: a.need, kind, at: new Date().toISOString(), queries: queries.map((q) => q.query), errors, results: ranked, offsite } satisfies ScoutSave);
     const max = (a.max as number | undefined) ?? 8;
     const lines = (ranked as ScoutSave['results']).slice(0, max).map((r, i) =>
-      `${i + 1}. ${r.assetId} ${r.name} — ${r.creatorName ?? '?'} (score ${r.score}) ${r.sourceUrl ? `[devforum ${r.sourceUrl}]${r.licenceNote ? ` terms: "${r.licenceNote}"` : ''}` : r.creatorStoreUrl ?? ''}`);
+      `${i + 1}. ${r.assetId} ${r.name} — ${r.creatorName ?? '?'} (score ${r.score})${r.licenceNote && !r.sourceUrl ? ` [${r.licenceNote}]` : ''} ${r.sourceUrl ? `[devforum ${r.sourceUrl}]${r.licenceNote ? ` terms: "${r.licenceNote}"` : ''}` : r.creatorStoreUrl ?? ''}`);
     const off = offsite.slice(0, 5).map((o) => `  - ${o.title} ${o.links.join(' ')} [${o.sourceUrl}]${o.licenceNote ? ` terms: "${o.licenceNote}"` : ''}`);
     return {
       text: [
@@ -385,6 +385,19 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     const path = typeof a.path === 'string' ? a.path.replace(/^game\./, '') : e?.ref.path;
     if (!path) return err(typeof a.id === 'string' && !e ? `no asset "${a.id}" in .blox/assets.json — pass path` : 'preview needs id (a tried/adopted asset) or path', 'no path');
     const id = typeof a.id === 'string' ? a.id : path.split('.').pop()!;
+    // Models, maps and sounds: framed screenshots / lengths in edit mode. GUI packs
+    // (GUIs and no parts) get the per-panel playtest below.
+    const mp = await runModelPreview(ctx.session, P, { id, path });
+    if (mp.parts > 0 || mp.guis === 0) {
+      const got = mp.shots.filter((s) => s.screenshot);
+      return {
+        text: formatModelPreview(id, path, mp),
+        images: got.map((s) => ({ data: s.screenshot!.data, mimeType: s.screenshot!.mimeType })),
+        artifacts: got.map((s) => s.screenshot!.path),
+        isError: mp.parts > 0 && got.length === 0,
+        summary: mp.parts > 0 ? `${got.length} model shot(s)` : `${mp.sounds.length} sound(s)`,
+      };
+    }
     const r = await runPreview(ctx.session, P, {
       id, path,
       ...(Array.isArray(a.panels) ? { panels: a.panels as string[] } : {}),
