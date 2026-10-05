@@ -237,8 +237,8 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
       const sub = f.rest[0] ?? 'list';
       if (sub === 'research') return { tool: 'idea', args: { action: 'research', ...(o.fresh === true ? { fresh: true } : {}), ...(typeof o.device === 'string' ? { device: o.device } : {}) } };
       if (sub === 'propose') {
-        const raw = JSON.parse(f.rest.slice(1).join(' ')) as unknown;
-        return { tool: 'idea', args: { action: 'propose', ideas: Array.isArray(raw) ? raw : (raw as { ideas?: unknown }).ideas } };
+        // Raw text: the tool parses it, so a bad or empty argument gets the tool's error, not a crash.
+        return { tool: 'idea', args: { action: 'propose', ideas: f.rest.slice(1).join(' ') } };
       }
       if (sub === 'brief') return { tool: 'idea', args: { action: 'brief', id: f.rest[1] } };
       return { tool: 'idea', args: { action: 'list' } };

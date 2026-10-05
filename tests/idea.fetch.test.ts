@@ -46,6 +46,25 @@ describe('gatherSnapshot', () => {
     expect(s.games.every((g) => g.passes === null)).toBe(true);
     expect(s.notes.join(' ')).toMatch(/passes/);
   });
+  it('pages game passes via nextPageToken (capped), keeping earlier pages if a later one fails', async () => {
+    const pass = (n: number) => ({ name: `P${n}`, isForSale: true, price: n });
+    const seen: string[] = [];
+    const web = {
+      ...WEB,
+      'https://apis.roblox.com/game-passes/v1/universes/': (u: string) => {
+        if (u.includes('pageToken=t2')) return null; // page 3 fails
+        if (u.includes('pageToken=t1')) return { gamePasses: [pass(2)], nextPageToken: 't2' };
+        return { gamePasses: [pass(1)], nextPageToken: 't1' };
+      },
+    };
+    const s = await gatherSnapshot(fakeFetch(web, seen), { device: 'all', now: NOW, sessionId: 'sid' });
+    expect(s.games[0].passes).toEqual([{ name: 'P1', price: 1 }, { name: 'P2', price: 2 }]);
+    expect(s.notes).toEqual([]);
+    const endless = { ...WEB, 'https://apis.roblox.com/game-passes/v1/universes/': () => ({ gamePasses: [pass(1)], nextPageToken: 'more' }) };
+    const seen2: string[] = [];
+    await gatherSnapshot(fakeFetch(endless, seen2), { device: 'all', now: NOW, sessionId: 'sid' });
+    expect(seen2.filter((u) => u.includes('/game-passes')).length).toBe(3 * 4); // 3 games × 4-page cap
+  });
   it('charts failure is a hard error', async () => {
     await expect(gatherSnapshot(fakeFetch({}), { device: 'all', now: NOW })).rejects.toThrow(/charts unavailable/);
   });

@@ -6,7 +6,12 @@ import type { Snapshot } from './snapshot.js';
 // log10(1+ccu). Deltas vs the previous snapshot show what is rising. The model
 // reads the names itself; this is the repeatable, testable part.
 
-const UPDATE_WORDS = /\b(upd|update|updated|new|event|release|beta|alpha|free|admin|limited)\b/gi;
+// Update words are noise as tags ("NEW", "FREE UGC", "[UPD]") but can be real
+// title words ("Free Fire", "New Life"): strip upd/update(d) in any case, the
+// rest only when shouted in caps.
+const UPDATE_WORDS = /\b(upd|update|updated)\b|\b(NEW|EVENT|RELEASE|BETA|ALPHA|FREE|ADMIN|LIMITED)\b/gi;
+const stripUpdateWords = (s: string) =>
+  s.replace(UPDATE_WORDS, (m, always: string | undefined) => (always || m === m.toUpperCase() ? ' ' : m));
 // Genre words (obby, simulator, tycoon) are NOT stopwords: they are signal.
 const STOP = new Set(
   'a an the and or of to in on at for with by from is are be your you my me we it its this that these them they our up out get go all every more most best new now just can will play game games roblox welcome player how make one experience where like other use into as dont but'.split(' '),
@@ -16,12 +21,11 @@ export interface Theme { term: string; weight: number; games: number }
 export interface ThemeDelta { term: string; delta: number; isNew: boolean }
 
 export function normalizeName(name: string): string {
-  return name
+  return stripUpdateWords(name)
     .replace(/\s\|\s.*$/, '') // "Game | Subtitle" keeps the game
     .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, ' ')
     .replace(/[[({][^\])}]*$/, ' ') // unclosed tag runs to the end
     .replace(/[\p{Extended_Pictographic}\p{So}\u{FE0F}\u{200D}]/gu, ' ')
-    .replace(UPDATE_WORDS, ' ')
     .replace(/\b(x\d+|\d+%)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s|:!\-–—]+|[\s|:!\-–—]+$/g, '')
