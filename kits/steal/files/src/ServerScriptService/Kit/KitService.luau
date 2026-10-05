@@ -318,6 +318,18 @@ function KitService.purchase(player: Player, ref: string): (boolean, string?, st
 	return ok, err, outcome
 end
 
+-- Claim gates (design gates with claim:true) open when the game says the player got
+-- there, e.g. on a checkpoint touch, once the threshold is met; they pay their grants.
+function KitService.claimGate(player: Player, id: string): (boolean, string?)
+	local s = states[player]
+	if not s then
+		return false, "no state"
+	end
+	local ok, err = econ:claimGate(s, id)
+	KitService.sync(player)
+	return ok, err
+end
+
 function KitService.rebirth(player: Player): (boolean, string?)
 	local s = states[player]
 	if not s then
@@ -571,6 +583,8 @@ function KitService.Start(_self: any)
 			return KitService.grantPass(player, ...)
 		elseif op == "purchase" then
 			return KitService.purchase(player, ...)
+		elseif op == "claimGate" then
+			return KitService.claimGate(player, ...)
 		elseif op == "rebirth" then
 			return KitService.rebirth(player)
 		elseif op == "steal" then

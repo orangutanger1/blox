@@ -176,9 +176,22 @@ function applyGrants(s: SimState, grants: Record<string, number>): void {
   }
 }
 
+// A gate's grants, paid when it opens, × the rebirth multiplier for that resource.
+function payGate(doc: DesignDoc, s: SimState, id: string): void {
+  const g = doc.economy.gates.find((x) => x.id === id);
+  const rb = doc.economy.rebirth;
+  for (const [r, v] of Object.entries(g?.grants ?? {})) {
+    const f = rb && (rb.mult.target === '*' || rb.mult.target === r) ? Math.pow(rb.mult.per, s.owned.rebirth ?? 0) : 1;
+    s.bal[r] += v * f;
+  }
+}
+
 function applyEffect(doc: DesignDoc, s: SimState, arch: Archetype, i: Item, roll: () => number): void {
   s.owned[i.ref] = count(s, i) + 1;
-  if (i.kind === 'gate') s.open.add(i.id);
+  if (i.kind === 'gate') {
+    s.open.add(i.id);
+    payGate(doc, s, i.id);
+  }
   if (i.kind === 'chance') {
     const c = doc.economy.chance.find((x) => x.id === i.id)!;
     const total = c.outcomes.reduce((a, o) => a + o.weight, 0);
@@ -279,6 +292,7 @@ export function simulate(doc: DesignDoc, opts: SimOptions): Trace {
     for (const g of autoGates)
       if (!s.open.has(g.id) && requiresMet(s, g.requires) && ge(s.bal[g.needs.res], g.needs.amount)) {
         s.open.add(g.id);
+        payGate(doc, s, g.id);
         events.push({ t: s.t, play: s.play, ref: `gate:${g.id}`, n: 1 });
       }
   };
