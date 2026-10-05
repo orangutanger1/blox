@@ -1,3 +1,4 @@
+import { APPEARANCE_WAIT } from '../testing/playHost.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import type { StudioSession } from '../studio/session.js';
@@ -67,6 +68,7 @@ export function botHostSource(program: string): string {
   return `local Players = game:GetService("Players")
 local p = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
 if not p.Character then p.CharacterAdded:Wait() end
+${APPEARANCE_WAIT}
 local function __blox_bot()
 ${program}
 end

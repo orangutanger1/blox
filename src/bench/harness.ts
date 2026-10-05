@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { join, resolve } from 'node:path';
 import { scaffoldProject } from '../scaffold.js';
 import { runLuau } from '../studio/luau.js';
-import { stopPlay } from '../studio/play.js';
+import { stopPlay, withPlay } from '../studio/play.js';
 import type { StudioSession } from '../studio/session.js';
 import { pushProject } from '../sync/push.js';
 import { runTests, type TestRunResult } from '../testing/runner.js';
@@ -113,13 +113,17 @@ export async function resetStudio(session: StudioSession): Promise<void> {
   if (!r.ok) throw new Error(`studio reset failed: ${r.error?.message}`);
 }
 
-// Best-effort viewport capture of what the agent left in Studio (edit mode,
-// overview camera), so a reader can see the result beside the scores.
+// Best-effort viewport capture of what the agent left in Studio, taken a few
+// seconds into a play session (many games build their world at runtime, so an
+// edit-mode shot can be empty), so a reader can see the result beside the scores.
 export async function captureBenchShot(session: StudioSession, file: string): Promise<string | undefined> {
   try {
     const st = await session.state();
     if (st.mode !== 'Edit') await stopPlay(session);
-    const r = await session.call('screen_capture', { capture_id: 'bench', camera_position: [0, 45, 70], look_at_position: [0, 0, 0] }, 30_000);
+    const r = await withPlay(session, async () => {
+      await new Promise((res) => setTimeout(res, 5000));
+      return session.call('screen_capture', { capture_id: 'bench' }, 30_000);
+    });
     const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
     if (!img?.data) return undefined;
     const out = (img.mimeType ?? '').includes('png') ? file.replace(/\.jpg$/, '.png') : file;

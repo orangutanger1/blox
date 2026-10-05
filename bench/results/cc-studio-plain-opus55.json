@@ -1,0 +1,95 @@
+{
+  "label": "cc-studio-plain-opus55",
+  "agent": "claude-code + Studio MCP (no blox)",
+  "startedAt": "2026-10-05T07:24:26.310Z",
+  "finishedAt": "2026-10-05T07:30:07.186Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t2-coins",
+      "level": "2 gameplay mechanic",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 96,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/cc-studio-plain-opus55/t2-coins",
+      "notes": [],
+      "costUsd": 0.5464564000000001,
+      "turns": 19,
+      "tokens": {
+        "input": 38,
+        "cacheRead": 686862,
+        "cacheWrite": 32149,
+        "output": 7587
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "live": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 62,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/cc-studio-plain-opus55/t6-door",
+      "notes": [],
+      "costUsd": 0.5233484,
+      "turns": 13,
+      "tokens": {
+        "input": 26,
+        "cacheRead": 570702,
+        "cacheWrite": 42278,
+        "output": 3544
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "live": {
+        "passed": 2,
+        "total": 3,
+        "failures": [
+          "door: opens when a player steps on the plate: fail — .bench-checks/door.spec.luau:14: waitFor timed out: door did not open"
+        ]
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 148,
+      "pass": false,
+      "workdir": "/home/myen/blox/bench/runs/cc-studio-plain-opus55/t7-shop",
+      "notes": [],
+      "costUsd": 0.9299644,
+      "turns": 28,
+      "tokens": {
+        "input": 56,
+        "cacheRead": 1404442,
+        "cacheWrite": 49789,
+        "output": 12527
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "live": {
+        "passed": 7,
+        "total": 9,
+        "failures": [
+          "coins: touching a coin gives exactly +1 and disables that coin: fail — .bench-checks/02-coins-regression.spec.luau:33: waitFor timed out: Coins did not go up by 1 (now 4)",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:19: expected 3, got 4"
+        ]
+      }
+    }
+  ]
+}

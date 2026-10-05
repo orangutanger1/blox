@@ -1,0 +1,114 @@
+{
+  "label": "cc-blox-opus55-v2",
+  "agent": "claude-code + blox MCP",
+  "startedAt": "2026-10-05T07:46:11.111Z",
+  "finishedAt": "2026-10-05T07:52:14.420Z",
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux"
+  },
+  "runs": [
+    {
+      "task": "t2-coins",
+      "level": "2 gameplay mechanic",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 70,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t2-coins",
+      "notes": [],
+      "costUsd": 0.35298640000000003,
+      "turns": 6,
+      "tokens": {
+        "input": 12,
+        "cacheRead": 169972,
+        "cacheWrite": 27573,
+        "output": 4918
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "bloxToolCalls": 5,
+      "bloxToolErrors": 0,
+      "screenshot": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t2-coins-1.jpg",
+      "live": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      },
+      "synced": {
+        "passed": 4,
+        "total": 4,
+        "failures": []
+      }
+    },
+    {
+      "task": "t6-door",
+      "level": "6 iterative runtime debugging",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 79,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t6-door",
+      "notes": [],
+      "costUsd": 0.30781839999999994,
+      "turns": 8,
+      "tokens": {
+        "input": 16,
+        "cacheRead": 229772,
+        "cacheWrite": 24340,
+        "output": 3354
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "bloxToolCalls": 5,
+      "bloxToolErrors": 2,
+      "screenshot": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t6-door-1.jpg",
+      "live": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      },
+      "synced": {
+        "passed": 3,
+        "total": 3,
+        "failures": []
+      }
+    },
+    {
+      "task": "t7-shop",
+      "level": "7 existing-project feature",
+      "attempt": 1,
+      "agentExit": 0,
+      "timedOut": false,
+      "durationSec": 150,
+      "pass": true,
+      "workdir": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t7-shop",
+      "notes": [],
+      "costUsd": 0.5241518000000001,
+      "turns": 11,
+      "tokens": {
+        "input": 22,
+        "cacheRead": 371339,
+        "cacheWrite": 33647,
+        "output": 9031
+      },
+      "model": "claude-opus-5-5",
+      "billing": "subscription",
+      "bloxToolCalls": 10,
+      "bloxToolErrors": 1,
+      "screenshot": "/home/myen/blox/bench/runs/cc-blox-opus55-v2/t7-shop-1.jpg",
+      "live": {
+        "passed": 10,
+        "total": 10,
+        "failures": []
+      },
+      "synced": {
+        "passed": 10,
+        "total": 10,
+        "failures": []
+      }
+    }
+  ]
+}

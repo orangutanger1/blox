@@ -23,6 +23,9 @@ describe('playHost', () => {
 
   it('client host waits for its own character, server host for a player', () => {
     expect(hostSource('return {}', 'client', 'r')).toContain('LocalPlayer');
+    // specs start after the avatar finishes loading (late accessories shift the character)
+    expect(hostSource('return {}', 'client', 'r')).toContain('HasAppearanceLoaded');
+    expect(hostSource('return {}', 'server', 'r')).toContain('HasAppearanceLoaded');
     expect(hostSource('return {}', 'server', 'r')).toContain('GetPlayers');
   });
 

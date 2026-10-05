@@ -1,72 +1,24 @@
 {
-  "at": "2026-10-01T02:56:30.042Z",
+  "at": "2026-10-05T07:40:17.476Z",
   "tasks": [
-    {
-      "task": "t3-hud",
-      "seed": {
-        "passed": 3,
-        "total": 6,
-        "failures": [
-          "hud: CoinsLabel is a visible TextLabel in the top-left quadrant: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
-          "hud: text reads \"Coins: N\" for the current value: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui",
-          "hud: label updates live when Coins changes: fail — .bench-checks/02-hud.spec.luau:5: waitFor timed out: no ScreenGui named HUD in PlayerGui"
-        ]
-      },
-      "solution": {
-        "passed": 6,
-        "total": 6,
-        "failures": []
-      },
-      "valid": true
-    },
     {
       "task": "t7-shop",
       "seed": {
-        "passed": 5,
-        "total": 9,
+        "passed": 6,
+        "total": 10,
         "failures": [
-          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
-          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
-          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:11: waitFor timed out: no ReplicatedStorage.BuySpeed",
-          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:31: expected a value/instance, got nil"
+          "shop: BuySpeed is a RemoteFunction: fail — .bench-checks/03-shop.spec.luau:12: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: refuses with fewer than 10 coins and changes nothing: fail — .bench-checks/03-shop.spec.luau:12: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: with 15 coins deducts 10 and sets WalkSpeed 24: fail — .bench-checks/03-shop.spec.luau:12: waitFor timed out: no ReplicatedStorage.BuySpeed",
+          "shop: HUD has a BuySpeedButton TextButton: fail — .bench-checks/03-shop.spec.luau:32: expected a value/instance, got nil"
         ]
       },
       "solution": {
-        "passed": 9,
-        "total": 9,
-        "failures": []
-      },
-      "valid": true
-    },
-    {
-      "task": "t8-pet-hatch",
-      "seed": {
-        "passed": 1,
-        "total": 15,
-        "failures": [
-          "config: values and rarity order: fail — Attempted to call require with invalid argument(s).",
-          "logic: rollRarity boundaries: fail — Attempted to call require with invalid argument(s).",
-          "logic: incomePerSecond with rebirth multiplier: fail — Attempted to call require with invalid argument(s).",
-          "data: leaderstats Cash and Rebirths IntValues, Pets folder: fail — .bench-checks/03-server.spec.luau:6: waitFor timed out: no leaderstats",
-          "world: anchored EggStation with a Hatch ProximityPrompt: fail — .bench-checks/03-server.spec.luau:14: expected a value/instance, got nil",
-          "hatch: HatchEgg and Rebirth are RemoteFunctions: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
-          "hatch: refuses below EggCost and changes nothing: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
-          "hatch: charges 50, adds one pet matching the returned rarity: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
-          "hatch: full inventory (MaxPets) refuses without charging: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
-          "hatch: client cannot choose the rarity: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.HatchEgg",
-          "income: floor(sum * 1.5^rebirths) per second from the Pets folder: fail — .bench-checks/04-client.spec.luau:56: expected >= 44, got nil",
-          "rebirth: refuses below RebirthCost: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.Rebirth",
-          "rebirth: resets cash to 100, clears pets, increments Rebirths: fail — .bench-checks/04-client.spec.luau:5: waitFor timed out: no ReplicatedStorage.Rebirth",
-          "ui: HUD with live CashLabel, HatchButton, RebirthButton (phone-sized): fail — .bench-checks/04-client.spec.luau:76: waitFor timed out: no ScreenGui HUD"
-        ]
-      },
-      "solution": {
-        "passed": 15,
-        "total": 15,
+        "passed": 10,
+        "total": 10,
         "failures": []
       },
       "valid": true
     }
-  ],
-  "at_t8": "2026-10-02T06:21:32.773Z"
+  ]
 }
