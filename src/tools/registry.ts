@@ -546,18 +546,28 @@ export const TOOLS: BloxTool[] = [
       const raw = readJson<unknown>(ctx.projectPath, 'design.json');
       const v = raw === null ? null : validateDesign(raw);
       const doc = v?.ok ? v.doc : null;
+      // Unset bot/seconds reuse this mode's last run (a bare rerun used to drop a
+      // custom bot for "walk" and overwrite a passing report with a failing one).
+      type Last = Record<string, { bot: string; seconds: number }>;
+      const prev = readJson<{ results?: { id: string }[]; last?: Last; mode?: string; bot?: string; seconds?: number }>(ctx.projectPath, 'metrics-report.json');
+      const last: Last = { ...(prev?.last ?? (prev?.mode && prev.bot && prev.seconds ? { [prev.mode]: { bot: prev.bot, seconds: prev.seconds } } : {})) };
+      const mode = a.action as 'ftue' | 'soak';
+      const bot = (a.bot as string | undefined) ?? last[mode]?.bot ?? 'walk';
+      const seconds = (a.seconds as number | undefined) ?? last[mode]?.seconds ?? (mode === 'ftue' ? 60 : 300);
+      const reused = (a.bot === undefined && last[mode]?.bot) || (a.seconds === undefined && last[mode]?.seconds);
       const report = await runMetrics(ctx.session, ctx.projectPath, doc, {
-        mode: a.action as 'ftue' | 'soak',
-        seconds: (a.seconds as number | undefined) ?? (a.action === 'ftue' ? 60 : 300),
-        bot: (a.bot as string | undefined) ?? 'walk',
+        mode,
+        seconds,
+        bot,
         archetype: a.archetype as string | undefined,
         tolerance: a.tolerance as number | undefined,
       });
       if (v && !v.ok) report.notes.push('design.json is invalid — FTUE targets and pace checks skipped');
+      if (reused) report.notes.push(`bot ${bot}, ${seconds}s: as this mode's last run (pass bot/seconds to change)`);
       // One file holds both modes: keep the other mode's latest results.
-      const prev = readJson<{ results?: { id: string }[] }>(ctx.projectPath, 'metrics-report.json');
       const kept = (prev?.results ?? []).filter((r) => !r.id.startsWith(`${a.action}:`));
-      writeJson(ctx.projectPath, 'metrics-report.json', { ...report, results: [...kept, ...report.results] });
+      last[mode] = { bot, seconds };
+      writeJson(ctx.projectPath, 'metrics-report.json', { ...report, last, results: [...kept, ...report.results] });
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: formatMetrics(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} ${a.action}` };

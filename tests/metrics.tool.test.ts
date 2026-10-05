@@ -105,4 +105,14 @@ describe('metrics report keeps the other mode', () => {
     expect(ids).toContain('ftue:auto:first-currency');
     expect(ids).toContain('soak:errors');
   });
+  it('a rerun without bot/seconds reuses that mode\'s last bot and seconds', async () => {
+    const c = ctx({ elapsed: 40, players: { '1': { joinedAt: 0, steps: { 'auto:first-currency': 1 } } }, events: [], samples: [0, 5, 10, 15, 20, 25, 30, 35].map((t) => ({ t, memMb: 300, stats: [] })) });
+    await call({ action: 'ftue', seconds: 0, bot: 'idle' }, c);
+    await call({ action: 'soak', seconds: 0, bot: 'walk' }, c);
+    const r = await call({ action: 'ftue' }, c);
+    expect(r.text).toContain('bot idle, 0s: as this mode');
+    const rep = readJson<{ bot: string; last: Record<string, { bot: string }> }>(c.projectPath, 'metrics-report.json')!;
+    expect(rep.bot).toBe('idle');
+    expect(rep.last.soak.bot).toBe('walk');
+  });
 });
