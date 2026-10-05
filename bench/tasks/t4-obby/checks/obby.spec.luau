@@ -30,7 +30,7 @@ test("obby: touching Finish sets the Finished attribute and prints", function()
 	expect(finish).toExist()
 	expect(finish).toBeA("BasePart")
 	local p = waitFor(function() return Players:GetPlayers()[1] end, 10, "no player")
-	local root = waitFor(function() return p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character")
+	local root = waitFor(function() return p:HasAppearanceLoaded() and p.Character and p.Character:FindFirstChild("HumanoidRootPart") end, 10, "no character")
 	root.CFrame = finish.CFrame + Vector3.new(0, 2, 0)
 	waitFor(function() return p:GetAttribute("Finished") == true end, 3, "Finished attribute not set")
 	local since = os.time() - time() - 2
