@@ -15,7 +15,10 @@ export function titleCandidates(d: DesignDoc): string[] {
     if (s && !out.includes(s)) out.push(s);
   };
   const { verb, object } = d.meta;
-  if (verb && object) add(`${cap(verb)} ${/^[aeiou]/i.test(object) ? 'An' : 'A'} ${titleCase(object)}`);
+  // "Steal A Brainrot" works for things; a stat or the verb itself gives "Jump A Jump".
+  const isStat = (w: string) => d.economy.resources.some((r) => r.id.toLowerCase() === w.toLowerCase());
+  if (verb && object && object.toLowerCase() !== verb.toLowerCase() && !isStat(object))
+    add(`${cap(verb)} ${/^[aeiou]/i.test(object) ? 'An' : 'A'} ${titleCase(object)}`);
   if (d.meta.format === 'incremental') {
     const stat = d.economy.resources.find((r) => !r.spendable)?.id;
     if (stat && object && object.toLowerCase() !== stat.toLowerCase()) add(`+1 ${cap(stat)} ${titleCase(object)}`);
@@ -31,17 +34,27 @@ export function describe(d: DesignDoc): string {
   d.loop.slice(0, 9).forEach((step, i) => lines.push(`${BULLETS[i % BULLETS.length]} ${cap(step)}`));
   const gens = d.economy.generators.length ? d.economy.generators : null;
   const income = d.economy.resources.find((r) => r.spendable)?.id;
-  if (d.economy.offline && income) lines.push(`💤 Your ${gens ? 'collection earns' : 'progress keeps earning'} ${cap(income)} even while OFFLINE!`);
-  if (d.economy.rebirth) lines.push(`♻️ Rebirth for a permanent x${d.economy.rebirth.mult.per} boost!`);
+  // Only claim offline earning when it exists: a fraction and a cap above 0, and
+  // a generator that produces the currency (offline accrual is generators only).
+  const off = d.economy.offline;
+  const earnsOffline = !!income && !!off && off.fraction > 0 && off.capSec > 0 && !!gens?.some((g) => (g.produces[income] ?? 0) > 0);
+  if (earnsOffline) lines.push(`💤 Your collection earns ${cap(income!)} even while OFFLINE!`);
+  const rb = d.economy.rebirth;
+  if (rb) lines.push(`♻️ Rebirth for a permanent x${rb.mult.per} ${rb.mult.target === '*' ? '' : `${cap(rb.mult.target)} `}boost!`);
   if (d.meta.serverSize && d.meta.serverSize > 1) lines.push(`👥 Play with up to ${d.meta.serverSize} friends per server!`);
   lines.push('🎮 Supports Desktop, Console, Mobile, and Tablet');
   return lines.join('\n').slice(0, 1000);
 }
 
 // Five thumbnails with different themes and framings around a subject at the
-// spawn, plus a tight icon shot. Positions assume the spawn near the origin
-// facing -Z (kits); adjust per game.
-export function defaultShots(d: DesignDoc): Shot[] {
+// spawn, plus a tight icon shot. Positions are relative to `origin` (the top of
+// the spawn; the tool passes the place's SpawnLocation) facing -Z; adjust per game.
+export function defaultShots(d: DesignDoc, origin: [number, number, number] = [0, 0, 0]): Shot[] {
+  const at = (v: [number, number, number]): [number, number, number] => [v[0] + origin[0], v[1] + origin[1], v[2] + origin[2]];
+  return relShots(d).map((s) => ({ ...s, camera: { position: at(s.camera.position), lookAt: at(s.camera.lookAt) }, ...(s.subject ? { subject: { ...s.subject, at: at(s.subject.at) } } : {}) }));
+}
+
+function relShots(d: DesignDoc): Shot[] {
   const verb = (d.meta.verb ?? 'Play').toUpperCase();
   const subject = (pose: (typeof POSES)[number], yaw = 180) => ({ at: [0, 3, -12] as [number, number, number], yaw, pose });
   return [
