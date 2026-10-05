@@ -81,7 +81,23 @@ function moveLuau(from: string, to: string, unpack: boolean, tag: string): strin
   return `-- BLOX_SCOUT_MOVE
 local HttpService = game:GetService("HttpService")
 ${RESOLVE}
-local src, dst = resolve(${longString(from)}), resolve(${longString(to)})
+-- The destination's missing folders are created (e.g. ReplicatedStorage.UiTemplates);
+-- its root must be a service.
+local function ensure(p)
+	local parts = string.split(p, ".")
+	local cur = game:GetService(parts[1])
+	for i = 2, #parts do
+		local nxt = cur:FindFirstChild(parts[i])
+		if not nxt then
+			nxt = Instance.new("Folder")
+			nxt.Name = parts[i]
+			nxt.Parent = cur
+		end
+		cur = nxt
+	end
+	return cur
+end
+local src, dst = resolve(${longString(from)}), ensure(${longString(to)})
 local items = { src }
 if ${unpack ? 'true' : 'false'} then
 	-- GUI packs often nest their ScreenGui inside wrapper Models: move the
