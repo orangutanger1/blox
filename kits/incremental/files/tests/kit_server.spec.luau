@@ -24,7 +24,7 @@ end
 local function lowestGate()
 	local best
 	for id, g in Tunables.economy.gates or {} do
-		if not g.needs.consume and (not best or g.needs.amount < best.amount) then
+		if not g.needs.consume and not g.claim and (not best or g.needs.amount < best.amount) then
 			best = { id = id, res = g.needs.res, amount = g.needs.amount }
 		end
 	end

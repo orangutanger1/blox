@@ -224,7 +224,7 @@ export const TOOLS: BloxTool[] = [
       inputs: z
         .array(z.object({ kind: z.enum(['click', 'luau', 'navigate', 'keyboard', 'mouse', 'wait']), args: z.record(z.string(), z.unknown()) }))
         .optional()
-        .describe('run in order: click {target:"PlayerGui.HUD.Button"} (real click on a GUI button); luau {context:"server"|"client", code} (arrange/check state between inputs, e.g. give coins); navigate {x,y,z}|{instance_path}; keyboard {actions:[{action:"keyPress",key_code:"E"}]} (also keyDown/keyUp/textInput+text_inputs); mouse {actions:[…]} (raw: moveTo/mouseButtonClick/scroll, x,y|instance_path); wait {seconds}'),
+        .describe('run in order: click {target:"PlayerGui.HUD.Button"} (real click on a GUI button); luau {context:"server"|"client", code} (arrange/check state between inputs, e.g. give coins); navigate {x,y,z}|{instance_path}; keyboard {actions:[{action:"keyPress",key_code:"E"}]} (also keyDown/keyUp/textInput+text_inputs; move/jump the character this way — Humanoid:Move/.Jump set from client luau are overwritten by the PlayerModule every frame); mouse {actions:[…]} (raw: moveTo/mouseButtonClick/scroll, x,y|instance_path); wait {seconds}'),
       screenshot: z.boolean().optional(),
       camera_position: vec3.optional(),
       look_at: vec3.optional(),
