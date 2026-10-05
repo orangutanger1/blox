@@ -17,7 +17,19 @@ export const POSE_TABLE: Record<string, Record<string, [number, number, number]>
 };
 
 export const RIG_NAME = '__BloxRenderRig';
-export const CLEANUP = `local r = workspace:FindFirstChild("${RIG_NAME}") if r then r:Destroy() end return true`;
+// Restores what a shot's hide list switched off (tagged, original value kept in an attribute).
+export const HIDDEN_TAG = '__BloxPresentHidden';
+export const CLEANUP = `local r = workspace:FindFirstChild("${RIG_NAME}") if r then r:Destroy() end
+local CS = game:GetService("CollectionService")
+for _, x in CS:GetTagged("${HIDDEN_TAG}") do
+	local v = x:GetAttribute("${HIDDEN_TAG}")
+	pcall(function()
+		if x:IsA("BasePart") then x.Transparency = v else x.Enabled = v end
+	end)
+	x:SetAttribute("${HIDDEN_TAG}", nil)
+	x:RemoveTag("${HIDDEN_TAG}")
+end
+return true`;
 
 export function rigProgram(shot: Shot): string {
   return `local HttpService = game:GetService("HttpService")
@@ -25,6 +37,39 @@ local SHOT = HttpService:JSONDecode(${longString(JSON.stringify(shot))})
 local POSES = HttpService:JSONDecode(${longString(JSON.stringify(POSE_TABLE))})
 local old = workspace:FindFirstChild("${RIG_NAME}")
 if old then old:Destroy() end
+-- hide list: switch things off for this capture; CLEANUP restores them
+do
+	local CS = game:GetService("CollectionService")
+	local function off(x)
+		if x:HasTag("${HIDDEN_TAG}") then return end
+		local ok = pcall(function()
+			if x:IsA("BasePart") then
+				x:SetAttribute("${HIDDEN_TAG}", x.Transparency)
+				x.Transparency = 1
+			else
+				x:SetAttribute("${HIDDEN_TAG}", x.Enabled)
+				x.Enabled = false
+			end
+		end)
+		if ok then x:AddTag("${HIDDEN_TAG}") end
+	end
+	for _, h in SHOT.hide or {} do
+		local node = game
+		for part in string.gmatch(h, "[^%.]+") do
+			node = node and (node == game and game:FindFirstChildOfClass(part) or node:FindFirstChild(part)) or nil
+		end
+		if node and node ~= game and string.find(h, "%.") then
+			off(node)
+			for _, d in node:GetDescendants() do
+				if d:IsA("BasePart") or d:IsA("LayerCollector") or d:IsA("ParticleEmitter") or d:IsA("Light") then off(d) end
+			end
+		else
+			for _, d in workspace:GetDescendants() do
+				if d:IsA(h) then off(d) end
+			end
+		end
+	end
+end
 local rig = Instance.new("Model")
 rig.Name = "${RIG_NAME}"
 local function v3(t) return Vector3.new(t[1], t[2], t[3]) end
@@ -146,11 +191,12 @@ if SHOT.hero then
 		end
 	end
 	local c = src:Clone()
+	local heroCf = CFrame.new(v3(SHOT.hero.at)) * CFrame.Angles(0, math.rad(SHOT.hero.yaw or 0), 0)
 	if c:IsA("Model") then
-		c:PivotTo(CFrame.new(v3(SHOT.hero.at)))
+		c:PivotTo(heroCf)
 		if SHOT.hero.scale then c:ScaleTo(SHOT.hero.scale) end
 	elseif c:IsA("BasePart") then
-		c.CFrame = CFrame.new(v3(SHOT.hero.at))
+		c.CFrame = heroCf
 		if SHOT.hero.scale then c.Size = c.Size * SHOT.hero.scale end
 	end
 	for _, d in c:GetDescendants() do

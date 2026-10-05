@@ -73,4 +73,16 @@ describe('asset relink', () => {
     expect(loadManifest(projectPath).assets[0].ref).toMatchObject({ path: 'Workspace.ParkDog', tag: 'BloxAsset_dog_rigged' });
     expect(cliArgs('asset', parseFlags(['relink', 'x', 'ServerStorage.Leftovers.small', 'chest']))).toEqual({ tool: 'asset', args: { action: 'relink', id: 'x', path: 'ServerStorage.Leftovers.small chest' } });
   });
+  it('relinks an entry that was never placed (model import: no path, no tag)', async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), 'blox-relink-'));
+    addAsset(projectPath, entry('pup', { assetId: 3 }));
+    const env = (v: unknown) => JSON.stringify({ ok: true, n: 1, values: { v1: v }, logs: [] });
+    const f = fakeStudio({
+      luau: (code) => (code.includes('BLOX_LOCATE') ? env(JSON.stringify({ result: { pup: { paths: ['ReplicatedStorage.PetModels.LavaPup'], tagged: false } } })) : env('ok')),
+    });
+    const c = { session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }), projectPath, config: BloxConfigSchema.parse({ projectPath }), agent: 'test' };
+    const r = await invokeTool(findTool('asset')!, { action: 'relink', id: 'pup', path: 'ReplicatedStorage.PetModels.LavaPup' }, c);
+    expect(r.text).toContain('pup → ReplicatedStorage.PetModels.LavaPup (tag BloxAsset_pup)');
+    expect(loadManifest(projectPath).assets[0].ref).toMatchObject({ path: 'ReplicatedStorage.PetModels.LavaPup', tag: 'BloxAsset_pup' });
+  });
 });

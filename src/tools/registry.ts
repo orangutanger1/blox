@@ -619,7 +619,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'present',
     description:
-      'Store-page presentation (.blox/presentation.json): get | set {doc} | generate (title candidates, description and 5 thumbnail + 1 icon shots from design.json; keeps what exists) | render {ids?} (stage a posed avatar/hero/overlay in the edit DataModel and screen_capture each shot; size the Studio viewport 16:9 first) | lint (policy: 9+, no "Roblox" in title, no links/scams, <=50/1000 chars; shots: 5 distinct themes, rendered from the real game, 16:9, no duplicates, icon readable at 64px). Choosing the final title/art and uploading are human decisions. Criteria bind via tests:["present:<rule>"].',
+      'Store-page presentation (.blox/presentation.json): get | set {doc} | generate (title candidates, description and 5 thumbnail + 1 icon shots from design.json; keeps what exists) | render {ids?} (stage a posed avatar/hero/overlay in the edit DataModel and screen_capture each shot; a shot hero {path, at, yaw?, scale?} clones a model (pet, item) into it; hide [class names | paths] switches clutter like BillboardGui signs off for the capture; size the Studio viewport 16:9 first) | lint (policy: 9+, no "Roblox" in title, no links/scams, <=50/1000 chars; shots: 5 distinct themes, rendered from the real game, 16:9, no duplicates, icon readable at 64px). Choosing the final title/art and uploading are human decisions. Criteria bind via tests:["present:<rule>"].',
     shape: {
       action: z.enum(['get', 'set', 'generate', 'render', 'lint']),
       doc: z.unknown().optional(),

@@ -1,3 +1,4 @@
+import { validatePresentation } from '../src/present/schema.js';
 import { describe, it, expect } from 'vitest';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -77,7 +78,7 @@ describe('renderShots', () => {
   it.skipIf(!luneBin())('rig + cleanup programs compile', () => {
     const d = mkdtempSync(join(tmpdir(), 'blox-rig-'));
     const s = setup(() => '');
-    const shot = { ...s.doc.shots[3], hero: { path: 'Workspace.Pets.Dragon', at: [1, 2, 3] as [number, number, number], scale: 2 } };
+    const shot = { ...s.doc.shots[3], hero: { path: 'Workspace.Pets.Dragon', at: [1, 2, 3] as [number, number, number], yaw: 180, scale: 2 }, hide: ['BillboardGui', 'Workspace.Volcano.Flag1'] };
     writeFileSync(join(d, 'rig.luau'), rigProgram(shot));
     writeFileSync(join(d, 'clean.luau'), CLEANUP);
     expect(luneCheck([join(d, 'rig.luau'), join(d, 'clean.luau')])).toEqual([]);
@@ -87,6 +88,13 @@ describe('renderShots', () => {
 describe('rigProgram (live Studio findings, Oct 2026)', () => {
   const shot = { id: 's', kind: 'thumbnail', theme: 'action', camera: { position: [0, 5, 0], lookAt: [0, 3, -10] }, subject: { at: [0, 3, -10], pose: 'cheer' }, overlay: { text: 'GO', color: '#FFD23F' } } as unknown as Parameters<typeof rigProgram>[0];
   const code = rigProgram(shot);
+  it('hide switches classes or paths off for the capture; cleanup restores them', () => {
+    const hidden = rigProgram({ ...shot, hide: ['BillboardGui', 'Workspace.Volcano.Flag1'] });
+    expect(hidden).toContain('"hide":["BillboardGui","Workspace.Volcano.Flag1"]');
+    expect(hidden).toContain('x.Enabled = false');
+    expect(CLEANUP).toContain('GetTagged("__BloxPresentHidden")');
+    expect(validatePresentation({ version: 1, title: 't', description: 'd', shots: [{ ...shot, hide: ['BillboardGui'] }] }).ok).toBe(true);
+  });
   it('poses AnimationConstraint joints (current R15) as well as Motor6Ds', () => {
     expect(code).toContain('IsA("AnimationConstraint")');
     expect(code).toContain('IsA("Motor6D")');
