@@ -6,7 +6,7 @@ import { briefText, buildBrief } from './brief.js';
 import { gatherSnapshot } from './fetch.js';
 import { validateIdeas } from './idea.js';
 import { rankIdeas, type RankedIdea } from './score.js';
-import { latestSnapshot, loadSnapshot, previousSnapshot, saveSnapshot, type Snapshot } from './snapshot.js';
+import { latestSnapshot, loadSnapshot, previousSnapshot, saveSnapshot, snapshotKey, snapshotKeyOf, type Snapshot } from './snapshot.js';
 import { genreStats } from './stats.js';
 import { normalizeName, themeCounts, themeDeltas } from './themes.js';
 
@@ -67,15 +67,33 @@ function listText(f: IdeasFile): string {
   ].join('\n');
 }
 
+// `ideas` as the array itself, {ideas:[...]}, or either as JSON text (the CLI
+// passes text; some models send the array as a string).
+export function parseIdeasArg(raw: unknown): { ok: true; ideas: unknown } | { ok: false; error: string } {
+  let v = raw;
+  if (typeof v === 'string') {
+    if (!v.trim()) return { ok: false, error: 'no ideas given — pass ideas:[3-6 ideas]' };
+    try {
+      v = JSON.parse(v);
+    } catch (e) {
+      return { ok: false, error: `ideas is not valid JSON: ${(e as Error).message}` };
+    }
+  }
+  if (v === undefined || v === null) return { ok: false, error: 'no ideas given — pass ideas:[3-6 ideas]' };
+  if (!Array.isArray(v) && typeof v === 'object' && 'ideas' in v) v = (v as { ideas: unknown }).ideas;
+  return { ok: true, ideas: v };
+}
+
 export async function ideaTool(a: Record<string, unknown>, ctx: ToolCtx & { now?: Date }): Promise<ToolOutput> {
   const P = ctx.projectPath;
   const now = ctx.now ?? new Date();
   if (a.action === 'research') {
     const device = DEVICES[(a.device as string | undefined) ?? 'all'];
     const today = now.toISOString().slice(0, 10);
-    const existing = loadSnapshot(P, today);
-    if (existing && existing.device === device && a.fresh !== true) {
-      return { text: researchText(existing, previousSnapshot(P, today), true, `.blox/research/${today}.json`), summary: `cached ${existing.games.length} games` };
+    const key = snapshotKey(today, device);
+    const existing = loadSnapshot(P, key);
+    if (existing && a.fresh !== true) {
+      return { text: researchText(existing, previousSnapshot(P, today, device), true, `.blox/research/${key}.json`), summary: `cached ${existing.games.length} games` };
     }
     let snap: Snapshot;
     try {
@@ -84,14 +102,16 @@ export async function ideaTool(a: Record<string, unknown>, ctx: ToolCtx & { now?
       return err((e as Error).message, 'charts unavailable');
     }
     const rel = saveSnapshot(P, snap);
-    return { text: researchText(snap, previousSnapshot(P, snap.date), false, rel), summary: `${snap.games.length} games` };
+    return { text: researchText(snap, previousSnapshot(P, snap.date, snap.device), false, rel), summary: `${snap.games.length} games` };
   }
   if (a.action === 'propose') {
     const snap = latestSnapshot(P);
     if (!snap) return err('no snapshot yet — run idea {action:"research"} first', 'no snapshot');
-    const v = validateIdeas(a.ideas, snap);
+    const parsed = parseIdeasArg(a.ideas);
+    if (!parsed.ok) return err(parsed.error, 'refused');
+    const v = validateIdeas(parsed.ideas, snap);
     if (!v.ok) return err(`ideas refused:\n${v.errors.map((e) => `  ${e}`).join('\n')}`, 'refused');
-    const f: IdeasFile = { snapshot: snap.date, snapshotAt: snap.at, at: now.toISOString(), ideas: rankIdeas(v.ideas, snap) };
+    const f: IdeasFile = { snapshot: snapshotKeyOf(snap), snapshotAt: snap.at, at: now.toISOString(), ideas: rankIdeas(v.ideas, snap) };
     writeJson(P, 'ideas.json', f);
     return { text: `saved .blox/ideas.json\n${listText(f)}`, summary: `${f.ideas.length} ideas` };
   }

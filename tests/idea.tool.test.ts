@@ -89,11 +89,40 @@ describe('idea tool', () => {
     const at = (iso: string) => ({ ...ctxFor(P), now: new Date(iso) });
     await invokeTool(tool(), { action: 'research' }, at('2026-10-03T08:00:00Z'));
     await invokeTool(tool(), { action: 'propose', ideas: [idea('a', [1, 2]), idea('b', [1, 2]), idea('c', [2, 1])] }, at('2026-10-03T08:01:00Z'));
-    await invokeTool(tool(), { action: 'research', device: 'phone' }, at('2026-10-03T09:00:00Z'));
+    await invokeTool(tool(), { action: 'research', fresh: true }, at('2026-10-03T09:00:00Z'));
     const out = await invokeTool(tool(), { action: 'brief', id: 'a' }, at('2026-10-03T09:01:00Z'));
     expect(out.isError).toBe(true);
     expect(out.text).toMatch(/propose again/);
     expect(readJson(P, 'brief.json')).toBeNull();
+  });
+  it('a device switch keeps its own snapshot file, so earlier ideas stay briefable', async () => {
+    const P = mkdtempSync(join(tmpdir(), 'idea-tool-'));
+    const at = (iso: string) => ({ ...ctxFor(P), now: new Date(iso) });
+    await invokeTool(tool(), { action: 'research' }, at('2026-10-03T08:00:00Z'));
+    await invokeTool(tool(), { action: 'propose', ideas: [idea('a', [1, 2]), idea('b', [1, 2]), idea('c', [2, 1])] }, at('2026-10-03T08:01:00Z'));
+    await invokeTool(tool(), { action: 'research', device: 'phone' }, at('2026-10-03T09:00:00Z'));
+    expect(listSnapshots(P)).toEqual(['2026-10-03', '2026-10-03.high_end_phone']);
+    const out = await invokeTool(tool(), { action: 'brief', id: 'a' }, at('2026-10-03T09:01:00Z'));
+    expect(out.isError).toBeFalsy();
+    // propose now uses the newest fetch (phone) and records its key
+    await invokeTool(tool(), { action: 'propose', ideas: [idea('a', [1, 2]), idea('b', [1, 2]), idea('c', [2, 1])] }, at('2026-10-03T09:02:00Z'));
+    expect(readJson<{ snapshot: string }>(P, 'ideas.json')!.snapshot).toBe('2026-10-03.high_end_phone');
+    expect((await invokeTool(tool(), { action: 'brief', id: 'b' }, at('2026-10-03T09:03:00Z'))).isError).toBeFalsy();
+  });
+  it('propose takes ideas as JSON text or {ideas}, and explains empty/bad input', async () => {
+    const P = mkdtempSync(join(tmpdir(), 'idea-tool-'));
+    await invokeTool(tool(), { action: 'research' }, ctxFor(P));
+    const list = [idea('a', [1, 2]), idea('b', [1, 2]), idea('c', [2, 1])];
+    expect((await invokeTool(tool(), { action: 'propose', ideas: JSON.stringify(list) }, ctxFor(P))).isError).toBeFalsy();
+    expect((await invokeTool(tool(), { action: 'propose', ideas: JSON.stringify({ ideas: list }) }, ctxFor(P))).isError).toBeFalsy();
+    const empty = await invokeTool(tool(), { action: 'propose', ideas: '' }, ctxFor(P));
+    expect(empty.isError).toBe(true);
+    expect(empty.text).toMatch(/no ideas given/);
+    const nul = await invokeTool(tool(), { action: 'propose', ideas: 'null' }, ctxFor(P));
+    expect(nul.text).toMatch(/no ideas given/);
+    const bad = await invokeTool(tool(), { action: 'propose', ideas: '[{oops' }, ctxFor(P));
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/not valid JSON/);
   });
   it('list with no ideas explains the order', async () => {
     const P = mkdtempSync(join(tmpdir(), 'idea-tool-'));
@@ -112,8 +141,9 @@ describe('idea CLI', () => {
   it('maps subcommands', () => {
     expect(TOOL_COMMANDS.has('idea')).toBe(true);
     expect(cliArgs('idea', parseFlags(['research', '--fresh', '--device', 'phone']))).toEqual({ tool: 'idea', args: { action: 'research', fresh: true, device: 'phone' } });
-    expect(cliArgs('idea', parseFlags(['propose', '[{"id":"a"}]']))).toEqual({ tool: 'idea', args: { action: 'propose', ideas: [{ id: 'a' }] } });
-    expect(cliArgs('idea', parseFlags(['propose', '{"ideas":[{"id":"a"}]}']))).toEqual({ tool: 'idea', args: { action: 'propose', ideas: [{ id: 'a' }] } });
+    // Raw text through; the tool parses it (bad/empty JSON gets the tool's error, not a crash).
+    expect(cliArgs('idea', parseFlags(['propose', '[{"id":"a"}]']))).toEqual({ tool: 'idea', args: { action: 'propose', ideas: '[{"id":"a"}]' } });
+    expect(cliArgs('idea', parseFlags(['propose']))).toEqual({ tool: 'idea', args: { action: 'propose', ideas: '' } });
     expect(cliArgs('idea', parseFlags(['brief', 'a']))).toEqual({ tool: 'idea', args: { action: 'brief', id: 'a' } });
     expect(cliArgs('idea', parseFlags([]))).toEqual({ tool: 'idea', args: { action: 'list' } });
   });

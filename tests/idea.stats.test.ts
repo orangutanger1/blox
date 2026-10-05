@@ -54,6 +54,9 @@ describe('themes', () => {
     expect(normalizeName('Grow a Garden (x2 LUCK!)')).toBe('Grow a Garden');
     expect(normalizeName('🆕 UPDATE Pet Sim 99 NEW')).toBe('Pet Sim 99');
     expect(normalizeName('[🔥] 🥚🥚')).toBe('');
+    expect(normalizeName('Free Fire NEW')).toBe('Free Fire'); // title-case words are real; caps tags are noise
+    expect(normalizeName('New Life FREE UGC')).toBe('New Life UGC');
+    expect(normalizeName('Updated Tower Defense')).toBe('Tower Defense');
     expect(normalizeName('Mukbang Game [Testing')).toBe('Mukbang Game'); // unclosed tag
     expect(normalizeName('+1 Speed Keyboard Escape | Candy & Chocolate')).toBe('+1 Speed Keyboard Escape'); // subtitle after |
   });

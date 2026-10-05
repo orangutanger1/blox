@@ -7,6 +7,7 @@ import type { SnapGame, SnapPass, Snapshot } from './snapshot.js';
 // a general web fetch.
 
 const UA = { 'User-Agent': 'blox-idea (+https://github.com/orangutanger1/blox)', Accept: 'application/json' };
+const PASS_PAGES = 4;
 const PASS_TOP = 40;
 const BATCH = 50;
 
@@ -77,11 +78,22 @@ export async function gatherSnapshot(fetch: FetchLike, opts: { device: string; n
 
   let passFails = 0;
   for (const g of games.slice(0, PASS_TOP)) {
-    const p = (await getJson(fetch, `https://apis.roblox.com/game-passes/v1/universes/${g.universeId}/game-passes?passView=Full&pageSize=50`)) as
-      | { gamePasses?: { name?: string; isForSale?: boolean; price?: number | null }[] }
-      | null;
-    if (!p?.gamePasses) { passFails++; continue; }
-    g.passes = p.gamePasses
+    // Paged 50 at a time; big games list more. A failed later page keeps what came before.
+    const all: { name?: string; isForSale?: boolean; price?: number | null }[] = [];
+    let token = '';
+    let ok = false;
+    for (let page = 0; page < PASS_PAGES; page++) {
+      const p = (await getJson(fetch, `https://apis.roblox.com/game-passes/v1/universes/${g.universeId}/game-passes?passView=Full&pageSize=50${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`)) as
+        | { gamePasses?: { name?: string; isForSale?: boolean; price?: number | null }[]; nextPageToken?: string | null }
+        | null;
+      if (!p?.gamePasses) break;
+      ok = true;
+      all.push(...p.gamePasses);
+      if (!p.nextPageToken) break;
+      token = p.nextPageToken;
+    }
+    if (!ok) { passFails++; continue; }
+    g.passes = all
       .filter((x) => x.isForSale && typeof x.price === 'number')
       .map((x): SnapPass => ({ name: x.name ?? '', price: x.price as number }));
   }
