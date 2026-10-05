@@ -14,7 +14,10 @@ const Shot = z
     theme: z.enum(THEMES),
     camera: z.object({ position: Vec3, lookAt: Vec3 }).strict(),
     subject: z.object({ at: Vec3, yaw: z.number().optional(), pose: z.enum(POSES).default('idle') }).strict().optional(),
-    hero: z.object({ path: z.string().min(1), at: Vec3, scale: z.number().positive().optional() }).strict().optional(),
+    hero: z.object({ path: z.string().min(1), at: Vec3, yaw: z.number().optional(), scale: z.number().positive().optional() }).strict().optional(),
+    // in-world clutter to hide for this capture only: class names (BillboardGui,
+    // ParticleEmitter, …) or instance paths (Workspace.Volcano.Stage1.Sign)
+    hide: z.array(z.string().min(1)).max(20).optional(),
     overlay: z
       .object({ text: z.string().min(1).max(40), sub: z.string().max(40).optional(), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'color is #RRGGBB').optional() })
       .strict()

@@ -122,5 +122,12 @@ for _, x in CollectionService:GetTagged(${longString(tag)}) do x:RemoveTag(${lon
 target:AddTag(${longString(tag)})
 return "ok"`, 'edit', { chunkName: 'assetRelink' });
   if (!r.ok) throw new Error(`relink failed: ${r.error?.message}`);
+  // An entry never placed before (model import, upload) has no tag yet, so the
+  // locate pass would skip it: record the tag it now carries first.
+  if (!e.ref.tag) {
+    const m = loadManifest(P);
+    m.assets.find((a) => a.id === id)!.ref.tag = tag;
+    saveManifest(P, m);
+  }
   return refreshRefs(session, P, [id]);
 }
