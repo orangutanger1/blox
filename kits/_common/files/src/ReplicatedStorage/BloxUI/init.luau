@@ -326,8 +326,8 @@ function BloxUI.Toast(parent: Instance)
 	end)
 	local host = parent
 	if ok and pg then
-		host = pg:FindFirstChild("BloxToasts") or BloxUI.screen("BloxToasts", pg)
-		;(host :: ScreenGui).DisplayOrder = 100
+		host = pg:FindFirstChild("BloxToasts") or BloxUI.screen("BloxToasts", pg);
+		(host :: ScreenGui).DisplayOrder = 100
 	end
 	-- A script with its own module copy (another VM) still joins the stack.
 	local existing = host ~= parent and host:FindFirstChild("Toasts")

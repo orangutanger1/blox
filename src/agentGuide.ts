@@ -18,7 +18,7 @@ them to Studio and returns feedback.
 - tests/*.spec.luau, first line \`-- @context edit|server|client\`: edit = no playtest (pure
   logic, fast); server/client = in a playtest. API: test, describe, waitFor(fn, secs),
   expect(v).toBe/toEqual/toBeTruthy/toBeNil/toExist/toBeGreaterThan/toBeLessThan/
-  toBeCloseTo/toContain/toBeA/toThrow.
+  toBeCloseTo(v,eps)/toContain/toBeA/toThrow.
 
 ## Loop
 1. status (empty project? scaffold). 2. task {action:"set"}: goal + acceptance criteria,
