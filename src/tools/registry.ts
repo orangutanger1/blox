@@ -646,7 +646,18 @@ export const TOOLS: BloxTool[] = [
         const titles = titleCandidates(dv.doc);
         if (!doc.title) doc.title = titles[0] ?? dv.doc.meta.title;
         if (!doc.description) doc.description = describeGame(dv.doc);
-        if (!doc.shots.length) doc.shots = defaultShots(dv.doc);
+        if (!doc.shots.length) {
+          // frame the real spawn: top of the first SpawnLocation (origin when Studio is unavailable)
+          let origin: [number, number, number] = [0, 0, 0];
+          try {
+            const r = await runLuau(ctx.session, 'for _, d in workspace:GetDescendants() do if d:IsA("SpawnLocation") then return {d.Position.X, d.Position.Y + d.Size.Y / 2, d.Position.Z} end end return nil', 'edit', { chunkName: 'presentSpawn' });
+            const v = r.ok ? (r.values[0] as unknown) : null;
+            if (Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number')) origin = v as [number, number, number];
+          } catch {
+            // no Studio: keep the origin
+          }
+          doc.shots = defaultShots(dv.doc, origin);
+        }
         writeJson(ctx.projectPath, 'presentation.json', doc);
         return {
           text: [

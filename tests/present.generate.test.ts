@@ -14,7 +14,7 @@ describe('titleCandidates', () => {
   it('verb + article + object, +1 stat for incremental, and the current title', () => {
     expect(titleCandidates(load('steal-tycoon'))).toEqual(['Carve A Snow Beast', 'Carve a Snow Beast']);
     const inc = titleCandidates(load('incremental'));
-    expect(inc).toContain('Run A Speed');
+    expect(inc).not.toContain('Run A Speed'); // the object is a stat, not a thing
     expect(inc).toContain('+1 Speed Escape');
     expect(inc).toContain('+1 Speed Escape'.length <= 50 ? '+1 Speed Escape' : '');
   });
@@ -25,6 +25,39 @@ describe('titleCandidates', () => {
     expect(titleCandidates(d)[0]).toBe('Steal An Egg');
     d.meta.object = 'x'.repeat(60);
     expect(titleCandidates(d).every((t) => t.length <= 50)).toBe(true);
+  });
+  it('skips "Verb A Object" when the object is the verb itself ("Jump A Jump")', () => {
+    const d = load('incremental');
+    d.meta.verb = 'Jump';
+    d.meta.object = 'jump';
+    expect(titleCandidates(d).some((t) => /Jump A Jump/i.test(t))).toBe(false);
+  });
+});
+
+describe('describe: no claims the design does not back', () => {
+  it('no OFFLINE line when offline earning is off or nothing earns the currency offline', () => {
+    const d = load('steal-tycoon');
+    d.economy.offline = { fraction: 0, capSec: 0 };
+    expect(describeGame(d)).not.toMatch(/OFFLINE/);
+    const e = load('steal-tycoon');
+    for (const g of e.economy.generators) g.produces = {};
+    expect(describeGame(e)).not.toMatch(/OFFLINE/);
+  });
+  it('names the rebirth target when it is not everything', () => {
+    const d = load('steal-tycoon');
+    d.economy.rebirth!.mult = { target: d.economy.resources[0].id, per: 1.5 };
+    expect(describeGame(d)).toMatch(new RegExp(`x1\\.5 ${d.economy.resources[0].id} boost`, 'i'));
+  });
+});
+
+describe('defaultShots origin', () => {
+  it('offsets cameras and subjects to the spawn', () => {
+    const d = load('incremental');
+    const a = defaultShots(d);
+    const b = defaultShots(d, [400, 5, 0]);
+    expect(b[0].camera.position[0]).toBe(a[0].camera.position[0] + 400);
+    expect(b[0].camera.lookAt[1]).toBe(a[0].camera.lookAt[1] + 5);
+    expect(b[0].subject!.at[0]).toBe(a[0].subject!.at[0] + 400);
   });
 });
 
