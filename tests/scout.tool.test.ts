@@ -306,6 +306,17 @@ describe('scout tool', () => {
     expect(luau.filter((l) => l.includes('BLOX_SCOUT_MOVE'))[0]).toContain('[[Workspace]]');
   });
 
+  it('adopt to a folder that does not exist yet creates it (ui-packs: ReplicatedStorage.UiTemplates)', async () => {
+    const { c, luau } = ctx({});
+    await call({ action: 'search', need: 'obby', kind: 'map' }, c);
+    await call({ action: 'try', asset_id: '11', id: 'obby' }, c);
+    const r = await call({ action: 'adopt', id: 'obby', to: 'ReplicatedStorage.UiTemplates' }, c);
+    expect(r.isError, r.text).toBeFalsy();
+    const mv = luau.find((l) => l.includes('BLOX_SCOUT_MOVE'))!;
+    expect(mv).toMatch(/ensure\(\[=*\[ReplicatedStorage\.UiTemplates\]=*\]\)/);
+    expect(mv).toContain('Instance.new("Folder")');
+  });
+
   it('adopt unpack leaves non-GUI leftovers in the quarantine and says so', async () => {
     const { c } = ctx({ left: 4 });
     await call({ action: 'search', need: 'obby', kind: 'map' }, c);
