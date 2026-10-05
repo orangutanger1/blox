@@ -102,12 +102,17 @@ function provenanceGates(projectPath: string, code: CodeAssetRefs): Gate[] {
     return [{ id: 'provenance', required: true, status: 'fail', detail: (e as Error).message.split('\n')[0] }];
   }
   const quarantined = (a: AssetEntry) => !a.ref.path || a.ref.path === QUARANTINE || a.ref.path.startsWith(`${QUARANTINE}.`);
-  const inGame = m.assets.filter((a) => a.uploaded || !quarantined(a) || idsOf(a).some((id) => code.numbers.has(id)));
+  const usedInCode = (a: AssetEntry) => idsOf(a).some((id) => code.numbers.has(id));
+  // A rejected asset is out of the game unless code still plays it by id.
+  const rejectedInCode = m.assets.filter((a) => a.status === 'rejected' && usedInCode(a));
+  const inGame = m.assets.filter((a) => a.status !== 'rejected' && (a.uploaded || !quarantined(a) || usedInCode(a)));
   const unapproved = inGame.filter((a) => a.status !== 'approved');
   const unknown = inGame.filter((a) => a.licence === 'unknown');
+  const ids = (xs: AssetEntry[]) => xs.slice(0, 10).map((a) => a.id).join(', ') + (xs.length > 10 ? `, +${xs.length - 10} more` : '');
   const bad = [
-    ...(unapproved.length ? [`${unapproved.length} in use but not approved: ${unapproved.slice(0, 5).map((a) => a.id).join(', ')} (\`blox asset approve <id>\` after checking each)`] : []),
-    ...(unknown.length ? [`${unknown.length} with unknown licence: ${unknown.slice(0, 5).map((a) => a.id).join(', ')}`] : []),
+    ...(unapproved.length ? [`${unapproved.length} in use but not approved: ${ids(unapproved)} (\`blox asset approve <id>\` after checking each)`] : []),
+    ...(unknown.length ? [`${unknown.length} with unknown licence: ${ids(unknown)}`] : []),
+    ...(rejectedInCode.length ? [`${rejectedInCode.length} rejected but still used in code: ${ids(rejectedInCode)}`] : []),
   ];
   const gates: Gate[] = [
     bad.length

@@ -74,6 +74,24 @@ describe('releaseCheck', () => {
     expect(status(p).provenance).toBe('pass');
     expect(releaseCheck(p).ready).toBe(true);
   });
+  // Volcano 2026-10-05: a rejected (and removed) music track still failed provenance and place-only.
+  it('rejected assets are not in use unless code still plays them by id; long lists are not cut silently', () => {
+    const p = ready();
+    writeJson(p, 'asset-report.json', ok(['asset:licence']));
+    const e = (id: string, extra: Record<string, unknown>) => ({ id, kind: 'audio', source: 'creator-store', licence: 'roblox-creator-store', ref: {}, provenance: { tool: 'scout', createdAt: 'x' }, status: 'candidate', ...extra });
+    writeJson(p, 'assets.json', { version: 1, assets: [e('musicMain', { status: 'rejected', ref: { assetId: 9045295141, path: 'ReplicatedStorage.Sounds.musicMain' } })] });
+    let r = releaseCheck(p);
+    expect(r.gates.find((x) => x.id === 'provenance')!.status).toBe('n/a');
+    expect(r.gates.find((x) => x.id === 'place-only')).toBeUndefined();
+    mkdirSync(join(p, 'src'));
+    writeFileSync(join(p, 'src/Music.client.luau'), 'local ID = "rbxassetid://9045295141"\n');
+    r = releaseCheck(p);
+    expect(r.ready).toBe(false);
+    expect(r.gates.find((x) => x.id === 'provenance')!.detail).toMatch(/rejected but still used in code: musicMain/);
+    writeFileSync(join(p, 'src/Music.client.luau'), '\n');
+    writeJson(p, 'assets.json', { version: 1, assets: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id, i) => e(id, { ref: { assetId: 100 + i, path: `Workspace.${id}` } })) });
+    expect(releaseCheck(p).gates.find((x) => x.id === 'provenance')!.detail).toMatch(/7 in use but not approved: a, b, c, d, e, f, g/);
+  });
   // Dog Walk 2026-10-03: sounds stayed quarantined candidates while Menus.client
   // played them by id, so the gate saw "no assets in use" and passed.
   it('assets used by id in code count as in use, even when still quarantined', () => {
