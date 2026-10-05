@@ -46,7 +46,12 @@ const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w
 
 export const isFreeHit = (h: SearchHit) => h.isFree === true && (h.priceCents ?? 0) === 0;
 
-export function mergeResults(perQuery: SearchHit[][], need: string, _kind: ScoutKind): Ranked[] {
+// Audio from these accounts is licensed by Roblox for every experience; other
+// uploads only play where their owner allows (often only the uploader's places).
+export const LICENSED_AUDIO = new Set(['APMOfficial', 'ProSoundEffects', 'Roblox', 'MonstercatOfficial']);
+export const LICENSED_NOTE = 'Roblox-licensed audio: plays in every experience';
+
+export function mergeResults(perQuery: SearchHit[][], need: string, kind: ScoutKind): Ranked[] {
   const byId = new Map<string, Ranked & { order: number }>();
   let order = 0;
   for (const list of perQuery) {
@@ -67,8 +72,9 @@ export function mergeResults(perQuery: SearchHit[][], need: string, _kind: Scout
     const nameWords = [...new Set(words(r.name))];
     // A pack announced in a DevForum resources thread was published on purpose
     // and discussed in public: rank it above keyword-stuffed store uploads.
-    const score = 2 * r.hits + nameWords.filter((w) => needWords.has(w)).length + (KIND_WORDS.test(r.name) ? 1 : 0) + (r.sourceUrl ? 3 : 0);
-    return { ...r, score };
+    const licensed = kind === 'audio' && LICENSED_AUDIO.has(r.creatorName ?? '');
+    const score = 2 * r.hits + nameWords.filter((w) => needWords.has(w)).length + (KIND_WORDS.test(r.name) ? 1 : 0) + (r.sourceUrl ? 3 : 0) + (licensed ? 4 : 0);
+    return { ...r, score, ...(licensed && !r.licenceNote ? { licenceNote: LICENSED_NOTE } : {}) };
   });
   out.sort((a, b) => b.score - a.score || a.order - b.order);
   return out.map(({ order: _o, ...r }) => r);

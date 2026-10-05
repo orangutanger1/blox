@@ -285,3 +285,88 @@ export function formatPreview(id: string, path: string, r: { total: number; shot
   lines.push('Build menus by cloning these panels (keep their art; rewire text and buttons), not by restyling BloxUI.');
   return lines.join('\n');
 }
+
+// ---- models, maps and sounds (edit mode; no playtest) ----
+// A clone of the asset is staged far from the map, framed from two angles and
+// captured, then removed; sounds report their length (a 5 s "music" track is a
+// sting, not a loop). Packs with GUIs and no parts get the panel preview instead.
+export const MODEL_PREVIEW = '__BloxModelPreview';
+const STAGE_AT = '0, 3000, -30000';
+
+export function stageModelLuau(path: string): string {
+  return `-- BLOX_MODEL_PREVIEW
+local HttpService = game:GetService("HttpService")
+${RESOLVE}
+local src = resolve(${JSON.stringify(path)})
+local parts, guis, sounds = 0, 0, {}
+local function count(i)
+	if i:IsA("BasePart") then parts += 1 end
+	if i:IsA("GuiObject") then guis += 1 end
+	if i:IsA("Sound") then table.insert(sounds, { name = i.Name, id = i.SoundId, seconds = math.floor(i.TimeLength * 10) / 10 }) end
+end
+count(src)
+for _, d in src:GetDescendants() do count(d) end
+local out = { parts = parts, guis = guis, sounds = sounds }
+local old = workspace:FindFirstChild("${MODEL_PREVIEW}")
+if old then old:Destroy() end
+if parts > 0 then
+	local m = Instance.new("Model")
+	m.Name = "${MODEL_PREVIEW}"
+	local c = src:Clone()
+	for _, d in c:GetDescendants() do
+		if d:IsA("LuaSourceContainer") then d:Destroy() end
+	end
+	c.Parent = m
+	m.Parent = workspace
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then d.Anchored = true end
+	end
+	m:PivotTo(CFrame.new(${STAGE_AT}))
+	local cf, size = m:GetBoundingBox()
+	out.center = { cf.Position.X, cf.Position.Y, cf.Position.Z }
+	out.size = { size.X, size.Y, size.Z }
+end
+return HttpService:JSONEncode(out)`;
+}
+
+export const unstageModelLuau = `local m = workspace:FindFirstChild("${MODEL_PREVIEW}") if m then m:Destroy() end return "ok"`;
+
+type V3 = [number, number, number];
+export function modelCameras(center: V3, size: V3): { label: string; position: V3; lookAt: V3 }[] {
+  const d = Math.max(8, Math.hypot(size[0], size[1], size[2]));
+  const [x, y, z] = center;
+  return [
+    { label: 'three-quarter', position: [x + d * 0.55, y + d * 0.35, z + d * 0.55], lookAt: center },
+    { label: 'front', position: [x, y + d * 0.1, z + d * 0.8], lookAt: center },
+  ];
+}
+
+export interface ModelPreview {
+  parts: number;
+  guis: number;
+  sounds: { name: string; id: string; seconds: number }[];
+  shots: { label: string; screenshot: Screenshot | null }[];
+}
+
+export async function runModelPreview(session: StudioSession, projectPath: string, o: { id: string; path: string }): Promise<ModelPreview> {
+  const st = await runLuau(session, stageModelLuau(o.path), 'edit', { chunkName: 'previewModel' });
+  if (!st.ok) throw new Error(`preview: could not stage ${o.path}: ${st.error?.message}`);
+  const j = JSON.parse(String(st.values[0])) as Omit<ModelPreview, 'shots'> & { center?: V3; size?: V3 };
+  const out: ModelPreview = { parts: j.parts, guis: j.guis, sounds: Array.isArray(j.sounds) ? j.sounds : [], shots: [] };
+  if (!j.center || !j.size) return out;
+  try {
+    for (const c of modelCameras(j.center, j.size))
+      out.shots.push({ label: c.label, screenshot: await captureScreenshot(session, projectPath, `preview-${o.id}-${c.label}`, { position: c.position, lookAt: c.lookAt }) });
+  } finally {
+    await runLuau(session, unstageModelLuau, 'edit', { chunkName: 'previewModelDone' }).catch(() => undefined);
+  }
+  return out;
+}
+
+export function formatModelPreview(id: string, path: string, r: ModelPreview): string {
+  const lines = [`${id}: ${r.parts} part(s), ${r.guis} GUI object(s), ${r.sounds.length} sound(s) under ${path}`];
+  for (const s of r.sounds) lines.push(`  sound ${s.name} ${s.id} — ${s.seconds}s${s.seconds > 0 && s.seconds < 20 ? ' (short: a sting/SFX, not a music loop)' : ''}`);
+  for (const s of r.shots) lines.push(`  ${s.label} → ${s.screenshot ? s.screenshot.path : 'screen_capture returned no image'}`);
+  if (r.parts > 0 && !r.shots.some((s) => s.screenshot)) lines.push('  no screenshot: is the Studio viewport open?');
+  return lines.join('\n');
+}
