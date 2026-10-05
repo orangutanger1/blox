@@ -203,6 +203,10 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
         case 'run':
           // blox model run <id> <build.py>
           return { tool: 'model', args: { action, id, code: f.rest[2] ? readFileSync(f.rest[2], 'utf8') : '' } };
+        case 'icon': {
+          const num = (k: string) => (typeof o[k] === 'string' ? { [k]: Number(o[k]) } : {});
+          return { tool: 'model', args: { action, id, ...(typeof o.out === 'string' ? { out: o.out } : {}), ...num('size'), ...num('yaw'), ...num('pitch'), ...num('outline'), ...(typeof o['outline-color'] === 'string' ? { outline_color: o['outline-color'] } : {}) } };
+        }
         case 'preview':
           return { tool: 'model', args: { action, id, ...(typeof o.at === 'string' ? { at: (o.at as string).split(',').map(Number) } : {}) } };
         default:
@@ -380,7 +384,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] [--no-phone] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox idea research [--fresh] [--device all|phone|computer|tablet|console] | propose '<json ideas>' | list | brief <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
-           blox model run <id> <build.py> | check|export|preview|import <id> | list   (Blender, headless)
+           blox model run <id> <build.py> | check|export|preview|import <id> | icon <id> [--out p.png --yaw -60 --pitch 18 --outline 8] | list   (Blender, headless)
 Ship:      blox release check|build|publish [--confirm]   blox release approve  (human sign-off)
            blox animate recipes [name] | check <desc.json> [--locomotion] [--grounded] [--waive ids]
                         build <name> [--force] | wire <slot> <asset> [--replaces id] [--rig R15|R6] | verify <name> [--slot s] [--asset id]

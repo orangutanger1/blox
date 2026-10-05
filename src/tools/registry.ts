@@ -782,14 +782,24 @@ export const TOOLS: BloxTool[] = [
         if (typeof a.id !== 'string' || !Array.isArray(a.files) || typeof a.licence !== 'string') return { text: 'sheet needs id, files (PNG paths or folders) and licence (of the icons: owned | cc0 | cc-by | generated-roblox | unknown)', isError: true, summary: 'missing args' };
         const bad = [...(a.files as string[]), a.out, a.module].find((f) => typeof f === 'string' && !isPathContained(P, f));
         if (bad) return { text: `${bad} is outside the project`, isError: true, summary: 'outside project' };
+        const m = loadManifest(P);
+        const old = m.assets.find((x) => x.id === a.id);
+        const prevId = old?.provenance.tool === 'sheet' && old.uploaded ? old.ref.assetId : undefined;
         let r;
         try {
-          r = writeSheet(P, { id: a.id, files: a.files as string[], cell: a.cell as number | undefined, pad: a.pad as number | undefined, out: a.out as string | undefined, module: a.module as string | undefined });
+          r = writeSheet(P, { id: a.id, files: a.files as string[], cell: a.cell as number | undefined, pad: a.pad as number | undefined, out: a.out as string | undefined, module: a.module as string | undefined, imageId: prevId });
         } catch (e) {
           return { text: `sheet failed: ${(e as Error).message}`, isError: true, summary: 'failed' };
         }
-        const m = loadManifest(P);
-        const old = m.assets.find((x) => x.id === a.id);
+        const names = Object.keys(r.map.icons);
+        if (old && old.provenance.tool === 'sheet' && r.unchanged && old.licence === a.licence) {
+          // Same pixels and layout: the approval and upload still hold.
+          return {
+            text: [`${r.map.image} unchanged (${names.length} icons); kept ${old.status}${prevId ? `, image ${prevId} in ${r.map.module}` : ''}`, `icons: ${names.join(', ')}`].join('\n'),
+            artifacts: [r.map.image],
+            summary: 'unchanged',
+          };
+        }
         const provenance = { tool: 'sheet', prompt: `icons: ${r.files.join(', ')}`.slice(0, 2000), ...(typeof a.source_url === 'string' ? { url: a.source_url } : {}), createdAt: new Date().toISOString() };
         if (old && old.provenance.tool !== 'sheet') return { text: `asset id "${a.id}" is already used by a ${old.provenance.tool} entry — pick another id`, isError: true, summary: 'id taken' };
         if (old) {
@@ -802,7 +812,6 @@ export const TOOLS: BloxTool[] = [
           const added = addAsset(P, { id: a.id, kind: 'image', source: a.licence === 'owned' ? 'generated' : 'external', licence: a.licence, ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}), ref: { file: r.map.image }, provenance });
           if (!added.ok) return { text: `could not record ${a.id}: ${added.errors.join('; ')}`, isError: true, summary: 'invalid' };
         }
-        const names = Object.keys(r.map.icons);
         return {
           text: [
             `packed ${names.length} icon(s) into ${r.map.image} (${r.w}×${r.h}, ${r.map.cell}px cells); module ${r.map.module}`,
@@ -924,9 +933,9 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'model',
     description:
-      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id, images?} (budget: triangles vs target, MeshParts the upload makes, bones, textures; colour survival — procedural or missing-image colours arrive white; front/right/back/three-quarter renders + the brief reference images, returned as images to compare) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | animate {id, target, name?} (after the uploaded model is inserted at target, e.g. "Workspace.Dog": turns each exported Blender action into a Roblox KeyframeSequence on its Bones, checks the motion, plays it on the rig in edit mode and compares bone positions, writes anim_<name>.rbxm and records it as an animation candidate for upload) | list.',
+      'AI-built 3D models in Blender (headless), Roblox-ready and rig-ready. brief {id, prompt, style?, tris?=5000, rig?, animations?, refs?} (records the spec + returns the build loop) | run {id, code} (Blender Python with blox helpers: reset, voxels, box, shape (sphere/cylinder/cone/torus/ico/cube, bevel, smooth), join, rig, bind_rigid, animate; rebuilds .blox/models/<id>/model.blend) | check {id, images?} (budget: triangles vs target, MeshParts the upload makes, bones, textures; colour survival — procedural or missing-image colours arrive white; front/right/back/three-quarter renders + the brief reference images, returned as images to compare) | export {id} (model.glb = the upload: vertex colours, 1 unit = 1 stud, front -Z; after inserting set each MeshPart Color to white (it multiplies vertex colours); model.fbx for the Studio importer; anim_<name>.fbx per animation; preview.json) | preview {id, at?} (coloured MeshPart in Studio via EditableMesh, no upload) | import {id} (records the GLB in .blox/assets.json as a candidate; a human approves before upload) | animate {id, target, name?} (after the uploaded model is inserted at target, e.g. "Workspace.Dog": turns each exported Blender action into a Roblox KeyframeSequence on its Bones, checks the motion, plays it on the rig in edit mode and compares bone positions, writes anim_<name>.rbxm and records it as an animation candidate for upload) | icon {id, out?, size?, yaw?, pitch?, outline?, outline_color?} (UI icon: Cycles render on a transparent background, cropped, sticker outline → out PNG, default assets/ui/icons/<id>.png; pack a folder of them with asset sheet) | list.',
     shape: {
-      action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'animate', 'list']),
+      action: z.enum(['brief', 'run', 'check', 'export', 'preview', 'import', 'animate', 'icon', 'list']),
       id: z.string().optional(),
       images: z.boolean().optional().describe('check: attach the views and reference images (default true)'),
       with_refs: z.boolean().optional().describe('check: resend the brief\'s reference images (default: first check only)'),
@@ -940,6 +949,12 @@ export const TOOLS: BloxTool[] = [
       at: z.array(z.number()).length(3).optional().describe('preview: where to stand it, default 0,0,20'),
       target: z.string().optional().describe('animate: path of the inserted rig in Studio, e.g. Workspace.Dog'),
       name: z.string().optional().describe('animate: one action (default: every exported action)'),
+      out: z.string().optional().describe('icon: project-relative PNG path (default assets/ui/icons/<id>.png)'),
+      size: z.number().int().min(64).max(2048).optional().describe('icon: render size in px before cropping (default 512)'),
+      yaw: z.number().optional().describe('icon: camera azimuth in degrees around the model (default -60; -90 = straight front)'),
+      pitch: z.number().optional().describe('icon: camera elevation in degrees (default 18)'),
+      outline: z.number().int().min(0).max(64).optional().describe('icon: outline width in px (default size/64; 0 = none)'),
+      outline_color: z.string().optional().describe('icon: outline colour #rrggbb (default #1b1530)'),
     },
     async handler(a, ctx) {
       const P = ctx.projectPath;
@@ -995,6 +1010,21 @@ export const TOOLS: BloxTool[] = [
         const refNote = !sendRefs && brief?.refs.length ? [`references not resent (${brief.refs.length}; sent on the first check): pass with_refs:true to see them again`] : [];
         const text = [formatStats(s, P, budget), ...(att?.labels.length ? [`images: ${att.labels.join(', ')}`] : []), ...(att?.notes ?? []), ...refNote].join('\n');
         return { text, ...(att?.images.length ? { images: att.images } : {}), isError: s.issues.length > 0, summary: s.issues.length ? `${s.issues.length} issues` : 'ok' };
+      }
+      if (a.action === 'icon') {
+        const outRel = typeof a.out === 'string' ? a.out : `assets/ui/icons/${id}.png`;
+        const out = resolve(P, outRel);
+        if (!isPathContained(P, out) || !/\.png$/i.test(out)) return { text: 'icon out must be a .png inside the project', isError: true, summary: 'bad out' };
+        mkdirSync(dirname(out), { recursive: true });
+        const args: Record<string, unknown> = { blend, out };
+        for (const [k, v] of [['size', a.size], ['yaw', a.yaw], ['pitch', a.pitch], ['outline', a.outline], ['outlineColor', a.outline_color]] as const) if (v !== undefined) args[k] = v;
+        const r = (await runModelPy('icon', args, dir)) as { icon: string; size: number; outline: number };
+        const att = a.images === false ? null : checkImages([r.icon], [], P);
+        return {
+          text: `icon ${relative(P, r.icon)} (${r.size}×${r.size} px, outline ${r.outline} px)\nnext: look at it; pack the icon folder with asset sheet <id> <dir> --licence owned, then asset upload`,
+          ...(att?.images.length ? { images: att.images } : {}),
+          summary: 'icon',
+        };
       }
       if (a.action === 'export') {
         const r = (await runModelPy('export', { blend, out: join(dir, 'export') }, dir)) as { model: string; upload?: string; pivots?: string; pieces?: number; bake?: { materials: number; baked: number; textured: number }; animations: Record<string, string>; preview: string; previewTriangles: number };

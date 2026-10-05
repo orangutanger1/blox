@@ -85,3 +85,17 @@ test("every Toast() call on a client shares one stack, and style skins each toas
 	expect(t.BackgroundTransparency).toBe(0.5)
 	expect(t.Parent).toBe(a.frame)
 end)
+
+test("fit: scale from the tighter of height/width, clamped; attributes for ui lint", function()
+	local opts = { height = 800, width = 560, min = 0.57, max = 1.25 }
+	expect(UI.fitScale(Vector2.new(1920, 1080), opts)).toBe(1.25)
+	expect(math.abs(UI.fitScale(Vector2.new(390, 797), opts) - 390 / 560) < 1e-6).toBe(true)
+	expect(UI.fitScale(Vector2.new(750, 311), opts)).toBe(0.57)
+	local f = Instance.new("Frame")
+	local s = Instance.new("UIScale")
+	s.Parent = f
+	UI.fit(s, opts)
+	expect(s:GetAttribute("BloxFitHeight")).toBe(800)
+	expect(s:GetAttribute("BloxFitMin")).toBe(0.57)
+	expect(s:GetAttribute("BloxFitFill")).toBe(true)
+end)

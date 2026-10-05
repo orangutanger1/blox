@@ -82,6 +82,27 @@ for i, d in DEVICES do
 end
 root.Parent = pg
 RunService.RenderStepped:Wait()
+-- BloxUI.fit scales: recompute for this device from the attributes (scripts were stripped)
+local fitted = false
+for _, D in frames do
+	for _, s in D:GetDescendants() do
+		local h, w = s:GetAttribute("BloxFitHeight"), s:GetAttribute("BloxFitWidth")
+		if s:IsA("UIScale") and (h or w) and s.Parent and s.Parent.Parent and s.Parent.Parent:IsA("GuiBase2d") then
+			local size = s.Parent.Parent.AbsoluteSize
+			local k = math.huge
+			if (h or 0) > 0 then k = math.min(k, size.Y / h) end
+			if (w or 0) > 0 then k = math.min(k, size.X / w) end
+			if k == math.huge then k = 1 end
+			k = math.clamp(k, s:GetAttribute("BloxFitMin") or 0.5, s:GetAttribute("BloxFitMax") or 1.5)
+			s.Scale = k
+			if s:GetAttribute("BloxFitFill") ~= false and s.Parent:IsA("GuiObject") then
+				s.Parent.Size = UDim2.fromScale(1 / k, 1 / k)
+			end
+			fitted = true
+		end
+	end
+end
+if fitted then RunService.RenderStepped:Wait() end
 RunService.RenderStepped:Wait()
 
 local function rel(o, D)

@@ -86,7 +86,7 @@ export function briefText(b: ModelBrief): string {
   ].join('\n');
 }
 
-export async function runModelPy(cmd: 'run' | 'check' | 'export', args: Record<string, unknown>, dir: string, spawn: Spawner = defaultSpawn): Promise<Record<string, unknown>> {
+export async function runModelPy(cmd: 'run' | 'check' | 'export' | 'icon', args: Record<string, unknown>, dir: string, spawn: Spawner = defaultSpawn): Promise<Record<string, unknown>> {
   mkdirSync(dir, { recursive: true });
   const argFile = join(dir, `.${cmd}.json`);
   writeFileSync(argFile, JSON.stringify(args));

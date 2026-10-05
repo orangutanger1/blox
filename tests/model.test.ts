@@ -153,5 +153,9 @@ describe('model cli', () => {
     writeFileSync(f, 'reset()');
     expect(cliArgs('model', parseFlags(['run', 'dog', f]))).toEqual({ tool: 'model', args: { action: 'run', id: 'dog', code: 'reset()' } });
     expect(cliArgs('model', parseFlags(['preview', 'dog', '--at', '0,1,20']))).toEqual({ tool: 'model', args: { action: 'preview', id: 'dog', at: [0, 1, 20] } });
+    expect(cliArgs('model', parseFlags(['icon', 'coin', '--out', 'assets/ui/icons/coin.png', '--yaw', '-90', '--outline', '6', '--outline-color', '#000000']))).toEqual({
+      tool: 'model',
+      args: { action: 'icon', id: 'coin', out: 'assets/ui/icons/coin.png', yaw: -90, outline: 6, outline_color: '#000000' },
+    });
   });
 });

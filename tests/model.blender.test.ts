@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runModelPy, type ModelStats } from '../src/model/run.js';
 import { blenderBin } from '../src/assets/blender.js';
+import { decodePngRgba } from '../src/present/pixels.js';
 
 // Real headless Blender; skipped where it is not installed.
 function hasBlender(): boolean {
@@ -24,6 +25,36 @@ async function build(code: string): Promise<ModelStats> {
 }
 
 describe.skipIf(!hasBlender())('model stats in Blender', () => {
+  it('shape/prism helpers build closed low-poly parts; icon renders a cropped, outlined transparent PNG', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'blox-micon-'));
+    const file = join(dir, 'build.py');
+    writeFileSync(file, `reset()
+shape("ball", "sphere", (2, 2, 2), (0, 0, 1), "#ff8800", segments=12)
+shape("ring", "torus", (3, 3, 0.4), (0, 0, 2.2), "#ffcc00", sweep=180, segments=16)
+shape("can", "cylinder", (1, 1, 1), (2, 0, 0.5), "#3388ff", bevel=0.1)
+prism("star", [(0, 1), (-0.3, 0.3), (-1, 0.3), (-0.45, -0.15), (-0.6, -0.9), (0, -0.45), (0.6, -0.9), (0.45, -0.15), (1, 0.3), (0.3, 0.3)], depth=0.4, at=(-2, 0, 1), color="#ffffff", bevel=0.05)
+`);
+    const blend = join(dir, 'model.blend');
+    const s = (await runModelPy('run', { blend, code: file, budget: 5000, name: 'build.py' }, dir)) as unknown as ModelStats;
+    expect(s.issues).toEqual([]);
+    expect(Object.keys(s.meshes).sort()).toEqual(['ball', 'can', 'ring', 'star']);
+    expect(s.meshes.ball).toBe(12 * 6 * 2 - 24); // uv sphere: quads + pole fans
+    const out = join(dir, 'icon.png');
+    const r = (await runModelPy('icon', { blend, out, size: 128, samples: 4, outline: 3 }, dir)) as { size: number; outline: number };
+    expect(r.outline).toBe(3);
+    const img = decodePngRgba(readFileSync(out))!;
+    expect(img.w).toBe(r.size);
+    expect(img.h).toBe(r.size);
+    const a = (x: number, y: number) => img.rgba[(y * img.w + x) * 4 + 3];
+    expect(a(0, 0)).toBe(0); // transparent corner
+    const mid = Math.floor(img.w / 2);
+    let firstOpaque = -1;
+    for (let x = 0; x < img.w && firstOpaque < 0; x++) if (a(x, mid) > 200) firstOpaque = x;
+    expect(firstOpaque).toBeGreaterThan(0);
+    const p = (firstOpaque + 1) * 4 + mid * img.w * 4;
+    expect(Math.max(img.rgba[p], img.rgba[p + 1], img.rgba[p + 2])).toBeLessThan(80); // dark outline at the silhouette edge
+  }, 180_000);
+
   it('flags a procedural base colour and counts upload MeshParts', async () => {
     const s = await build(`reset()
 a = box("Body", (2, 2, 2), (0, 0, 1), "#ff0000")
