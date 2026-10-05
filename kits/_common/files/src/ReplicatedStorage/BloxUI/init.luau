@@ -11,6 +11,7 @@
 --   UI.Row(shop.list, { name = "pet", text = "Pet", action = "10 coins" }).button.Activated:Connect(...)
 --   local toasts = UI.Toast(gui)   toasts.show("Saved!")   (one shared stack per client)
 --   local reveal = UI.Reveal(gui)  reveal.show("Mythic Dragon", "1 in 500")
+--   UI.fit(hudScale, { height = 800, width = 560, min = 0.57 })  (offset-designed HUD → every device)
 -- Components only build instances (plus close/expiry wiring); callers connect gameplay.
 local Theme = require(script.Theme)
 
@@ -71,6 +72,57 @@ function BloxUI.label(parent: Instance, name: string, text: string, opts: any?)
 end
 
 -- ScreenGui in the safe area (excludes the top bar and notches).
+-- Responsive UIScale for a HUD laid out in offsets at a design size:
+-- Scale = clamp(min(H / height, W / width), min, max), where W×H is the size of
+-- the scaled frame's parent (the screen for a full-screen frame). fill (default
+-- true) resizes the scaled frame to 1/Scale of its parent so it still covers the
+-- screen and scale-positioned children (a centred bar) stay screen-relative.
+-- Settings live in attributes so `blox ui lint`, which lays out clones without
+-- scripts, applies the same scale on each device it emulates.
+export type FitOptions = { height: number?, width: number?, min: number?, max: number?, fill: boolean? }
+
+function BloxUI.fitScale(size: Vector2, opts: FitOptions): number
+	local k = math.huge
+	if (opts.height or 0) > 0 then
+		k = math.min(k, size.Y / opts.height :: number)
+	end
+	if (opts.width or 0) > 0 then
+		k = math.min(k, size.X / opts.width :: number)
+	end
+	if k == math.huge then
+		k = 1
+	end
+	return math.clamp(k, opts.min or 0.5, opts.max or 1.5)
+end
+
+function BloxUI.fit(scale: UIScale, opts: FitOptions)
+	scale:SetAttribute("BloxFitHeight", opts.height or 0)
+	scale:SetAttribute("BloxFitWidth", opts.width or 0)
+	scale:SetAttribute("BloxFitMin", opts.min or 0.5)
+	scale:SetAttribute("BloxFitMax", opts.max or 1.5)
+	scale:SetAttribute("BloxFitFill", opts.fill ~= false)
+	local target = scale.Parent :: GuiObject?
+	local host = target and target.Parent
+	if not target or not host then
+		return
+	end
+	local function apply()
+		local size = (host :: any).AbsoluteSize :: Vector2
+		if size.X <= 0 or size.Y <= 0 then
+			return
+		end
+		local k = BloxUI.fitScale(size, opts)
+		scale.Scale = k
+		if opts.fill ~= false then
+			target.Size = UDim2.fromScale(1 / k, 1 / k)
+		end
+	end
+	apply()
+	pcall(function()
+		(host :: any):GetPropertyChangedSignal("AbsoluteSize"):Connect(apply)
+	end)
+end
+
 function BloxUI.screen(name: string, parent: Instance?)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = name

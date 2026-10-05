@@ -46,10 +46,11 @@ PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multipl
 
 ## Assets, models, animation
 Prefer code-built geometry; record every other asset: asset {action:"sanitize", path, id}
-after inserting a Creator Store model (strips scripts, flags backdoors), asset {action:"add"} for generated/external ones,
+after inserting a Store model (strips scripts, flags backdoors), asset {action:"add"} for generated/external ones,
 asset {action:"lint"}. Approvals and uploads are human steps.
-Custom models: model {action:"brief"} → run (Blender Python: voxels/box/rig/bind_rigid/
-animate) → check (compare views to refs) → export → preview → import. After
+Custom models: model {action:"brief"} → run (Blender Python: shape/prism/box/rig/animate)
+→ check (vs refs) → export → preview → import. UI icons (no emoji): a model per
+icon → model icon → asset sheet → upload. After
 inserting an uploaded model set its MeshParts' Color to white; rigged: model animate →
 upload → BloxAnimate.
 Characters (R15/R6): animate recipes → check (read the sheet) → build → human approves →

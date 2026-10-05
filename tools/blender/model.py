@@ -15,6 +15,11 @@ blender -b --factory-startup --python model.py -- <cmd> <args.json>
           <out>/preview.json (coloured triangles in Roblox axes, for an
           EditableMesh preview in Studio without uploading).
 
+  icon    a UI icon: Cycles render of the model on a transparent background
+          (¾ view by default, studio lights, Standard view transform so flat
+          colours stay saturated), cropped to the model, with a solid
+          sticker outline drawn around the silhouette → <out> PNG.
+
 Every command prints one line: BLOX_MODEL <json>. Errors: BLOX_ERROR <msg>.
 Units: 1 Blender unit = 1 stud; Blender (x, y, z) → Roblox (x, z, -y).
 """
@@ -192,6 +197,121 @@ def render_views(view_dir):
     return files
 
 
+def _light(scene, name, kind, energy, loc, size=1.0, color=(1, 1, 1)):
+    d = bpy.data.lights.new(name, kind)
+    d.energy = energy
+    d.color = color
+    if kind == "AREA":
+        d.size = size
+    o = bpy.data.objects.new(name, d)
+    scene.collection.objects.link(o)
+    o.location = loc
+    o.rotation_euler = (Vector((0, 0, 0)) - Vector(loc)).to_track_quat("-Z", "Y").to_euler()
+    return o
+
+
+def outline_png(src, dst, width, color, pad):
+    import numpy as np
+
+    img = bpy.data.images.load(src)
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)
+    bpy.data.images.remove(img)
+    alpha = px[:, :, 3]
+    ys, xs = np.nonzero(alpha > 0.02)
+    if not len(xs):
+        fail("the icon render is empty — is the model in front of the camera?")
+    m = width + pad
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    side = max(y1 - y0, x1 - x0) + 2 * m
+    canvas = np.zeros((side, side, 4), dtype=np.float32)
+    oy, ox = (side - (y1 - y0)) // 2, (side - (x1 - x0)) // 2
+    canvas[oy:oy + y1 - y0, ox:ox + x1 - x0] = px[y0:y1, x0:x1]
+    a = canvas[:, :, 3]
+    grown = a.copy()
+    r = int(width)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= r * r:
+                grown = np.maximum(grown, np.roll(np.roll(a, dy, 0), dx, 1))
+    out = np.zeros_like(canvas)
+    out[:, :, 0:3] = color
+    out[:, :, 3] = grown
+    # icon over outline (straight alpha)
+    fa = a[:, :, None]
+    rgb = canvas[:, :, 0:3] * fa + out[:, :, 0:3] * (1 - fa) * grown[:, :, None]
+    alpha_out = fa[:, :, 0] + grown * (1 - fa[:, :, 0])
+    safe = np.where(alpha_out > 0, alpha_out, 1)[:, :, None]
+    out[:, :, 0:3] = rgb / safe
+    out[:, :, 3] = alpha_out
+    res = bpy.data.images.new("bloxIcon", side, side, alpha=True)
+    res.pixels.foreach_set(out.ravel())
+    res.filepath_raw = dst
+    res.file_format = "PNG"
+    res.save()
+    return int(side)
+
+
+def cmd_icon(a):
+    open_blend(a["blend"])
+    rest_all()
+    if not meshes():
+        fail("no meshes to render")
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    scene.cycles.samples = int(a.get("samples", 48))
+    try:
+        scene.cycles.use_denoising = True
+    except Exception:
+        pass
+    scene.view_settings.view_transform = "Standard"
+    scene.view_settings.look = "None"
+    size = int(a.get("size", 512))
+    scene.render.resolution_x = scene.render.resolution_y = size
+    scene.render.film_transparent = True
+    world = scene.world or bpy.data.worlds.new("World")
+    scene.world = world
+    world.use_nodes = True
+    bg = world.node_tree.nodes.get("Background")
+    if bg:
+        bg.inputs[0].default_value = (0.9, 0.92, 1.0, 1)
+        bg.inputs[1].default_value = float(a.get("ambient", 0.4))
+    lo, hi = bounds()
+    center = (lo + hi) / 2
+    radius = max((hi - lo).length / 2, 0.5)
+    cam_data = bpy.data.cameras.new("bloxIconCam")
+    cam_data.lens = 70
+    cam = bpy.data.objects.new("bloxIconCam", cam_data)
+    scene.collection.objects.link(cam)
+    scene.camera = cam
+    yaw, pitch = float(a.get("yaw", -60)), float(a.get("pitch", 18))
+    azr, elr = math.radians(yaw), math.radians(pitch)
+    dist = radius / math.tan(cam_data.angle / 2) * 1.05
+    cam.location = center + Vector((math.cos(azr) * math.cos(elr), math.sin(azr) * math.cos(elr), math.sin(elr))) * dist
+    cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
+    r = radius * 4
+    left = Vector((math.cos(azr - 0.9), math.sin(azr - 0.9), 0))
+    _light(scene, "bloxKey", "AREA", 520 * radius * radius, center + left * r + Vector((0, 0, r * 0.9)), size=r)
+    _light(scene, "bloxRim", "AREA", 380 * radius * radius, center - Vector((math.cos(azr), math.sin(azr), 0)) * r + Vector((0, 0, r * 0.6)), size=r * 0.6)
+    _light(scene, "bloxFill", "AREA", 160 * radius * radius, center + Vector((math.cos(azr + 1.2), math.sin(azr + 1.2), -0.2)) * r, size=r)
+    tmp = a["out"] + ".raw.png"
+    scene.render.filepath = tmp
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
+    bpy.ops.render.render(write_still=True)
+    width = int(a.get("outline", round(size / 64)))
+    col = blox_model._rgb(a.get("outlineColor", "#1b1530"))
+    side = outline_png(tmp, a["out"], width, col, int(a.get("pad", 2))) if width > 0 else None
+    if width <= 0:
+        os.replace(tmp, a["out"])
+    elif os.path.exists(tmp):
+        os.remove(tmp)
+    out({"icon": a["out"], "size": side or size, "outline": width})
+
+
 def cmd_check(a):
     open_blend(a["blend"])
     s = stats(a.get("budget", 0))
@@ -341,7 +461,7 @@ def cmd_export(a):
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:]
     cmd, args = argv[0], json.loads(open(argv[1]).read())
-    {"run": cmd_run, "check": cmd_check, "export": cmd_export}.get(cmd, lambda _: fail("unknown command " + cmd))(args)
+    {"run": cmd_run, "check": cmd_check, "export": cmd_export, "icon": cmd_icon}.get(cmd, lambda _: fail("unknown command " + cmd))(args)
 
 
 try:

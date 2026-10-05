@@ -18,6 +18,11 @@ describe('ui probe', () => {
   it('a non-interactable GuiButton (art inside a hit area) is not a touch target', () => {
     expect(uiProbeProgram(DEVICES[0])).toContain('button = o:IsA("GuiButton") and o.Interactable');
   });
+  it('re-applies BloxUI.fit scales per device (scripts are stripped from the clones)', () => {
+    const code = uiProbeProgram(DEVICES[0]);
+    expect(code).toContain('s:GetAttribute("BloxFitHeight")');
+    expect(code).toContain('s.Parent.Size = UDim2.fromScale(1 / k, 1 / k)');
+  });
   it('skips Roblox-injected GUIs (legacy chat etc.)', () => {
     expect(uiProbeProgram(DEVICES[0])).toMatch(/ENGINE_GUIS = \{ Chat = true/);
   });

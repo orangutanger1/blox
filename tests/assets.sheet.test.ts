@@ -78,6 +78,23 @@ describe('icon sheet', () => {
     expect(e.status).toBe('candidate');
     expect(e.uploaded).toBeUndefined();
     expect((await call({ action: 'sheet', id: 'hud', files: ['../x.png'], licence: 'cc0' })).text).toMatch(/outside the project/);
+  });
+  it('re-running with identical icons keeps the approval, upload and module image id', async () => {
+    const P = project();
+    const f = fakeStudio({});
+    const c: ToolCtx = { session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }), projectPath: P, config: BloxConfigSchema.parse({ projectPath: P }), agent: 'test' };
+    const call = (args: Record<string, unknown>) => invokeTool(findTool('asset')!, args, c);
+    await call({ action: 'sheet', id: 'hud', files: ['icons'], licence: 'owned' });
+    const m = JSON.parse(readFileSync(join(P, '.blox/assets.json'), 'utf8'));
+    Object.assign(m.assets[0], { status: 'approved', ref: { file: 'assets/ui/hud.png', assetId: 6 }, uploaded: { assetId: 5, imageId: 6, operation: 'o', at: 'x' } });
+    writeFileSync(join(P, '.blox/assets.json'), JSON.stringify(m));
+    setSheetImage(P, 'hud', 'assets/ui/hud.png', 6);
+    const r = await call({ action: 'sheet', id: 'hud', files: ['icons'], licence: 'owned' });
+    expect(r.text).toMatch(/unchanged/);
+    const e = loadManifest(P).assets[0];
+    expect(e.status).toBe('approved');
+    expect(e.uploaded?.imageId).toBe(6);
+    expect(readFileSync(join(P, 'src/shared/Sheets/hud.luau'), 'utf8')).toContain('Sheet.image = "rbxassetid://6"\n');
     expect(cliArgs('asset', parseFlags(['sheet', 'hud', 'icons', 'more/a.png', '--licence', 'cc0', '--cell', '64']))).toEqual({ tool: 'asset', args: { action: 'sheet', id: 'hud', files: ['icons', 'more/a.png'], licence: 'cc0', cell: 64 } });
   });
   it.skipIf(!luneBin())('module compiles', () => {

@@ -6,6 +6,16 @@ Units: 1 Blender unit = 1 stud. Z is up in Blender; export maps it to Roblox Y.
   reset()                                  empty the scene
   material(color)                          "#rrggbb" or (r, g, b) 0-1 → material
   box(name, size, at, color, rot=(0,0,0))  one cube (size in studs, at = centre)
+  shape(name, kind, size, at, color, rot=(0,0,0), segments=16, bevel=0, smooth=True)
+      kind: sphere | cylinder | cone | torus | ico | cube. size = full extents
+      in studs (x, y, z); cone tapers to size[0]*taper (taper=0 → point);
+      torus: size x/y = outer diameter, size z = tube thickness. bevel rounds
+      edges (studs). Low segment counts keep the low-poly look.
+      torus sweep=<degrees> makes an arc (a C, a lock shackle, a rebirth arrow).
+  prism(name, points, depth, at, color, rot=(0,0,0), bevel=0)
+      2D outline [(x, z), …] (counter-clockwise, front view) extruded along Y
+      by depth studs: stars, bolts, flames, arrows, flags.
+  smooth(obj, angle=40)                    smooth shading up to a crease angle
   voxels(name, cells, unit=1.0, at=(0,0,0))
       cells: iterable of (x, y, z, color); faces between filled cells are
       culled, so a blocky model stays low-poly. Returns one mesh object.
@@ -61,9 +71,11 @@ def to_srgb(c):
     return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
 
 
-def material(color):
+def material(color, roughness=0.8):
     rgb = _rgb(color)
     key = "C_%02x%02x%02x" % tuple(int(round(c * 255)) for c in rgb)
+    if roughness != 0.8:
+        key += "_r%02d" % int(round(roughness * 100))
     m = _mats.get(key) or bpy.data.materials.get(key)
     if m is None:
         lin = tuple(to_linear(c) for c in rgb)
@@ -71,7 +83,7 @@ def material(color):
         m.use_nodes = True
         bsdf = m.node_tree.nodes.get("Principled BSDF")
         bsdf.inputs["Base Color"].default_value = (*lin, 1.0)
-        bsdf.inputs["Roughness"].default_value = 0.8
+        bsdf.inputs["Roughness"].default_value = roughness
         m.diffuse_color = (*lin, 1.0)
     _mats[key] = m
     return m
@@ -94,6 +106,100 @@ def box(name, size=(1, 1, 1), at=(0, 0, 0), color="#cccccc", rot=(0, 0, 0)):
     obj.rotation_euler = Euler([math.radians(a) for a in rot])
     me.materials.append(material(color))
     return obj
+
+
+def shape(name, kind, size=(1, 1, 1), at=(0, 0, 0), color="#cccccc", rot=(0, 0, 0), segments=16, bevel=0.0, smooth=True, taper=0.0, roughness=0.8, sweep=360.0):
+    me = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    seg = max(3, int(segments))
+    if kind == "sphere":
+        bmesh.ops.create_uvsphere(bm, u_segments=seg, v_segments=max(3, seg // 2), radius=0.5)
+    elif kind == "ico":
+        bmesh.ops.create_icosphere(bm, subdivisions=max(1, min(4, seg // 8)), radius=0.5)
+    elif kind in ("cylinder", "cone"):
+        r2 = 0.5 if kind == "cylinder" else 0.5 * taper
+        bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=seg, radius1=0.5, radius2=r2, depth=1.0)
+    elif kind == "cube":
+        bmesh.ops.create_cube(bm, size=1.0)
+    elif kind == "torus":
+        sx, sy, sz = size
+        tube = sz / 2.0
+        major = max(sx, sy) / 2.0 - tube
+        ring = max(3, seg // 2)
+        rows = []
+        closed = sweep >= 360
+        steps = seg if closed else seg + 1
+        for i in range(steps):
+            a = math.radians(sweep) * i / seg
+            row = []
+            for j in range(ring):
+                b = 2 * math.pi * j / ring
+                r = major + tube * math.cos(b)
+                row.append(bm.verts.new((r * math.cos(a), r * math.sin(a), tube * math.sin(b))))
+            rows.append(row)
+        for i in range(seg):
+            for j in range(ring):
+                a, b = rows[i], rows[(i + 1) % steps]
+                bm.faces.new((a[j], b[j], b[(j + 1) % ring], a[(j + 1) % ring]))
+        if not closed:
+            bm.faces.new(list(reversed(rows[0])))
+            bm.faces.new(rows[-1])
+        size = (1, 1, 1)
+    else:
+        bm.free()
+        raise ValueError("shape kind must be sphere, ico, cylinder, cone, torus or cube, not %r" % kind)
+    bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    if bevel > 0 and kind in ("cube", "cylinder", "cone"):
+        edges = [e for e in bm.edges if not e.is_manifold or e.calc_face_angle(0) > math.radians(30)]
+        bmesh.ops.bevel(bm, geom=edges, offset=bevel, segments=2, profile=0.5, affect="EDGES")
+    bm.to_mesh(me)
+    bm.free()
+    obj = _link(bpy.data.objects.new(name, me))
+    obj.location = Vector(at)
+    obj.rotation_euler = Euler([math.radians(a) for a in rot])
+    me.materials.append(material(color, roughness))
+    if smooth:
+        smooth_shade(obj)
+    return obj
+
+
+def prism(name, points, depth=0.5, at=(0, 0, 0), color="#cccccc", rot=(0, 0, 0), bevel=0.0, roughness=0.8):
+    me = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    front = [bm.verts.new((x, -depth / 2, z)) for x, z in points]
+    back = [bm.verts.new((x, depth / 2, z)) for x, z in points]
+    n = len(points)
+    bm.faces.new(front)
+    bm.faces.new(list(reversed(back)))
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((front[j], front[i], back[i], back[j]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    # concave outlines (stars, bolts) need real triangles, not one n-gon
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+    if bevel > 0:
+        edges = [e for e in bm.edges if e.calc_face_angle(0) > math.radians(30)]
+        bmesh.ops.bevel(bm, geom=edges, offset=bevel, segments=2, profile=0.5, affect="EDGES", clamp_overlap=True)
+    bm.to_mesh(me)
+    bm.free()
+    obj = _link(bpy.data.objects.new(name, me))
+    obj.location = Vector(at)
+    obj.rotation_euler = Euler([math.radians(a) for a in rot])
+    me.materials.append(material(color, roughness))
+    smooth_shade(obj, 30)
+    return obj
+
+
+def smooth_shade(obj, angle=40):
+    for p in obj.data.polygons:
+        p.use_smooth = True
+    if hasattr(obj.data, "set_sharp_from_angle"):
+        obj.data.set_sharp_from_angle(angle=math.radians(angle))
+    return obj
+
+
+smooth = smooth_shade
 
 
 _FACES = [

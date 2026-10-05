@@ -25,6 +25,7 @@ export interface SheetInput {
   pad?: number; // transparent px around each icon inside its cell (default 2)
   out?: string; // sheet PNG path (default assets/ui/<id>.png)
   module?: string; // Luau module path (default <ReplicatedStorage dir>/Sheets/<id>.luau)
+  imageId?: number; // uploaded image id to keep when the packed pixels and layout are unchanged
 }
 
 export function expandPngs(P: string, files: string[]): string[] {
@@ -116,9 +117,11 @@ export function sheetModule(id: string, map: SheetMap, imageId?: number): string
     'function Sheet.apply(img: ImageLabel | ImageButton, name: string)',
     '\tlocal at = Sheet.icons[name]',
     '\tassert(at, "no icon " .. name .. " in sheet ' + id + '")',
-    '\timg.Image = Sheet.image',
-    '\timg.ImageRectOffset = at',
-    '\timg.ImageRectSize = Sheet.cell',
+    '\t-- one cast: luau cannot write a property through an ImageLabel | ImageButton union',
+    '\tlocal i = img :: any',
+    '\ti.Image = Sheet.image',
+    '\ti.ImageRectOffset = at',
+    '\ti.ImageRectSize = Sheet.cell',
     'end',
     '',
     'return Sheet',
@@ -139,18 +142,24 @@ export function defaultModuleDir(P: string): string {
 
 const sidecar = (image: string) => image.replace(/\.png$/i, '.sheet.json');
 
-export function writeSheet(P: string, input: SheetInput): { map: SheetMap; w: number; h: number; files: string[] } {
+// unchanged: the sheet PNG and icon layout are byte-identical to what was on disk,
+// so an earlier upload (input.imageId) still describes it and is kept in the module.
+export function writeSheet(P: string, input: SheetInput): { map: SheetMap; w: number; h: number; files: string[]; unchanged: boolean } {
   const files = expandPngs(P, input.files);
   const cell = input.cell ?? 128;
   const built = buildSheet(P, files, cell, input.pad ?? 2);
   const image = input.out ?? `assets/ui/${input.id}.png`;
   const module = input.module ?? `${defaultModuleDir(P)}/Sheets/${input.id}.luau`;
   const map: SheetMap = { image, module, cell, icons: built.icons };
-  for (const [f, data] of [[image, built.png], [sidecar(image), JSON.stringify(map, null, 2) + '\n'], [module, sheetModule(input.id, map)]] as const) {
+  const sideJson = JSON.stringify(map, null, 2) + '\n';
+  const unchanged =
+    existsSync(join(P, image)) && readFileSync(join(P, image)).equals(built.png) && existsSync(join(P, sidecar(image))) && readFileSync(join(P, sidecar(image)), 'utf8') === sideJson;
+  const keepId = unchanged ? input.imageId : undefined;
+  for (const [f, data] of [[image, built.png], [sidecar(image), sideJson], [module, sheetModule(input.id, map, keepId)]] as const) {
     mkdirSync(dirname(join(P, f)), { recursive: true });
     writeFileSync(join(P, f), data);
   }
-  return { map, w: built.w, h: built.h, files };
+  return { map, w: built.w, h: built.h, files, unchanged };
 }
 
 // After an upload resolves the sheet's image id, point the module at it.
