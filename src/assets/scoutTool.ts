@@ -17,7 +17,7 @@ import {
   adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
 } from './scout.js';
-import { fetchGear, gearSnippet, GEAR_TYPE_ID, type GearInfo } from './gear.js';
+import { fetchGear, gearFromStudio, gearReadLuau, gearSnippet, GEAR_TYPE_ID, type GearInfo } from './gear.js';
 import { assetDetails, assetTypeName, devforumSearch, kindAllows, type FetchLike, type OffsiteLead } from './scoutWeb.js';
 
 export const SCOUT_DESCRIPTION =
@@ -201,15 +201,21 @@ const LICENCE_FILE = /^(licen[cs]e|copying|credits?|attribution)\b[^/]*\.(txt|md
 // uploaded here — the entry is a candidate a human approves and uploads.
 // A gear is never inserted (it is not free and its scripts are not wanted):
 // read its public XML and record the Handle mesh as a candidate used by id.
-async function tryGear(P: string, gearId: string, id: string, d: { name: string; creatorName: string; need: string }, fetch: FetchLike): Promise<ToolOutput> {
+async function tryGear(ctx: ToolCtx, gearId: string, id: string, d: { name: string; creatorName: string; need: string }): Promise<ToolOutput> {
+  const P = ctx.projectPath;
   if (loadManifest(P).assets.some((x) => x.id === id)) return err(`asset id "${id}" is already in .blox/assets.json — pick another id`, 'id taken');
-  let g: GearInfo | null;
+  let g: GearInfo | null = null;
   try {
-    g = await fetchGear(gearId, fetch);
-  } catch (e) {
-    return err(`could not read gear ${gearId}: ${(e as Error).message}`, 'gear failed');
+    g = await fetchGear(gearId, fetchOf(ctx));
+  } catch {
+    g = null;
   }
-  if (!g) return err(`could not read gear ${gearId} (${d.name}): no XML Tool with a meshed Handle at assetdelivery (binary or unavailable)`, 'gear failed');
+  if (!g) {
+    // Binary .rbxm (or gzip-wrapped): read it in Studio instead.
+    const r = await runLuau(ctx.session, gearReadLuau(gearId), 'edit', { chunkName: 'scoutGear' }).catch(() => null);
+    g = r?.ok ? gearFromStudio(r.values[0]) : null;
+  }
+  if (!g) return err(`could not read gear ${gearId} (${d.name}): no Tool with a meshed Handle, from assetdelivery XML or Studio`, 'gear failed');
   const url = `https://www.roblox.com/catalog/${gearId}`;
   const added = addAsset(P, {
     id, kind: 'mesh', source: 'roblox-gear', licence: 'roblox',
@@ -462,7 +468,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     if (!found) {
       const direct = await directHit(P, assetId, a, fetchOf(ctx));
       if ('error' in direct) return err(direct.error, direct.summary);
-      if ('gear' in direct) return tryGear(P, assetId, id, direct.gear, fetchOf(ctx));
+      if ('gear' in direct) return tryGear(ctx, assetId, id, direct.gear);
       found = direct;
     }
     if (!isFreeHit(found.hit)) return err(`asset ${assetId} is not free — scout never buys`, 'not free');
