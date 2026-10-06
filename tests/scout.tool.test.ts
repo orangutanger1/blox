@@ -29,6 +29,7 @@ function fakeFetch(web: Web, seen: string[] = []) {
     const key = Object.keys(web).find((k) => url.startsWith(k));
     if (!key) return { ok: false, status: 404, json: async () => ({}) };
     const v = typeof web[key] === 'function' ? (web[key] as (u: string) => unknown)(url) : web[key];
+    if (typeof v === 'string') return { ok: true, status: 200, json: async () => ({}), text: async () => v };
     if (v instanceof Uint8Array) return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) };
     return { ok: true, status: 200, json: async () => v };
   };
@@ -129,6 +130,42 @@ describe('scout tool', () => {
     expect(r.isError).toBeFalsy();
     expect(f.calls.find((x) => x.name === 'insert_asset')!.args).toMatchObject({ assetId: '555', assetType: 'Model' });
     expect(loadManifest(c.projectPath).assets[0]).toMatchObject({ id: 'trees', source: 'creator-store', attribution: 'Forumer', provenance: { prompt: 'park trees' } });
+  });
+
+  it('try on a Roblox gear reads its public XML and records the Handle mesh by id, without inserting', async () => {
+    const xml = readFileSync(join(__dirname, 'fixtures', 'gear-revolver.rbxmx'), 'utf8');
+    const { c, f } = ctx({ web: {
+      'https://economy.roblox.com/v2/assets/97885508/': { ...details('Colt 45', 19, false), IsForSale: true, PriceInRobux: 250 },
+      'https://assetdelivery.roblox.com/v1/asset/?id=97885508': xml,
+    } });
+    const r = await call({ action: 'try', asset_id: '97885508', id: 'gunRevolver', need: 'revolver' }, c);
+    expect(r.isError).toBeFalsy();
+    expect(r.text).toMatch(/mesh 97886770/);
+    expect(r.text).toMatch(/texture 97888197/);
+    expect(r.text).toMatch(/Grip/);
+    expect(f.calls.some((x) => x.name === 'insert_asset')).toBe(false);
+    expect(loadManifest(c.projectPath).assets[0]).toMatchObject({
+      id: 'gunRevolver', kind: 'mesh', source: 'roblox-gear', licence: 'roblox', status: 'candidate',
+      ref: { assetId: 97886770 }, provenance: { tool: 'scout', url: 'https://www.roblox.com/catalog/97885508' },
+    });
+    const rec = readJson<{ gear: { gearId: number; mesh: { textureId: number } } }>(c.projectPath, 'scout/tried/gunRevolver.json')!;
+    expect(rec.gear).toMatchObject({ gearId: 97885508, mesh: { textureId: 97888197 } });
+    // Discard needs no Studio copy; adopt explains the mesh is used by id.
+    expect((await call({ action: 'adopt', id: 'gunRevolver', to: 'Workspace' }, c)).text).toMatch(/by id/);
+    const d = await call({ action: 'discard', id: 'gunRevolver' }, c);
+    expect(d.isError).toBeFalsy();
+    expect(loadManifest(c.projectPath).assets[0].status).toBe('rejected');
+  });
+
+  it('try on a gear whose XML cannot be read says so', async () => {
+    const { c } = ctx({ web: {
+      'https://economy.roblox.com/v2/assets/5/': details('Binary Gear', 19, false),
+      'https://assetdelivery.roblox.com/v1/asset/?id=5': '<roblox!binary',
+    } });
+    const r = await call({ action: 'try', asset_id: '5', id: 'g' }, c);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/could not read gear 5/);
+    expect(loadManifest(c.projectPath).assets).toHaveLength(0);
   });
 
   it('search adds DevForum community-resource packs (free ones only) and off-site leads', async () => {

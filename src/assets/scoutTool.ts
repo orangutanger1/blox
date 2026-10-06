@@ -17,10 +17,11 @@ import {
   adaptVerdict, findingsOf, isFreeHit, mergeResults, QUARANTINE, scoutFile, scoutQueries, SCOUT_KINDS, statsOf,
   type Ranked, type ScoutKind, type SearchHit,
 } from './scout.js';
+import { fetchGear, gearSnippet, GEAR_TYPE_ID, type GearInfo } from './gear.js';
 import { assetDetails, assetTypeName, devforumSearch, kindAllows, type FetchLike, type OffsiteLead } from './scoutWeb.js';
 
 export const SCOUT_DESCRIPTION =
-  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting/SoundService, creating missing folders; unpack moves its ScreenGuis, else its children) | preview {id or path, panels?, show_all?, max?=12, phone?=true} (models/maps: two framed screenshots of a staged copy; sounds: their length — under ~20 s is a sting, not a music loop; for UI packs: one playtest that shows each panel — a GuiObject directly under a ScreenGui, Folder or the pack root — alone, centred, made visible, sized if it had no size, and returns a screenshot of each, plus a phone check: each panel as made, laid out at phone-landscape/portrait, with ui lint findings (offscreen, touch targets < 44px, text); use it after try, before judging or adopting, and when building menus from a pack) | discard {id}. Nothing is bought or uploaded.';
+  'Find free packs before building a map, UI or big prop. search {need, kind: map|ui|model|audio|image, max?=8, sources?=["store","devforum"]} (Creator Store + DevForum community-resource threads, free only, ranked, saved; also lists off-site packs on itch.io/GitHub/Kenney etc. to import) | import {url or file, id, kind, licence: cc0|cc-by|owned|unknown, source_url, attribution?, pick?} (download/copy a free pack file — .rbxm/.fbx/.glb/.png, or a .zip then pick one file inside — into assets/vendor/<id>, record a candidate; a human approves and uploads it, then try its uploaded asset id) | try {asset_id, id, kind?} (any free Creator Store id — from search, a forum post or the web — or one of your uploaded imports; a Roblox gear id — not free — is read from its public XML instead: Tool Grip, Handle size and mesh recorded as a mesh candidate used by id, nothing inserted; (insert into ServerStorage.BloxScout quarantine — scripts there never run — inspect scripts/risks/parts/GUIs/size, record a candidate in .blox/assets.json, verdict adapt / adapt-with-care / build) | adopt {id, to, keep_scripts?, unpack?} (strip scripts, move into Workspace/StarterGui/ReplicatedStorage/ServerStorage/Lighting/SoundService, creating missing folders; unpack moves its ScreenGuis, else its children) | preview {id or path, panels?, show_all?, max?=12, phone?=true} (models/maps: two framed screenshots of a staged copy; sounds: their length — under ~20 s is a sting, not a music loop; for UI packs: one playtest that shows each panel — a GuiObject directly under a ScreenGui, Folder or the pack root — alone, centred, made visible, sized if it had no size, and returns a screenshot of each, plus a phone check: each panel as made, laid out at phone-landscape/portrait, with ui lint findings (offscreen, touch targets < 44px, text); use it after try, before judging or adopting, and when building menus from a pack) | discard {id}. Nothing is bought or uploaded.';
 
 export const scoutShape = {
   action: z.enum(['search', 'try', 'adopt', 'discard', 'import', 'preview']),
@@ -60,6 +61,7 @@ interface TryRecord {
   need: string;
   kind: ScoutKind;
   findings: string[];
+  gear?: GearInfo & { gearId: number };
 }
 
 const err = (text: string, summary: string): ToolOutput => ({ text, isError: true, summary });
@@ -153,7 +155,7 @@ const fetchOf = (ctx: ToolCtx): FetchLike => ctx.fetch ?? (globalThis.fetch as u
 // An id found outside a saved search (a forum post, a web page, the user): try
 // it when it is one of this project's uploaded imports, or when the economy API
 // says it is free and of a type this kind can use.
-async function directHit(P: string, assetId: string, a: Record<string, unknown>, fetch: FetchLike): Promise<Found | { error: string; summary: string }> {
+async function directHit(P: string, assetId: string, a: Record<string, unknown>, fetch: FetchLike): Promise<Found | { error: string; summary: string } | { gear: { name: string; creatorName: string; need: string } }> {
   const kind = (typeof a.kind === 'string' ? a.kind : undefined) as ScoutKind | undefined;
   const need = typeof a.need === 'string' && a.need.trim() ? a.need : `asset ${assetId}`;
   const imp = loadManifest(P).assets.find((x) => x.uploaded?.assetId === Number(assetId) && x.source === 'external');
@@ -172,6 +174,7 @@ async function directHit(P: string, assetId: string, a: Record<string, unknown>,
     return { error: `could not look up asset ${assetId}: ${(e as Error).message}`, summary: 'lookup failed' };
   }
   if (!d) return { error: `asset ${assetId} was not found on Roblox`, summary: 'unknown asset' };
+  if (d.assetTypeId === GEAR_TYPE_ID) return { gear: { name: d.name, creatorName: d.creatorName, need } };
   if (!d.free) return { error: `asset ${assetId} (${d.name}) is not free — scout never buys`, summary: 'not free' };
   const k: ScoutKind = kind ?? (d.assetTypeId === 3 ? 'audio' : d.assetTypeId === 1 || d.assetTypeId === 13 ? 'image' : 'model');
   if (!kindAllows(k, d.assetTypeId)) return { error: `asset ${assetId} (${d.name}) is a ${assetTypeName(d.assetTypeId)} (type ${d.assetTypeId}), not usable as ${k} — plugins and other types are not packs`, summary: 'wrong type' };
@@ -196,6 +199,41 @@ const LICENCE_FILE = /^(licen[cs]e|copying|credits?|attribution)\b[^/]*\.(txt|md
 // Bring a free pack file from the web (or disk) into the project: assets/vendor/<id>.
 // A zip is unpacked and listed; pick names the file to record. Nothing is
 // uploaded here — the entry is a candidate a human approves and uploads.
+// A gear is never inserted (it is not free and its scripts are not wanted):
+// read its public XML and record the Handle mesh as a candidate used by id.
+async function tryGear(P: string, gearId: string, id: string, d: { name: string; creatorName: string; need: string }, fetch: FetchLike): Promise<ToolOutput> {
+  if (loadManifest(P).assets.some((x) => x.id === id)) return err(`asset id "${id}" is already in .blox/assets.json — pick another id`, 'id taken');
+  let g: GearInfo | null;
+  try {
+    g = await fetchGear(gearId, fetch);
+  } catch (e) {
+    return err(`could not read gear ${gearId}: ${(e as Error).message}`, 'gear failed');
+  }
+  if (!g) return err(`could not read gear ${gearId} (${d.name}): no XML Tool with a meshed Handle at assetdelivery (binary or unavailable)`, 'gear failed');
+  const url = `https://www.roblox.com/catalog/${gearId}`;
+  const added = addAsset(P, {
+    id, kind: 'mesh', source: 'roblox-gear', licence: 'roblox',
+    ...(d.creatorName ? { attribution: d.creatorName } : {}),
+    ref: { assetId: g.mesh.meshId },
+    provenance: { tool: 'scout', prompt: d.need, url, createdAt: new Date().toISOString() },
+  });
+  if (!added.ok) return err(`could not record ${id}: ${added.errors.join('; ')}`, 'invalid');
+  ensureScoutDirs(P);
+  writeJson(P, tryFile(id), { need: d.need, kind: 'model', findings: [], gear: { ...g, gearId: Number(gearId) } } satisfies TryRecord);
+  const v = (a: number[]) => a.map((n) => +n.toFixed(3)).join(', ');
+  return {
+    text: [
+      `${d.name} (gear ${gearId}, Tool "${g.name}"): mesh ${g.mesh.meshId}${g.mesh.textureId ? `, texture ${g.mesh.textureId}` : ''}, scale ${v(g.mesh.scale)}`,
+      `Handle size ${v(g.handleSize)}; Grip ${v(g.grip.slice(0, 3))} (rotation ${v(g.grip.slice(3))})`,
+      `recorded "${id}" in .blox/assets.json (candidate mesh, source roblox-gear, licence roblox — used by id, nothing inserted; gear scripts not used)`,
+      'Rebuild it in code:',
+      gearSnippet(g),
+      `Next: a human approves it (\`blox asset approve ${id}\`), or scout {action:"discard", id:"${id}"}.`,
+    ].join('\n'),
+    summary: 'gear mesh',
+  };
+}
+
 async function importPack(a: Record<string, unknown>, P: string, fetch: FetchLike): Promise<ToolOutput> {
   const id = a.id;
   if (typeof id !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(id)) return err('import needs id (letters, digits, _ or -, starting with a letter)', 'bad id');
@@ -424,6 +462,7 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
     if (!found) {
       const direct = await directHit(P, assetId, a, fetchOf(ctx));
       if ('error' in direct) return err(direct.error, direct.summary);
+      if ('gear' in direct) return tryGear(P, assetId, id, direct.gear, fetchOf(ctx));
       found = direct;
     }
     if (!isFreeHit(found.hit)) return err(`asset ${assetId} is not free — scout never buys`, 'not free');
@@ -484,6 +523,14 @@ export async function scoutTool(a: Record<string, unknown>, ctx: ToolCtx): Promi
   if (a.action === 'adopt' || a.action === 'discard') {
     if (typeof a.id !== 'string') return err(`${a.action} needs id`, 'no id');
     const id = a.id;
+    const gm = loadManifest(P);
+    const ge = gm.assets.find((x) => x.id === id && x.source === 'roblox-gear');
+    if (ge) {
+      if (a.action === 'adopt') return err(`"${id}" is a gear mesh used by id (MeshId rbxassetid://${ge.ref.assetId}) — rebuild it in code from the snippet the try printed (.blox/scout/tried/${id}.json); there is no copy to adopt`, 'gear');
+      ge.status = 'rejected';
+      saveManifest(P, gm);
+      return { text: `discarded ${id}: gear mesh entry marked rejected`, summary: 'discarded' };
+    }
     // The agent may have renamed or moved the copy since the try.
     if (loadManifest(P).assets.some((x) => x.id === id)) await refreshRefs(ctx.session, P, [id]);
     const m = loadManifest(P);

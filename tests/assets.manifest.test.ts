@@ -27,6 +27,12 @@ describe('manifest', () => {
     const bad = addAsset(p, { ...entry({ id: 'x' }), licence: 'whatever' });
     expect(bad.ok).toBe(false);
   });
+  it('a Roblox gear mesh used by id records as source roblox-gear, licence roblox, and lints clean', () => {
+    const p = proj();
+    const r = addAsset(p, entry({ id: 'gunRevolver', kind: 'mesh', source: 'roblox-gear', licence: 'roblox', ref: { assetId: 97886770 } }));
+    expect(r.ok).toBe(true);
+    expect(lintAssets(loadManifest(p))).toEqual([]);
+  });
   it('approve is explicit and per id', () => {
     const p = proj();
     addAsset(p, entry());
