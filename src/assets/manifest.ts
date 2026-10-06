@@ -8,8 +8,10 @@ const Entry = z
   .object({
     id: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/),
     kind: z.enum(['model', 'mesh', 'image', 'audio', 'animation']),
-    source: z.enum(['code', 'creator-store', 'generated', 'external']),
-    licence: z.enum(['roblox-creator-store', 'owned', 'generated-roblox', 'cc0', 'cc-by', 'proprietary', 'unknown']),
+    // roblox-gear: a Roblox catalog gear's mesh/texture used by id (licence
+    // "roblox": Roblox-hosted content, usable in Roblox experiences, not files to ship elsewhere).
+    source: z.enum(['code', 'creator-store', 'generated', 'external', 'roblox-gear']),
+    licence: z.enum(['roblox-creator-store', 'roblox', 'owned', 'generated-roblox', 'cc0', 'cc-by', 'proprietary', 'unknown']),
     attribution: z.string().optional(),
     ref: z.object({ assetId: z.number().int().positive().optional(), path: z.string().optional(), file: z.string().optional(), tag: z.string().optional() }).strict().default({}),
     provenance: z.object({ tool: z.string(), prompt: z.string().optional(), url: z.string().optional(), createdAt: z.string() }).strict(),

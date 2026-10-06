@@ -6,7 +6,7 @@ import type { ScoutKind, SearchHit } from './scout.js';
 // the ones the Roblox economy API says are free (public domain). Deterministic
 // HTTP from blox — the agent itself never gets a general web fetch.
 
-export type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+export type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; text?(): Promise<string> }>;
 
 const FORUM = 'https://devforum.roblox.com';
 const UA = { 'User-Agent': 'blox-scout (+https://github.com/orangutanger1/blox)', Accept: 'application/json' };
