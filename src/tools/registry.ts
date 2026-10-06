@@ -219,7 +219,7 @@ export const TOOLS: BloxTool[] = [
       'One call: sync → play → wait for character → wait `seconds` → inputs → server_code/client_code probes (returns serialized) → screenshot → typed errors/warnings/output → stop.',
     shape: {
       seconds: z.number().min(0).max(120).optional().describe('game time before probing (default 3)'),
-      server_code: z.string().optional().describe('Luau run in the server DataModel; return values are reported'),
+      server_code: z.string().optional().describe('Luau run in the server DataModel as a real game script (require() and shared work; may yield); return values are reported'),
       client_code: z.string().optional().describe('Luau run in the client DataModel (LocalPlayer, PlayerGui)'),
       inputs: z
         .array(z.object({ kind: z.enum(['click', 'luau', 'navigate', 'keyboard', 'mouse', 'wait']), args: z.record(z.string(), z.unknown()) }))

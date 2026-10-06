@@ -68,3 +68,13 @@ describe('log folding', () => {
     expect(s.noise).toBe(1);
   });
 });
+
+describe('testProgram spec output', () => {
+  it('shadows print on the first line so spec line mapping is unchanged and returns the lines', () => {
+    const { code, specLines } = testProgram([{ file: 'tests/a.spec.luau', context: 'edit', source: 'print("hi", 2)\n' }], 5);
+    const first = code.split('\n')[0];
+    expect(first).toContain('local print = function');
+    expect(specLines[0]).toBe(3);
+    expect(code).toContain('output = __OUT');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleChunks, hostSource, normalizeHostPositions, pollResults, readMarkersLuau } from '../src/testing/playHost.js';
+import { assembleChunks, hostSource, normalizeHostPositions, pollResults, probeHostSource, PROBE_HOSTS, readMarkersLuau, runProbe } from '../src/testing/playHost.js';
 import { testProgram } from '../src/testing/runner.js';
 import type { StudioSession } from '../src/studio/session.js';
 
@@ -56,5 +56,49 @@ describe('playHost', () => {
   it('gives up at the deadline', async () => {
     const session = { call: async () => ({ content: [{ type: 'text', text: '' }] }) } as unknown as StudioSession;
     expect(await pollResults(session, 'r', 'server', Date.now() - 1, async () => {})).toBeNull();
+  });
+});
+
+describe('probe hosts (playtest server_code/client_code as real scripts)', () => {
+  it('inlines the probe on line 1, waits for the go attribute, and reports under its own tag', () => {
+    const src = probeHostSource('return shared.X', 'server', 'r9');
+    expect(src.split('\n')[0]).toBe('local function __blox_probe() return shared.X');
+    expect(src).toContain('GetAttribute("BloxGo")');
+    expect(src).toContain('BLOXTEST:r9:probe-server:');
+    expect(PROBE_HOSTS.client.className).toBe('LocalScript');
+  });
+
+  it('triggers, then reads the probe result back and maps host positions', async () => {
+    const calls: { code: string; dm: string }[] = [];
+    const session = {
+      call: async (_: string, args: Record<string, unknown>) => {
+        calls.push({ code: String(args.code), dm: String(args.datamodel_type) });
+        if (String(args.code).includes('BloxGo')) return { content: [{ type: 'text', text: 'ok' }] };
+        return { content: [{ type: 'text', text: '1/1:{"ok":false,"error":"ServerScriptService.BloxProbeHost:3: boom"}' }] };
+      },
+    } as unknown as StudioSession;
+    const r = await runProbe(session, 'server', 'r9', Date.now() + 5000, async () => {});
+    expect(calls[0].code).toContain('SetAttribute("BloxGo", true)');
+    expect(calls.every((c) => c.dm === 'Server')).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.error?.message).toBe('serverCode:3: boom');
+  });
+
+  it('returns serialized values on success and an error at the deadline', async () => {
+    const ok = { call: async (_: string, a: Record<string, unknown>) => ({ content: [{ type: 'text', text: String(a.code).includes('BloxGo') ? 'ok' : '1/1:{"ok":true,"values":[6,"Workspace.Dogs"]}' }] }) } as unknown as StudioSession;
+    expect((await runProbe(ok, 'client', 'r', Date.now() + 5000, async () => {})).values).toEqual([6, 'Workspace.Dogs']);
+    const never = { call: async () => ({ content: [{ type: 'text', text: '' }] }) } as unknown as StudioSession;
+    const r = await runProbe(never, 'server', 'r', Date.now() - 1, async () => {});
+    expect(r.ok).toBe(false);
+    expect(r.error?.message).toMatch(/no result/);
+  });
+});
+
+describe('probe marker reader', () => {
+  it('sends Luau that keeps the newline escape inside the string literal', async () => {
+    const codes: string[] = [];
+    const session = { call: async (_: string, a: Record<string, unknown>) => { codes.push(String(a.code)); return { content: [{ type: 'text', text: String(a.code).includes('BloxGo') ? 'ok' : '1/1:{"ok":true,"values":[]}' }] }; } } as unknown as StudioSession;
+    await runProbe(session, 'server', 'r', Date.now() + 1000, async () => {});
+    expect(codes[1]).toContain('table.concat(out, "\\n")');
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planFromSourcemap, diffPlan, sourceSum, jsonToLuau, planWorldBuilders, pushProject, type SourcemapNode } from '../src/sync/push.js';
+import { planFromSourcemap, diffPlan, sourceSum, jsonToLuau, planWorldBuilders, withDependencyHashes, pushProject, type SourcemapNode } from '../src/sync/push.js';
 import type { StudioSession } from '../src/studio/session.js';
 
 const files: Record<string, string> = {
@@ -128,6 +128,40 @@ describe('planWorldBuilders', () => {
   });
   it('returns [] without a world dir', () => {
     expect(planWorldBuilders(mkdtempSync(join(tmpdir(), 'blox-noworld-')))).toEqual([]);
+  });
+});
+
+describe('withDependencyHashes', () => {
+  const mod = (path: string[], source: string) => ({ key: path.join('/'), path, className: 'ModuleScript', source, hash: source });
+  const builder = (source: string) => ({ key: 'world:Dogs', name: 'Dogs', parent: 'ReplicatedStorage', source, file: 'world/Dogs.luau', hash: 'own' });
+  const config = mod(['ReplicatedStorage', 'Config', 'Dogs'], 'return { Size = 1 }');
+  const other = mod(['ReplicatedStorage', 'Config', 'Other'], 'return 1');
+  const src = 'local RS = game:GetService("ReplicatedStorage")\nlocal Dogs = fresh(ReplicatedStorage.Config.Dogs)\nreturn function(m) end';
+
+  it('changes a builder hash when a module it reads changes', () => {
+    const [a] = withDependencyHashes([builder(src)], [config, other]);
+    const [b] = withDependencyHashes([builder(src)], [{ ...config, source: 'return { Size = 2 }', hash: 'v2' }, other]);
+    expect(a.hash).not.toBe('own');
+    expect(a.hash).not.toBe(b.hash);
+  });
+
+  it('ignores modules the builder never names', () => {
+    const [a] = withDependencyHashes([builder(src)], [config, other]);
+    const [b] = withDependencyHashes([builder(src)], [config, { ...other, hash: 'v2' }]);
+    expect(a.hash).toBe(b.hash);
+  });
+
+  it('follows requires inside a dependency, including script.Parent paths', () => {
+    const dogs = mod(['ReplicatedStorage', 'Config', 'Dogs'], 'local Shared = require(script.Parent.Shared)\nreturn {}');
+    const shared = mod(['ReplicatedStorage', 'Config', 'Shared'], 'return 1');
+    const [a] = withDependencyHashes([builder(src)], [dogs, shared]);
+    const [b] = withDependencyHashes([builder(src)], [dogs, { ...shared, hash: 'v2' }]);
+    expect(a.hash).not.toBe(b.hash);
+  });
+
+  it('leaves a builder with no dependencies unchanged', () => {
+    const [a] = withDependencyHashes([builder('return function(m) end')], [config]);
+    expect(a.hash).toBe('own');
   });
 });
 

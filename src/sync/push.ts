@@ -23,7 +23,7 @@ import { StudioError, resultText, type StudioSession } from '../studio/session.j
 // World builders: `world/<Name>.luau` files return `function(model)` that
 // populates a fresh Model named <Name> (default parent Workspace; first-line
 // `-- @parent ServerStorage` overrides). They re-run only when their source
-// changes, so maps/levels are code — versioned, diffable, reproducible.
+// or a module they read changes, so maps/levels are code — versioned, diffable, reproducible.
 
 export interface SourcemapNode {
   name: string;
@@ -180,6 +180,58 @@ export function planWorldBuilders(projectPath: string, worldDir = 'world'): Worl
       const parent = PARENT_RE.exec(source.split('\n', 1)[0] ?? '')?.[1] ?? 'Workspace';
       return { key: `world:${name}`, name, parent, source, file: relative(projectPath, file), hash: sha(`${parent}\0${source}`) };
     });
+}
+
+// A builder also re-runs when a module it reads changes: dotted paths from a
+// service name (ReplicatedStorage.Config.Dogs, game.ServerStorage.X) and,
+// inside those modules, require(script.Parent...) chains are followed, and
+// their hashes fold into the builder's.
+const SERVICE_CHAIN_RE = /\b(?:game\.)?(ReplicatedStorage|ServerStorage|ServerScriptService|ReplicatedFirst|StarterPlayer|StarterGui|Workspace|workspace)((?:\.[A-Za-z_]\w*)+)/g;
+const SCRIPT_CHAIN_RE = /\bscript((?:\.[A-Za-z_]\w*)+)/g;
+
+function moduleRefs(source: string, ownPath: string[] | undefined, byPath: Map<string, DesiredInstance>): DesiredInstance[] {
+  const found: DesiredInstance[] = [];
+  const resolve = (segments: string[]) => {
+    for (let n = segments.length; n > 0; n--) {
+      const hit = byPath.get(segments.slice(0, n).join('.'));
+      if (hit) {
+        found.push(hit);
+        return;
+      }
+    }
+  };
+  for (const m of source.matchAll(SERVICE_CHAIN_RE)) {
+    const service = m[1] === 'workspace' ? 'Workspace' : m[1];
+    resolve([service, ...m[2].slice(1).split('.')]);
+  }
+  if (ownPath) {
+    for (const m of source.matchAll(SCRIPT_CHAIN_RE)) {
+      const path = [...ownPath];
+      for (const part of m[1].slice(1).split('.')) {
+        if (part === 'Parent') path.pop();
+        else path.push(part);
+      }
+      resolve(path);
+    }
+  }
+  return found;
+}
+
+export function withDependencyHashes(builders: WorldBuilder[], instances: DesiredInstance[]): WorldBuilder[] {
+  const byPath = new Map(instances.filter((i) => i.source !== undefined).map((i) => [i.path.join('.'), i]));
+  return builders.map((b) => {
+    const seen = new Map<string, DesiredInstance>();
+    const queue = moduleRefs(b.source, undefined, byPath);
+    while (queue.length) {
+      const dep = queue.pop()!;
+      if (seen.has(dep.key)) continue;
+      seen.set(dep.key, dep);
+      queue.push(...moduleRefs(dep.source ?? '', dep.path, byPath));
+    }
+    if (!seen.size) return b;
+    const deps = [...seen.values()].map((d) => `${d.key}=${d.hash}`).sort();
+    return { ...b, hash: sha(`${b.hash}\0${deps.join('\0')}`) };
+  });
 }
 
 // Revision guard: sync stamps each script with BloxSum, a checksum of the
@@ -449,7 +501,7 @@ export interface PushOptions {
 export async function buildPlan(projectPath: string, opts: PushOptions = {}): Promise<SyncPlan> {
   const sm = await readSourcemap(projectPath, opts.spawn);
   const plan = planFromSourcemap(sm, projectPath);
-  plan.builders = planWorldBuilders(projectPath, opts.worldDir);
+  plan.builders = withDependencyHashes(planWorldBuilders(projectPath, opts.worldDir), plan.instances);
   return plan;
 }
 

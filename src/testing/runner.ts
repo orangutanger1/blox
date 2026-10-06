@@ -37,6 +37,11 @@ export interface TestCaseResult {
   ms: number;
 }
 
+export interface SpecOutput {
+  context: TestContext;
+  line: string;
+}
+
 export interface TestRunResult {
   ok: boolean;
   total: number;
@@ -45,6 +50,7 @@ export interface TestRunResult {
   tests: TestCaseResult[];
   fileErrors: { file: string; message: string }[];
   logs?: LogSummary;
+  output?: SpecOutput[]; // what specs print()ed, per context
   via?: 'bridge' | 'hosts'; // how server/client specs ran (absent: edit only)
   notes?: string[];
   durationMs: number;
@@ -85,7 +91,11 @@ export function discoverSpecs(projectPath: string, testDir = 'tests', filter?: s
 // multiplayer lane passes `mp`); they must be in scope where the code runs.
 export function testProgram(specs: SpecFile[], testTimeoutSec: number, opts: { extraParams?: string[] } = {}): { code: string; specLines: number[] } {
   const extra = (opts.extraParams ?? []).map((p) => `, ${p}`).join('');
-  const parts: string[] = ['local __SPECFNS = {}'];
+  // Line 1 also shadows print for spec code (same line, so spec line numbers
+  // hold): printed lines come back with the results instead of only the log.
+  const parts: string[] = [
+    'local __SPECFNS = {} local __OUT = {} local __print = print local print = function(...) local n = select("#", ...) local t = table.create(n) for i = 1, n do t[i] = tostring((select(i, ...))) end if #__OUT < 200 then table.insert(__OUT, string.sub(table.concat(t, " "), 1, 500)) end __print(...) end',
+  ];
   const specLines: number[] = [];
   let line = 2; // next user-code line number
   specs.forEach((s, i) => {
@@ -192,7 +202,7 @@ for i, specFn in __SPECFNS do
 		end
 	end
 end
-return { results = results, fileErrors = fileErrors }`);
+return { results = results, fileErrors = fileErrors, output = __OUT }`);
   return { code: parts.join('\n'), specLines };
 }
 
@@ -234,12 +244,13 @@ return out`;
   return bad;
 }
 
-type BatchValue = { results?: Omit<TestCaseResult, 'context'>[]; fileErrors?: { file: string; message: string }[] };
+type BatchValue = { results?: Omit<TestCaseResult, 'context'>[]; fileErrors?: { file: string; message: string }[]; output?: string[] };
 
 function toBatch(v: BatchValue, ctx: TestContext, map: (m: string) => string) {
   return {
     tests: (Array.isArray(v.results) ? v.results : []).map((t) => ({ ...t, context: ctx, ...(t.message ? { message: map(t.message) } : {}) })),
     fileErrors: (Array.isArray(v.fileErrors) ? v.fileErrors : []).map((f) => ({ ...f, message: map(f.message) })),
+    output: (Array.isArray(v.output) ? v.output : []).map((line) => ({ context: ctx, line: String(line) })),
   };
 }
 
@@ -248,6 +259,7 @@ function toBatch(v: BatchValue, ctx: TestContext, map: (m: string) => string) {
 async function runPlayBatches(session: StudioSession, specs: Record<PlayContext, SpecFile[]>, timeoutSec: number) {
   const tests: TestCaseResult[] = [];
   const fileErrors: { file: string; message: string }[] = [];
+  const output: SpecOutput[] = [];
   let logs: LogSummary | undefined;
   const st = await session.state();
   if (st.mode !== 'Edit') await stopPlay(session);
@@ -275,6 +287,7 @@ async function runPlayBatches(session: StudioSession, specs: Record<PlayContext,
       const b = toBatch(v as BatchValue, c, map);
       tests.push(...b.tests);
       fileErrors.push(...b.fileErrors);
+      output.push(...b.output);
     }
     const since = info.startedAt - 1;
     const [sl, cl] = await Promise.all([
@@ -286,7 +299,7 @@ async function runPlayBatches(session: StudioSession, specs: Record<PlayContext,
     await stopPlay(session).catch(() => {});
     await removeHosts(session).catch(() => {});
   }
-  return { tests, fileErrors, logs };
+  return { tests, fileErrors, logs, output };
 }
 
 const batchTimeoutMs = (timeoutSec: number, n: number) => (timeoutSec * 1000 + 2000) * Math.max(1, n * 5) + 30_000;
@@ -307,6 +320,7 @@ export function bridgeIneligible(specs: Record<PlayContext, SpecFile[]>, timeout
 async function runPlayViaBridge(session: StudioSession, specs: Record<PlayContext, SpecFile[]>, timeoutSec: number) {
   const tests: TestCaseResult[] = [];
   const fileErrors: { file: string; message: string }[] = [];
+  const output: SpecOutput[] = [];
   const st = await session.state();
   if (st.mode !== 'Edit') await stopPlay(session);
   await removeHosts(session);
@@ -317,13 +331,14 @@ async function runPlayViaBridge(session: StudioSession, specs: Record<PlayContex
       const b = await runBatch(session, specs[c], c, timeoutSec, true);
       tests.push(...b.tests);
       fileErrors.push(...b.fileErrors);
+      output.push(...b.output);
     }
     const since = info.startedAt - 1;
     const [sl, cl] = await Promise.all([
       collectLogs(session, 'server', since).catch(() => []),
       collectLogs(session, 'client', since).catch(() => []),
     ]);
-    return { tests, fileErrors, logs: summarizeLogs([...sl, ...cl]) };
+    return { tests, fileErrors, logs: summarizeLogs([...sl, ...cl]), output };
   } finally {
     await stopPlay(session).catch(() => {});
   }
@@ -339,7 +354,7 @@ export interface RunTestsOptions {
 // bridge: a runner failure (no plugin, lane error) throws instead of becoming
 // file errors, so the caller can fall back to injected hosts.
 async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestContext, timeoutSec: number, bridge = false) {
-  if (specs.length === 0) return { tests: [] as TestCaseResult[], fileErrors: [] as { file: string; message: string }[] };
+  if (specs.length === 0) return { tests: [] as TestCaseResult[], fileErrors: [] as { file: string; message: string }[], output: [] as SpecOutput[] };
   const { code, specLines } = testProgram(specs, timeoutSec);
   const chunk = `<test-runner:${ctx}>`;
   const fresh = ctx === 'edit';
@@ -358,7 +373,7 @@ async function runBatch(session: StudioSession, specs: SpecFile[], ctx: TestCont
   const map = (m: string) => mapSpecPositions(viaBridge ? mapBridgeLines(m, bridgeOffset, chunk, lines) : m, specs, specLines, userLineOffset(fresh), chunk);
   if (bridge && !r.ok && isBridgeFailure(r.error?.message ?? '')) throw new StudioError('tool_error', r.error!.message);
   if (!r.ok) {
-    return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })) };
+    return { tests: [], fileErrors: specs.map((s) => ({ file: s.file, message: `runner failed: ${map(r.error?.message ?? 'unknown')}` })), output: [] as SpecOutput[] };
   }
   return toBatch((r.values[0] ?? {}) as BatchValue, ctx, map);
 }
@@ -369,6 +384,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
   const discovered = discoverSpecs(projectPath, opts.testDir, opts.filter).filter((s) => !opts.contexts || opts.contexts.includes(s.context));
   const tests: TestCaseResult[] = [];
   const fileErrors: { file: string; message: string }[] = [];
+  const output: SpecOutput[] = [];
   // Syntax precheck needs the edit DataModel: stop a live playtest first (play
   // specs start their own), else one broken spec hangs a whole batch.
   const st0 = await session.state();
@@ -387,6 +403,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     const b = await runBatch(session, edit, 'edit', timeoutSec);
     tests.push(...b.tests);
     fileErrors.push(...b.fileErrors);
+    output.push(...b.output);
   }
   let via: TestRunResult['via'];
   const notes: string[] = [];
@@ -412,6 +429,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     }
     tests.push(...b.tests);
     fileErrors.push(...b.fileErrors);
+    output.push(...b.output);
     logs = b.logs;
   }
   const passed = tests.filter((t) => t.status === 'pass').length;
@@ -423,6 +441,7 @@ export async function runTests(session: StudioSession, projectPath: string, opts
     tests,
     fileErrors,
     ...(logs ? { logs } : {}),
+    ...(output.length ? { output } : {}),
     ...(via ? { via } : {}),
     ...(notes.length ? { notes } : {}),
     durationMs: Date.now() - t0,
@@ -445,6 +464,9 @@ export function formatTestRun(r: TestRunResult): string {
     if (names.length > 400) names = names.slice(0, 400) + '…';
     lines.push(`  ok (${ok.length}): ${names}`);
   }
+  const out = r.output ?? [];
+  for (const o of out.slice(0, 30)) lines.push(`  output [${o.context}]: ${o.line}`);
+  if (out.length > 30) lines.push(`  output: ${out.length - 30} more line(s)`);
   if (r.logs?.errors.length) {
     lines.push(`  runtime errors during playtest (${r.logs.errors.length}):`);
     for (const e of r.logs.errors.slice(0, 10)) lines.push(`    [${e.context}] ${e.message}${e.count ? ` (x${e.count})` : ''}`);

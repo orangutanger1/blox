@@ -17,6 +17,10 @@ describe('compact tool output', () => {
     expect(out).toContain('ok (1): opens');
     expect(out.split('\n')).toHaveLength(4);
   });
+  it('shows what specs printed, per context', () => {
+    const r = { ...run([{ file: 'tests/a.spec.luau', name: 'soak', status: 'pass', context: 'server' }] as TestRunResult['tests']), output: [{ context: 'server' as const, line: 'soak 40 dogs: 0.5 ms' }] };
+    expect(formatTestRun(r)).toContain('  output [server]: soak 40 dogs: 0.5 ms');
+  });
   it('compact task shows passing criteria as ids only and omits the goal', () => {
     const task: TaskState = {
       goal: 'door works', notes: [], blockers: [], updatedAt: '',
