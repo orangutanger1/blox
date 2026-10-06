@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { longString } from '../studio/luau.js';
 import { StudioError, resultText, type StudioSession } from '../studio/session.js';
+import type { LuauResult } from '../studio/luau.js';
 
 // Server/client specs run as injected scripts, not through execute_luau.
 //
@@ -103,9 +104,103 @@ async function luauText(session: StudioSession, code: string, dm: 'Edit' | 'Serv
 // Server Script that runs a metrics bot (see metrics/run.ts botProgram).
 export const BOT_HOST = { path: ['ServerScriptService', 'BloxBotHost'], className: 'Script' };
 
+// playtest server_code/client_code without the eval bridge: the probe runs in
+// an injected Script/LocalScript (full capabilities, same VM as the game, so
+// require() and shared work), waits until runProbe sets its BloxGo attribute
+// (after the playtest's wait and inputs), and prints its result as markers.
+export const PROBE_HOSTS: Record<PlayContext, { path: string[]; className: string }> = {
+  server: { path: ['ServerScriptService', 'BloxProbeHost'], className: 'Script' },
+  client: { path: ['StarterPlayer', 'StarterPlayerScripts', 'BloxProbeHostClient'], className: 'LocalScript' },
+};
+
+const PROBE_SERIALIZE = `local function __ser(v, depth)
+	local t = typeof(v)
+	if t == "nil" or t == "boolean" or t == "string" then return v end
+	if t == "number" then return if v ~= v or v == math.huge or v == -math.huge then tostring(v) else v end
+	if t == "Instance" then return v:GetFullName() end
+	if t == "table" then
+		if depth > 3 then return "<table>" end
+		local out, n = {}, 0
+		for k, x in v do
+			n += 1
+			if n > 200 then break end
+			out[if type(k) == "number" then k else tostring(k)] = __ser(x, depth + 1)
+		end
+		return out
+	end
+	return tostring(v)
+end`;
+
+export function probeHostSource(code: string, ctx: PlayContext, runId: string): string {
+  return `local function __blox_probe() ${code}
+end
+${PROBE_SERIALIZE}
+while not script:GetAttribute("BloxGo") do task.wait(0.05) end
+local packed = table.pack(pcall(__blox_probe))
+local out
+if packed[1] then
+	local values = {}
+	for i = 2, packed.n do values[i - 1] = __ser(packed[i], 0) end
+	out = { ok = true, values = values }
+else
+	out = { ok = false, error = tostring(packed[2]) }
+end
+local json = game:GetService("HttpService"):JSONEncode(out)
+local n = math.max(1, math.ceil(#json / ${CHUNK}))
+for i = 1, n do
+	print("${MARK}:${runId}:probe-${ctx}:" .. i .. "/" .. n .. ":" .. string.sub(json, (i - 1) * ${CHUNK} + 1, i * ${CHUNK}))
+end
+`;
+}
+
+export async function installProbe(session: StudioSession, ctx: PlayContext, code: string, runId: string): Promise<void> {
+  await installScript(session, PROBE_HOSTS[ctx], probeHostSource(code, ctx, runId), `${ctx} probe host`);
+}
+
+export async function runProbe(
+  session: StudioSession,
+  ctx: PlayContext,
+  runId: string,
+  deadlineMs: number,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<LuauResult> {
+  const t0 = Date.now();
+  const dm = ctx === 'server' ? 'Server' : 'Client';
+  const name = PROBE_HOSTS[ctx].path[PROBE_HOSTS[ctx].path.length - 1];
+  const holder = ctx === 'server' ? 'game:GetService("ServerScriptService")' : 'game:GetService("Players").LocalPlayer:FindFirstChild("PlayerScripts")';
+  const chunk = ctx === 'server' ? 'serverCode' : 'clientCode';
+  await luauText(session, `local h = ${holder}
+local s = h and h:FindFirstChild("${name}")
+if s then s:SetAttribute("BloxGo", true) end
+return s ~= nil`, dm).catch(() => '');
+  const prefix = `${MARK}:${runId}:probe-${ctx}:`;
+  const read = `local out = {}
+for _, e in game:GetService("LogService"):GetLogHistory() do
+	if string.sub(e.message, 1, ${prefix.length}) == ${longString(prefix)} then table.insert(out, string.sub(e.message, ${prefix.length + 1})) end
+end
+return table.concat(out, "\\n")`;
+  while (true) {
+    const json = assembleChunks(await luauText(session, read, dm).catch(() => ''));
+    if (json !== null) {
+      try {
+        const v = JSON.parse(json) as { ok?: boolean; values?: unknown[]; error?: string };
+        const mapped = (m: string) => m.replace(/[\w. -]*BloxProbeHost(?:Client)?:(\d+)/g, `${chunk}:$1`);
+        return v.ok
+          ? { ok: true, values: Array.isArray(v.values) ? v.values : [], logs: [], durationMs: Date.now() - t0 }
+          : { ok: false, values: [], logs: [], error: { message: mapped(String(v.error ?? 'probe failed')) }, durationMs: Date.now() - t0 };
+      } catch {
+        break;
+      }
+    }
+    if (Date.now() >= deadlineMs) break;
+    await sleep(500);
+  }
+  return { ok: false, values: [], logs: [], error: { message: `no result from the ${ctx} probe script (did it yield forever or error before reporting? see logs)` }, durationMs: Date.now() - t0 };
+}
+
 // Removes every blox-injected host script (stale ones from a crashed run too).
 export async function removeHosts(session: StudioSession): Promise<void> {
-  const paths = [...Object.values(HOSTS), BOT_HOST].map((h) => h.path);
+  const paths = [...Object.values(HOSTS), ...Object.values(PROBE_HOSTS), BOT_HOST].map((h) => h.path);
   await luauText(session, `for _, p in game:GetService("HttpService"):JSONDecode(${longString(JSON.stringify(paths))}) do
 	local cur = game:GetService(p[1])
 	for i = 2, #p do cur = cur and cur:FindFirstChild(p[i]) end

@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { runLuau, type LuauResult } from '../studio/luau.js';
 import { resultText, type StudioSession } from '../studio/session.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary, type PlayInfo } from '../studio/play.js';
+import { installProbe, newRunId, removeHosts, runProbe } from './playHost.js';
 
 // One call = one observed playtest: start → wait until a player/character is
 // ready → let the game run → optional scripted input → probe server/client
@@ -137,6 +138,16 @@ export async function runInput(session: StudioSession, step: InputStep): Promise
 
 export async function playtest(session: StudioSession, projectPath: string, opts: PlaytestOptions = {}): Promise<PlaytestResult> {
   const t0 = Date.now();
+  // Probes run as injected scripts (game VM: require() and shared work) unless
+  // the eval bridge is on or a playtest is already running (can't add scripts).
+  const st = await session.state();
+  const hosted = !session.evalBridge && st.mode === 'Edit' && Boolean(opts.serverCode || opts.clientCode);
+  const runId = newRunId();
+  if (hosted) {
+    await removeHosts(session);
+    if (opts.serverCode) await installProbe(session, 'server', opts.serverCode, runId);
+    if (opts.clientCode) await installProbe(session, 'client', opts.clientCode, runId);
+  }
   const info = await startPlay(session);
   const result: PlaytestResult = {
     ok: false,
@@ -149,8 +160,16 @@ export async function playtest(session: StudioSession, projectPath: string, opts
   try {
     await sleep(Math.max(0, (opts.seconds ?? 3) * 1000));
     for (const step of opts.inputs ?? []) result.inputs.push(await runInput(session, step));
-    if (opts.serverCode) result.server = await runLuau(session, opts.serverCode, 'server', { chunkName: 'serverCode' });
-    if (opts.clientCode) result.client = await runLuau(session, opts.clientCode, 'client', { chunkName: 'clientCode' });
+    if (opts.serverCode) {
+      result.server = hosted
+        ? await runProbe(session, 'server', runId, Date.now() + 30_000)
+        : await runLuau(session, opts.serverCode, 'server', { chunkName: 'serverCode' });
+    }
+    if (opts.clientCode) {
+      result.client = hosted
+        ? await runProbe(session, 'client', runId, Date.now() + 30_000)
+        : await runLuau(session, opts.clientCode, 'client', { chunkName: 'clientCode' });
+    }
     if (opts.screenshot) {
       result.screenshot = (await captureScreenshot(session, projectPath, 'playtest', opts.camera).catch(() => null)) ?? undefined;
     }
@@ -159,11 +178,12 @@ export async function playtest(session: StudioSession, projectPath: string, opts
       collectLogs(session, 'server', since).catch(() => []),
       collectLogs(session, 'client', since).catch(() => []),
     ]);
-    result.logs = summarizeLogs([...sl, ...cl]);
+    result.logs = summarizeLogs([...sl, ...cl].filter((l) => !l.message.startsWith('BLOXTEST:')));
   } finally {
     if (!opts.keepRunning && !info.alreadyRunning) {
       result.stopped = await stopPlay(session).catch(() => false);
     }
+    if (hosted && result.stopped) await removeHosts(session).catch(() => {});
   }
   result.ok =
     info.players > 0 &&
