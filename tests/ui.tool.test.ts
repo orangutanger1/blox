@@ -28,9 +28,16 @@ function ctx(devices: Record<string, unknown[]>, seen: string[] = [], pageSize =
     luau: (code, dm) => {
       seen.push(`${dm}:${code}`);
       if (code.includes('__BloxUiLint')) return env([probePage(code, devices, pageSize)]);
+      if (code.includes('GetLogHistory') && code.includes('probe-client')) return '1/1:{"ok":true,"values":[]}';
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('LocalPlayer')) return env([true]);
       return env([]);
+    },
+    tools: {
+      multi_edit: (a) => {
+        seen.push(`Edit:${JSON.stringify(a)}`);
+        return 'ok';
+      },
     },
   });
   return {
@@ -56,6 +63,19 @@ describe('ui tool', () => {
     expect(seen.find((s) => s.includes('__BloxUiLint'))!.startsWith('Client:')).toBe(true);
     expect(readJson<{ findings: unknown[] }>(c.projectPath, 'ui-report.json')!.findings).toHaveLength(1);
     expect(withSyntheticResults(c.projectPath, null)!.tests.find((t) => t.name === 'ui:touch-target')!.status).toBe('fail');
+  });
+  it('lint: prepare runs as an injected client probe, so it sees the game (require, shared)', async () => {
+    const seen: string[] = [];
+    const c = ctx({ desktop: [btn({})] }, seen);
+    const r = await call({ action: 'lint', seconds: 0, devices: ['desktop'], prepare: 'shared.BloxControllers.UIController:Open("Menu")' }, c);
+    expect(r.text).not.toMatch(/prepare failed/);
+    const install = seen.findIndex((s) => s.startsWith('Edit:') && s.includes('BloxProbeHost') && s.includes('UIController:Open'));
+    const go = seen.findIndex((s) => s.startsWith('Client:') && s.includes('BloxGo'));
+    const probe = seen.findIndex((s) => s.includes('__BloxUiLint'));
+    expect(install).toBeGreaterThanOrEqual(0);
+    expect(go).toBeGreaterThan(install);
+    expect(probe).toBeGreaterThan(go);
+    expect(seen.some((s) => s.startsWith('Client:') && s.includes('UIController:Open') && !s.includes('BloxProbeHost'))).toBe(false);
   });
   it('clean GUI passes', async () => {
     const r = await call({ action: 'lint', seconds: 0 }, ctx({ 'phone-landscape': [btn({})], 'phone-portrait': [btn({})], tablet: [btn({})], desktop: [btn({})] }));
