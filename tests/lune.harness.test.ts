@@ -35,3 +35,21 @@ end)
     expect(luneCheck([join(d, 'tests/a.spec.luau'), join(d, 'tests/b.spec.luau')])).toHaveLength(1);
   });
 });
+
+describe.skipIf(!luneBin())('lune spec harness matchers', () => {
+  it('has inclusive comparison matchers', () => {
+    const d = mkdtempSync(join(tmpdir(), 'blox-lune-'));
+    mkdirSync(join(d, 'tests'));
+    writeFileSync(
+      join(d, 'tests/c.spec.luau'),
+      `-- @context edit
+test("le", function() expect(2).toBeLessThanOrEqual(2) end)
+test("le fails", function() expect(3).toBeLessThanOrEqual(2) end)
+test("ge", function() expect(2).toBeGreaterThanOrEqual(2) end)
+`,
+    );
+    const r = runLuneSpecs(d, ['tests/c.spec.luau']);
+    expect(r.results.map((t) => t.status)).toEqual(['pass', 'fail', 'pass']);
+    expect(r.results[1].message).toMatch(/expected <= 2, got 3/);
+  });
+});

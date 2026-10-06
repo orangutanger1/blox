@@ -132,6 +132,7 @@ local function expect(actual)
 	function m.toBeGreaterThan(e) check(typeof(actual) == "number" and actual > e, "expected > " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeGreaterThanOrEqual(e) check(typeof(actual) == "number" and actual >= e, "expected >= " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeLessThan(e) check(typeof(actual) == "number" and actual < e, "expected < " .. fmt(e) .. ", got " .. fmt(actual)) end
+	function m.toBeLessThanOrEqual(e) check(typeof(actual) == "number" and actual <= e, "expected <= " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeCloseTo(e, eps) eps = eps or 1e-3 check(typeof(actual) == "number" and math.abs(actual - e) <= eps, "expected ~" .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toContain(e)
 		if typeof(actual) == "string" then check(string.find(actual, e, 1, true) ~= nil, "expected " .. fmt(actual) .. " to contain " .. fmt(e)) return end
