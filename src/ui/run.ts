@@ -1,6 +1,7 @@
 import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import { startPlay, stopPlay } from '../studio/play.js';
+import { installProbe, newRunId, removeHosts, runProbes } from '../testing/playHost.js';
 import { DEVICES, lintResults, lintSnapshot, type Device, type UiElement, type UiFinding, type UiReport } from './lint.js';
 import { parseProbePage, uiProbeProgram } from './probe.js';
 
@@ -44,13 +45,24 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
   const devices = pickDevices(o.devices);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const notes: string[] = [];
+  // prepare runs as an injected probe script (game VM: require() and shared work,
+  // e.g. shared.BloxControllers), like playtest's client code, unless the eval
+  // bridge is on or a playtest is already running (can't add scripts then).
+  const hosted = Boolean(o.prepare) && !session.evalBridge && (await session.state()).mode === 'Edit';
+  const runId = newRunId();
+  if (hosted) {
+    await removeHosts(session);
+    await installProbe(session, 'client', o.prepare!, runId);
+  }
   const info = await startPlay(session);
   const pages: Record<string, UiElement[]> = {};
   let sources = 0;
   try {
     await sleep(o.seconds * 1000);
     if (o.prepare) {
-      const p = await runLuau(session, o.prepare, 'client', { chunkName: 'prepare' });
+      const p = hosted
+        ? (await runProbes(session, runId, { server: false, client: true }, Date.now() + 30_000, sleep)).client!
+        : await runLuau(session, o.prepare, 'client', { chunkName: 'prepare' });
       if (!p.ok) notes.push(`prepare failed: ${p.error?.message}`);
     }
     for (const d of devices) {
@@ -59,7 +71,8 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
       pages[d.name] = p.elements;
     }
   } finally {
-    if (!info.alreadyRunning) await stopPlay(session).catch(() => false);
+    const stopped = !info.alreadyRunning && (await stopPlay(session).catch(() => false));
+    if (hosted && stopped) await removeHosts(session).catch(() => {});
   }
   const findings: UiFinding[] = [];
   const elements: Record<string, number> = {};
