@@ -97,3 +97,45 @@ export function gearSnippet(g: GearInfo): string {
     `tool.Grip = CFrame.new(${v(g.grip)})  -- a gear's grip rotation often served its own aim animation: check it in hand`,
   ].join('\n');
 }
+
+// Many gears are stored as binary .rbxm, which this parser does not read.
+// Studio's GetObjects loads any public gear, so read the same fields there.
+export function gearReadLuau(gearId: string): string {
+  return `-- BLOX_GEAR_READ ${gearId}
+local ok, objs = pcall(function() return game:GetObjects("rbxassetid://${gearId}") end)
+if not ok or not objs or not objs[1] then return "null" end
+local tool = objs[1]
+local result = nil
+local h = tool:IsA("Tool") and tool:FindFirstChild("Handle")
+local function id(s) return tonumber(string.match(s or "", "(%d+)%D*$")) end
+if h and h:IsA("BasePart") then
+	local m = h:FindFirstChildWhichIsA("SpecialMesh")
+	local meshId, texId, scale, offset
+	if m then
+		meshId, texId, scale, offset = m.MeshId, m.TextureId, m.Scale, m.Offset
+	elseif h:IsA("MeshPart") then
+		meshId, texId, scale, offset = h.MeshId, h.TextureID, Vector3.one, Vector3.zero
+	end
+	if id(meshId) then
+		result = {
+			name = tool.Name,
+			grip = { tool.Grip:GetComponents() },
+			handleSize = { h.Size.X, h.Size.Y, h.Size.Z },
+			mesh = { meshId = id(meshId), textureId = id(texId), scale = { scale.X, scale.Y, scale.Z }, offset = { offset.X, offset.Y, offset.Z } },
+		}
+	end
+end
+for _, o in objs do o:Destroy() end
+return game:GetService("HttpService"):JSONEncode(result)`;
+}
+
+export function gearFromStudio(json: unknown): GearInfo | null {
+  if (typeof json !== 'string') return null;
+  try {
+    const g = JSON.parse(json) as GearInfo | null;
+    const ok = g && typeof g.name === 'string' && Array.isArray(g.grip) && g.grip.length === 12 && Array.isArray(g.handleSize) && g.mesh && typeof g.mesh.meshId === 'number';
+    return ok ? { name: g.name, grip: g.grip, handleSize: g.handleSize, mesh: { meshId: g.mesh.meshId, ...(g.mesh.textureId ? { textureId: g.mesh.textureId } : {}), scale: g.mesh.scale ?? [1, 1, 1], offset: g.mesh.offset ?? [0, 0, 0] } } : null;
+  } catch {
+    return null;
+  }
+}

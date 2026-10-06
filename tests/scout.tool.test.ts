@@ -61,13 +61,14 @@ function makeZip(files: Record<string, string>): Buffer {
 }
 const details = (name: string, typeId: number, free: boolean) => ({ Name: name, Description: '', AssetTypeId: typeId, IsPublicDomain: free, PriceInRobux: null, Creator: { Name: 'Forumer' } });
 
-function ctx(opts: { scripts?: { path: string; class: string; source: string }[]; moveFails?: boolean; left?: number; web?: Web; fetched?: string[]; located?: Record<string, { paths: string[]; tagged: boolean }> } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
+function ctx(opts: { scripts?: { path: string; class: string; source: string }[]; moveFails?: boolean; left?: number; web?: Web; fetched?: string[]; located?: Record<string, { paths: string[]; tagged: boolean }>; gearRead?: unknown } = {}): { c: ToolCtx; f: FakeStudio; luau: string[] } {
   const projectPath = mkdtempSync(join(tmpdir(), 'blox-scout-'));
   const luau: string[] = [];
   const f = fakeStudio({
     luau: (code) => {
       luau.push(code);
       if (code.includes('BLOX_LOCATE')) return env(JSON.stringify({ result: opts.located ?? [] }));
+      if (code.includes('BLOX_GEAR_READ')) return env(JSON.stringify(opts.gearRead ?? null));
       if (code.includes('local KEEP = ')) {
         const strip = code.includes('local KEEP = false');
         return env(JSON.stringify({ path: 'ServerStorage.BloxScout.obby', className: 'Model', parts: 120, meshParts: 3, textures: 0, guis: 0, screenGuis: 0, sounds: 0, size: [200, 30, 150], removed: strip ? (opts.scripts ?? []).length : 0, scripts: opts.scripts ?? [], next: null }));
@@ -155,6 +156,19 @@ describe('scout tool', () => {
     const d = await call({ action: 'discard', id: 'gunRevolver' }, c);
     expect(d.isError).toBeFalsy();
     expect(loadManifest(c.projectPath).assets[0].status).toBe('rejected');
+  });
+
+  it('try on a binary gear reads it through Studio instead', async () => {
+    const studio = { name: 'SteampunkSword', grip: [0, 0.125, 1.9, -1, 0, 0, 0, 0, -1, 0, -1, 0], handleSize: [0.2, 0.45, 5], mesh: { meshId: 352571495, textureId: 352570357, scale: [2, 2, 2], offset: [0, 0, 0] } };
+    const { c, luau } = ctx({ gearRead: studio, web: {
+      'https://economy.roblox.com/v2/assets/356213216/': details('Gearworks Sword', 19, false),
+      'https://assetdelivery.roblox.com/v1/asset/?id=356213216': '<roblox!binary',
+    } });
+    const r = await call({ action: 'try', asset_id: '356213216', id: 'clockwork' }, c);
+    expect(r.isError).toBeFalsy();
+    expect(r.text).toMatch(/mesh 352571495/);
+    expect(luau.some((l) => l.includes('BLOX_GEAR_READ') && l.includes('356213216'))).toBe(true);
+    expect(loadManifest(c.projectPath).assets[0]).toMatchObject({ id: 'clockwork', source: 'roblox-gear', ref: { assetId: 352571495 } });
   });
 
   it('try on a gear whose XML cannot be read says so', async () => {
