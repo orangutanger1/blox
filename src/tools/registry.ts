@@ -186,7 +186,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_tests',
     description:
-      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you: through the eval bridge when bridge.eval is on, else injected host scripts). Returns failures with file:line, playtest runtime errors, criteria status.',
+      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you: through the eval bridge when bridge.eval is on, else injected host scripts). Returns failures with file:line, playtest runtime errors, criteria status. Specs start while Play is still settling: the first Heartbeat dt after connecting can carry a startup hitch (measured: 12 frames summing 2.63 s of dt in 1.5 s wall; later windows matched wall), so real-time specs compare against summed dt, not os.clock.',
     shape: {
       filter: z.string().optional().describe('only spec files whose path contains this'),
       contexts: z.array(context).optional().describe('limit to these spec contexts'),
