@@ -209,6 +209,23 @@ return table.concat(out, "\\n")`;
   return { ok: false, values: [], logs: [], error: { message: `no result from the ${ctx} probe script (did it yield forever or error before reporting? see logs)` }, durationMs: Date.now() - t0 };
 }
 
+// Starts the server and client probes together and waits for both, so a probe
+// can wait on something the other context does (one finishing first would
+// otherwise leave the other an already-finished world).
+export async function runProbes(
+  session: StudioSession,
+  runId: string,
+  which: { server: boolean; client: boolean },
+  deadlineMs: number,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<{ server?: LuauResult; client?: LuauResult }> {
+  const [server, client] = await Promise.all([
+    which.server ? runProbe(session, 'server', runId, deadlineMs, sleep) : undefined,
+    which.client ? runProbe(session, 'client', runId, deadlineMs, sleep) : undefined,
+  ]);
+  return { ...(server ? { server } : {}), ...(client ? { client } : {}) };
+}
+
 // Removes every blox-injected host script (stale ones from a crashed run too).
 export async function removeHosts(session: StudioSession): Promise<void> {
   const paths = [...Object.values(HOSTS), ...Object.values(PROBE_HOSTS), BOT_HOST].map((h) => h.path);

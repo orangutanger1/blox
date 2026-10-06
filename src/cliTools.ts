@@ -52,6 +52,20 @@ function readJson(file: string, flag: string): unknown {
   }
 }
 
+// cliArgs, plus the flags it never read: a misspelt or made-up flag (e.g.
+// --server-code for --server) is an error, not silently dropped.
+export function checkedCliArgs(cmd: string, f: Flags): { mapped: ReturnType<typeof cliArgs>; unknown: string[] } {
+  const read = new Set<string>();
+  const opts = new Proxy(f.opts, {
+    get(t, k) {
+      if (typeof k === 'string') read.add(k);
+      return Reflect.get(t, k);
+    },
+  });
+  const mapped = cliArgs(cmd, { ...f, opts });
+  return { mapped, unknown: Object.keys(f.opts).filter((k) => !read.has(k)).map((k) => `--${k}`) };
+}
+
 export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<string, unknown> } | null {
   const o = f.opts;
   switch (cmd) {
@@ -470,7 +484,9 @@ export async function runToolCommand(argv: string[]): Promise<boolean> {
   }
   let mapped: ReturnType<typeof cliArgs>;
   try {
-    mapped = cliArgs(cmd, f);
+    const c = checkedCliArgs(cmd, f);
+    if (c.unknown.length) throw new Error(`unknown flag${c.unknown.length > 1 ? 's' : ''} ${c.unknown.join(', ')} for "${cmd}" (see blox help)`);
+    mapped = c.mapped;
   } catch (e) {
     console.error(`bad arguments: ${(e as Error).message}`);
     process.exitCode = 2;

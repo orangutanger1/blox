@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { specContext, discoverSpecs, testProgram, mapSpecPositions, type SpecFile } from '../src/testing/runner.js';
+import { luneBin, runLune } from './helpers/lune.js';
 import { foldLogs, summarizeLogs, isNoise } from '../src/studio/play.js';
 
 describe('specContext', () => {
@@ -76,5 +77,20 @@ describe('testProgram spec output', () => {
     expect(first).toContain('local print = function');
     expect(specLines[0]).toBe(3);
     expect(code).toContain('output = __OUT');
+  });
+});
+
+describe('per-test timeout', () => {
+  it.skipIf(!luneBin())('test(name, fn, seconds) gives one test a longer window than the batch default', () => {
+    const spec: SpecFile = { file: 'tests/wait.spec.luau', context: 'client', source: [
+      'test("waits for a slow fixture", function() task.wait(1.5) end, 4)',
+      'test("default window", function() task.wait(1.5) end)',
+    ].join('\n') };
+    const { code } = testProgram([spec], 1);
+    const dir = mkdtempSync(join(tmpdir(), 'blox-timeout-'));
+    const script = join(dir, 'run.luau');
+    writeFileSync(script, `local task = require("@lune/task")\nlocal serde = require("@lune/serde")\nlocal r = (function()\n${code}\nend)()\nrequire("@lune/stdio").write(serde.encode("json", r.results))`);
+    const results = JSON.parse(runLune(script, []).trim().split('\n').pop()!) as { name: string; status: string }[];
+    expect(results.map((r) => [r.name, r.status])).toEqual([['waits for a slow fixture', 'pass'], ['default window', 'timeout']]);
   });
 });

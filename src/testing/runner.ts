@@ -175,7 +175,9 @@ for i, specFn in __SPECFNS do
 	local file = FILES[i]
 	local tests = {}
 	local prefix = ""
-	local function test(name, fn) table.insert(tests, { name = prefix .. name, fn = fn }) end
+	-- test(name, fn, seconds?): seconds widens this test's window (max 60), e.g.
+	-- a client spec waiting on a server fixture that runs in parallel.
+	local function test(name, fn, secs) table.insert(tests, { name = prefix .. name, fn = fn, timeout = typeof(secs) == "number" and math.clamp(secs, 0, 60) or nil }) end
 	local function describe(name, fn) local old = prefix prefix = prefix .. name .. " > " fn() prefix = old end
 	local ok, err = pcall(specFn, test, test, describe, expect, waitFor${extra})
 	if not ok then
@@ -188,13 +190,14 @@ for i, specFn in __SPECFNS do
 				local ok2, e2 = xpcall(t.fn, function(e) return tostring(e) end)
 				passed, msg, done = ok2, e2, true
 			end)
-			local deadline = os.clock() + TIMEOUT
+			local limit = t.timeout or TIMEOUT
+			local deadline = os.clock() + limit
 			while not done and os.clock() < deadline do task.wait(0.03) end
 			local status
 			if not done then
 				pcall(task.cancel, th)
 				status = "timeout"
-				msg = "test exceeded " .. TIMEOUT .. "s"
+				msg = "test exceeded " .. limit .. "s"
 			else
 				status = passed and "pass" or "fail"
 			end

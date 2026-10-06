@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { runLuau, type LuauResult } from '../studio/luau.js';
 import { resultText, type StudioSession } from '../studio/session.js';
 import { collectLogs, startPlay, stopPlay, summarizeLogs, type LogSummary, type PlayInfo } from '../studio/play.js';
-import { installProbe, newRunId, removeHosts, runProbe } from './playHost.js';
+import { installProbe, newRunId, removeHosts, runProbes } from './playHost.js';
 
 // One call = one observed playtest: start → wait until a player/character is
 // ready → let the game run → optional scripted input → probe server/client
@@ -160,15 +160,11 @@ export async function playtest(session: StudioSession, projectPath: string, opts
   try {
     await sleep(Math.max(0, (opts.seconds ?? 3) * 1000));
     for (const step of opts.inputs ?? []) result.inputs.push(await runInput(session, step));
-    if (opts.serverCode) {
-      result.server = hosted
-        ? await runProbe(session, 'server', runId, Date.now() + 30_000)
-        : await runLuau(session, opts.serverCode, 'server', { chunkName: 'serverCode' });
-    }
-    if (opts.clientCode) {
-      result.client = hosted
-        ? await runProbe(session, 'client', runId, Date.now() + 30_000)
-        : await runLuau(session, opts.clientCode, 'client', { chunkName: 'clientCode' });
+    if (hosted) {
+      Object.assign(result, await runProbes(session, runId, { server: Boolean(opts.serverCode), client: Boolean(opts.clientCode) }, Date.now() + 30_000));
+    } else {
+      if (opts.serverCode) result.server = await runLuau(session, opts.serverCode, 'server', { chunkName: 'serverCode' });
+      if (opts.clientCode) result.client = await runLuau(session, opts.clientCode, 'client', { chunkName: 'clientCode' });
     }
     if (opts.screenshot) {
       result.screenshot = (await captureScreenshot(session, projectPath, 'playtest', opts.camera).catch(() => null)) ?? undefined;
