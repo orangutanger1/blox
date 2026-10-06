@@ -5,8 +5,7 @@
 
 export const AGENT_GUIDE = `# Building Roblox games with blox
 
-blox drives a running Roblox Studio. Files on disk are the source of truth; blox syncs
-them to Studio and returns feedback.
+blox drives a running Roblox Studio. Files on disk are the source of truth; blox syncs them.
 
 ## Project layout (Rojo)
 - src/ServerScriptService/*.server.luau Script · src/StarterPlayerScripts/*.client.luau
@@ -16,8 +15,8 @@ them to Studio and returns feedback.
 - world/<Name>.luau → \`return function(model) ... end\` builds Model <Name> in Workspace
   (\`-- @parent ServerStorage\` first line to move it): maps, platforms, props as code.
 - tests/*.spec.luau, first line \`-- @context edit|server|client\`: edit = no playtest (pure
-  logic, fast); server/client = in a playtest. API: test, describe, waitFor(fn, secs),
-  expect(v).toBe/toEqual/toBeTruthy/toBeNil/toExist/toBeGreaterThan/toBeLessThan/
+  logic, fast); server/client = one playtest, in parallel. API: test(name, fn, secs?) (secs: longer
+  window, e.g. waiting on the other context), describe, waitFor(fn, secs), expect(v).toBe/toEqual/toBeTruthy/toBeNil/toExist/toBeGreaterThan/toBeLessThan/
   toBeCloseTo(v,eps)/toContain/toBeA/toThrow.
 
 ## Loop
@@ -35,9 +34,9 @@ No game picked yet? idea research → propose (cite snapshot games) → human pi
 kit {action:"list"} / kit {action:"apply", name}: a tested loop (modules, world, specs,
 design.json) to reskin, on the boilerplate framework (Lifecycle, Packet, ProfileStore, safe
 receipts) — follow FRAMEWORK.md; kit apply boilerplate = framework only. Before building a map, UI
-or big prop: scout {action:"search", need, kind} finds free packs (Store, DevForum, web
-leads); try (quarantined, verdict) → adopt (scripts stripped, provenance
-recorded) and adapt, or discard and build. Unsure of a Roblox API or pattern? skill {} lists know-how; load skill {name} first.
+or big prop: scout {action:"search", need, kind} finds free packs (Store, DevForum, web);
+try (quarantined, verdict) → adopt (scripts stripped, provenance
+recorded) and adapt, or discard and build; try on a gear id records its mesh by id. Unsure of an API or pattern? skill {} lists know-how; load skill {name}.
 
 ## Multiplayer
 PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multiplayer",
@@ -46,10 +45,9 @@ PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multipl
 
 ## Assets, models, animation
 Prefer code-built geometry; record every other asset: asset {action:"sanitize", path, id}
-after inserting a Store model (strips scripts, flags backdoors), asset {action:"add"} for generated/external ones,
+after inserting a Store model (strips scripts, flags backdoors), asset {action:"add"} for others,
 asset {action:"lint"}. Approvals and uploads are human steps.
-Custom models: model {action:"brief"} → run (Blender Python: shape/prism/box/rig/animate)
-→ check (vs refs) → export → preview → import. UI icons (no emoji): a model per
+Custom models: model {action:"brief"} → run (Blender Python) → check (vs refs) → export → preview → import. UI icons (no emoji): a model per
 icon → model icon → asset sheet → upload. After
 inserting an uploaded model set its MeshParts' Color to white; rigged: model animate →
 upload → BloxAnimate.
@@ -75,14 +73,11 @@ Bind tests:["design:<assertionId>"]. Measure the real game: metrics {action:"ftu
 metrics {action:"soak", bot, archetype}; bind tests:["ftue:<id>"|"soak:<check>"].
 
 Other tools: explore (filtered tree search, not a full dump), logs, play (start/stop/state;
-keeps a playtest running), sync (push without testing), run_luau, studio_tool (last resort:
-raw Studio tools, big output).
+keeps a playtest running), sync, run_luau, studio_tool (last resort, big output).
 
 ## Working efficiently
-Each turn resends the conversation, so turns cost most. Make independent calls in
-the same turn (read/write every file a step needs at once), then run_tests once. Don't
-re-read files you just wrote or re-run unchanged checks. Probe narrowly (filtered explore,
-run_luau returning only what you need). Fix every visible failure before the next run. Stop when every criterion passes; no extra confirmation runs.
+Turns cost most. Make independent calls in the same turn (read/write every file a step needs at once), then run_tests once. Don't
+re-read files you just wrote or re-run unchanged checks. Probe narrowly. Fix every visible failure before the next run. Stop when every criterion passes; no extra confirmation runs.
 
 ## Rules
 - Prefer tests over one-off probes: a test keeps checking forever.

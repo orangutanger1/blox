@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleChunks, hostSource, normalizeHostPositions, pollResults, probeHostSource, PROBE_HOSTS, readMarkersLuau, runProbe } from '../src/testing/playHost.js';
+import { assembleChunks, hostSource, normalizeHostPositions, pollResults, probeHostSource, PROBE_HOSTS, readMarkersLuau, runProbe, runProbes } from '../src/testing/playHost.js';
 import { testProgram } from '../src/testing/runner.js';
 import type { StudioSession } from '../src/studio/session.js';
 
@@ -93,6 +93,24 @@ describe('probe hosts (playtest server_code/client_code as real scripts)', () =>
     expect(calls.every((c) => c.dm === 'Server')).toBe(true);
     expect(r.ok).toBe(false);
     expect(r.error?.message).toBe('serverCode:3: boom');
+  });
+
+  it('runProbes starts server and client together, so a server probe can wait on the client', async () => {
+    const go = new Set<string>();
+    const session = {
+      call: async (_: string, a: Record<string, unknown>) => {
+        const code = String(a.code);
+        const dm = String(a.datamodel_type);
+        if (code.includes('BloxGo')) { go.add(dm); return { content: [{ type: 'text', text: 'ok' }] }; }
+        // The server probe only finishes once the client probe has started.
+        if (dm === 'Server') return { content: [{ type: 'text', text: go.has('Client') ? '1/1:{"ok":true,"values":["saw client"]}' : '' }] };
+        return { content: [{ type: 'text', text: '1/1:{"ok":true,"values":["client"]}' }] };
+      },
+    } as unknown as StudioSession;
+    const r = await runProbes(session, 'r', { server: true, client: true }, Date.now() + 2000, async () => {});
+    expect(r.server?.values).toEqual(['saw client']);
+    expect(r.client?.values).toEqual(['client']);
+    expect((await runProbes(session, 'r', { server: false, client: true }, Date.now() + 2000, async () => {})).server).toBeUndefined();
   });
 
   it('returns serialized values on success and an error at the deadline', async () => {

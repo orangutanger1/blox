@@ -8,7 +8,7 @@ const MUST_KEEP = [
   '# Building Roblox games with blox',
   // layout
   '.server.luau', '.client.luau', 'src/StarterGui', 'src/ServerStorage', 'world/<Name>.luau', '-- @parent', 'default.project.json',
-  '-- @context edit|server|client', 'toBeCloseTo', 'toThrow', 'waitFor',
+  '-- @context edit|server|client', 'toBeCloseTo', 'toThrow', 'waitFor', 'test(name, fn, secs?)',
   // loop + proof
   'task {action:"set"}', 'acceptance criteria', 'stylua', 'luau-lsp', 'file:line', '{kind:"click"', 'server_code',
   // starting points

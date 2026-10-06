@@ -186,7 +186,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'run_tests',
     description:
-      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you: through the eval bridge when bridge.eval is on, else injected host scripts). Returns failures with file:line, playtest runtime errors, criteria status. Specs start while Play is still settling: the first Heartbeat dt after connecting can carry a startup hitch (measured: 12 frames summing 2.63 s of dt in 1.5 s wall; later windows matched wall), so real-time specs compare against summed dt, not os.clock.',
+      'Sync, then run tests/*.spec.luau in Studio (server/client specs in one playtest, handled for you: through the eval bridge when bridge.eval is on, else injected host scripts). Server and client specs run at the same time; a test waiting on the other context passes a longer window: test(name, fn, secs) (default 10, max 60). Returns failures with file:line, playtest runtime errors, criteria status. Specs start while Play is still settling: the first Heartbeat dt after connecting can carry a startup hitch (measured: 12 frames summing 2.63 s of dt in 1.5 s wall; later windows matched wall), so real-time specs compare against summed dt, not os.clock.',
     shape: {
       filter: z.string().optional().describe('only spec files whose path contains this'),
       contexts: z.array(context).optional().describe('limit to these spec contexts'),
@@ -216,7 +216,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'playtest',
     description:
-      'One call: sync → play → wait for character → wait `seconds` → inputs → server_code/client_code probes (returns serialized) → screenshot → typed errors/warnings/output → stop.',
+      'One call: sync → play → wait for character → wait `seconds` → inputs → server_code/client_code probes (run at the same time, so either may wait on the other; returns serialized) → screenshot → typed errors/warnings/output → stop.',
     shape: {
       seconds: z.number().min(0).max(120).optional().describe('game time before probing (default 3)'),
       server_code: z.string().optional().describe('Luau run in the server DataModel as a real game script (require() and shared work; may yield); return values are reported'),
