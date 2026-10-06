@@ -126,6 +126,7 @@ local function expect(actual)
 	function m.toBeGreaterThan(e) check(type(actual) == "number" and actual > e, "expected > " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeGreaterThanOrEqual(e) check(type(actual) == "number" and actual >= e, "expected >= " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeLessThan(e) check(type(actual) == "number" and actual < e, "expected < " .. fmt(e) .. ", got " .. fmt(actual)) end
+	function m.toBeLessThanOrEqual(e) check(type(actual) == "number" and actual <= e, "expected <= " .. fmt(e) .. ", got " .. fmt(actual)) end
 	function m.toBeCloseTo(e, eps)
 		eps = eps or 1e-3
 		check(type(actual) == "number" and math.abs(actual - e) <= eps, "expected ~" .. fmt(e) .. ", got " .. fmt(actual))
