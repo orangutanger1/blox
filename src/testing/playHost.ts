@@ -25,6 +25,15 @@ export const HOSTS: Record<PlayContext, { path: string[]; className: string }> =
 const MARK = 'BLOXTEST';
 const CHUNK = 3000;
 
+// Studio's output (print → LogService, server and client) collapses runs like
+// \"x\" to a lone quote (seen 2026-10-07: `print('a \\"x\\", b')` logs `a ", b`),
+// so JSON with escaped quotes in failure messages stopped parsing and the run
+// reported "no results". Hosts percent-encode \ and % before printing;
+// assembleChunks decodes them.
+const ESCAPE_MARKER = `local function escapeMarker(s: string): string
+	return (string.gsub(s, "[%%\\\\]", function(c) return if c == "%" then "%25" else "%5C" end))
+end`;
+
 export function newRunId(): string {
   return randomBytes(4).toString('hex');
 }
@@ -53,7 +62,8 @@ end
 ${wait}
 local ok, out = pcall(__blox_run)
 if not ok then out = { results = {}, fileErrors = { { file = "<host>", message = tostring(out) } } } end
-local json = game:GetService("HttpService"):JSONEncode(out)
+${ESCAPE_MARKER}
+local json = escapeMarker(game:GetService("HttpService"):JSONEncode(out))
 local n = math.max(1, math.ceil(#json / ${CHUNK}))
 for i = 1, n do
 	print("${MARK}:${runId}:${ctx}:" .. i .. "/" .. n .. ":" .. string.sub(json, (i - 1) * ${CHUNK} + 1, i * ${CHUNK}))
@@ -84,7 +94,7 @@ export function assembleChunks(text: string): string | null {
   if (!total || parts.size < total) return null;
   let s = '';
   for (let i = 1; i <= total; i++) s += parts.get(i) ?? '';
-  return s;
+  return s.replace(/%(5C|25)/g, (m) => (m === '%5C' ? '\\' : '%'));
 }
 
 // Host error positions ("ServerScriptService.BloxTestHost:12:",
@@ -145,7 +155,8 @@ if packed[1] then
 else
 	out = { ok = false, error = tostring(packed[2]) }
 end
-local json = game:GetService("HttpService"):JSONEncode(out)
+${ESCAPE_MARKER}
+local json = escapeMarker(game:GetService("HttpService"):JSONEncode(out))
 local n = math.max(1, math.ceil(#json / ${CHUNK}))
 for i = 1, n do
 	print("${MARK}:${runId}:probe-${ctx}:" .. i .. "/" .. n .. ":" .. string.sub(json, (i - 1) * ${CHUNK} + 1, i * ${CHUNK}))

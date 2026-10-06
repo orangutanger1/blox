@@ -10,6 +10,17 @@ describe('playHost', () => {
     expect(assembleChunks('')).toBeNull();
   });
 
+  it('decodes escaped backslashes and percents so quoted failure messages survive Studio output', () => {
+    const json = assembleChunks('1/2:{"m":"expected %5C"x%5C", got %5C"1.00 \n2/2:2.00%5C" 100%25"}');
+    expect(JSON.parse(json as string)).toEqual({ m: 'expected "x", got "1.00 2.00" 100%' });
+  });
+
+  it('hosts escape backslashes and percents before printing (Studio output drops \\"x\\" runs)', () => {
+    for (const src of [hostSource('return 1', 'server', 'r'), probeHostSource('return 1', 'client', 'r')]) {
+      expect(src).toContain('local json = escapeMarker(game:GetService("HttpService"):JSONEncode(out))');
+    }
+  });
+
   it('keeps program line N at host line N so spec positions map unchanged', () => {
     const { code } = testProgram([{ file: 'tests/a.spec.luau', context: 'server', source: 'test("x", function() end)\n' }], 5);
     const src = hostSource(code, 'server', 'abcd1234');
