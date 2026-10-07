@@ -14,6 +14,6 @@ describe.skipIf(!luneBin())('BloxUI (offline, @lune/roblox instances)', () => {
     const r = runLuneSpecs(d, ['tests/blox_ui.spec.luau']);
     expect(r.fileErrors).toEqual([]);
     expect(r.results.filter((t) => t.status !== 'pass')).toEqual([]);
-    expect(r.results.length).toBe(8);
+    expect(r.results.length).toBe(17);
   });
 });
