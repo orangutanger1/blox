@@ -288,7 +288,7 @@ export function formatPreview(id: string, path: string, r: { total: number; shot
 
 // ---- models, maps and sounds (edit mode; no playtest) ----
 // A clone of the asset is staged far from the map, framed from two angles and
-// captured, then removed; sounds report their length (a 5 s "music" track is a
+// captured once its meshes have loaded, then removed; sounds report their length (a 5 s "music" track is a
 // sting, not a loop). Packs with GUIs and no parts get the panel preview instead.
 export const MODEL_PREVIEW = '__BloxModelPreview';
 const STAGE_AT = '0, 3000, -30000';
@@ -318,8 +318,21 @@ if parts > 0 then
 	end
 	c.Parent = m
 	m.Parent = workspace
+	local assets = {}
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") then d.Anchored = true end
+		if d:IsA("MeshPart") or d:IsA("SpecialMesh") or d:IsA("Decal") or d:IsA("SurfaceAppearance") then table.insert(assets, d) end
+	end
+	-- Unloaded meshes draw as nothing: the first shot of a mesh pack came out blank or half-drawn.
+	if #assets > 0 then
+		local done = false
+		task.spawn(function()
+			pcall(function() game:GetService("ContentProvider"):PreloadAsync(assets) end)
+			done = true
+		end)
+		local t0 = os.clock()
+		while not done and os.clock() - t0 < 15 do task.wait(0.1) end
+		task.wait(0.5)
 	end
 	m:PivotTo(CFrame.new(${STAGE_AT}))
 	local cf, size = m:GetBoundingBox()
