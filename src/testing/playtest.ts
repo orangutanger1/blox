@@ -1,3 +1,4 @@
+import { restoreFor } from '../studio/host.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { runLuau, type LuauResult } from '../studio/luau.js';
@@ -65,6 +66,7 @@ export async function captureScreenshot(
   label: string,
   camera?: PlaytestOptions['camera'],
 ): Promise<Screenshot | null> {
+  await restoreFor(session);
   const r = await session.call('screen_capture', {
     capture_id: label,
     ...(camera ? { camera_position: camera.position, look_at_position: camera.lookAt } : {}),
