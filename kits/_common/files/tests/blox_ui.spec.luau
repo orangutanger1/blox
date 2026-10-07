@@ -36,11 +36,23 @@ test("screen uses the safe area and survives respawn", function()
 	expect(gui.ResetOnSpawn).toBe(false)
 end)
 
-test("layout containers are scale-sized", function()
+test("windows and HUD pieces are design px fitted to the screen, never below the touch floor", function()
 	local _, bar, rail, modal = build()
-	for _, f in { bar.frame, rail.frame, modal.frame, modal.list } do
-		expect(f.Size.X.Offset).toBe(0)
-		expect(f.Size.Y.Offset).toBe(0)
+	for _, f in { bar.frame, rail.frame, modal.frame } do
+		local fit = f:FindFirstChild("Fit")
+		expect(fit).toExist()
+		expect(fit:GetAttribute("BloxFitMin") * UI.designTouch >= 44).toBe(true)
+		expect(fit:GetAttribute("BloxFitFill")).toBe(false)
+	end
+	expect(modal.list.Size.X.Scale).toBe(1)
+end)
+
+test("every design-px button is at least designTouch tall", function()
+	local gui = build()
+	for _, d in gui:GetDescendants() do
+		if d:IsA("GuiButton") and d.Size.Y.Scale == 0 then
+			expect(d.Size.Y.Offset >= UI.designTouch).toBe(true)
+		end
 	end
 end)
 

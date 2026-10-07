@@ -63,6 +63,24 @@ local function minSize(p: Instance, w: number, h: number)
 	c.Parent = p
 end
 
+-- Windows and HUD pieces are laid out in design px and scaled to the screen by
+-- BloxUI.fit (like top games): the scale never drops below FIT_MIN, so a 62 px
+-- design button stays >= the 44 px touch floor on phones (a UIScale shrinks
+-- past UISizeConstraint floors).
+local FIT_MIN, FIT_MAX = 0.72, 1.6
+BloxUI.designTouch = math.ceil(Theme.minTouch / FIT_MIN) -- 62: smallest design-px button
+local function designFit(frame: GuiObject, opts: any)
+	local s = Instance.new("UIScale")
+	s.Name = "Fit"
+	s.Parent = frame
+	BloxUI.fit(
+		s,
+		{ width = opts.width, height = opts.height, min = FIT_MIN, max = opts.max or FIT_MAX, fill = false }
+	)
+	return s
+end
+local HUD_FIT = { width = 600, height = 600, max = 1.5 }
+
 -- name | Color3 | style table → { top, bottom, stroke, lift }
 function BloxUI.style(s: any)
 	if typeof(s) == "string" then
@@ -203,8 +221,10 @@ function BloxUI.fit(scale: UIScale, opts: FitOptions)
 		return
 	end
 	local function apply()
-		local size = (host :: any).AbsoluteSize :: Vector2
-		if size.X <= 0 or size.Y <= 0 then
+		local ok, size = pcall(function()
+			return (host :: any).AbsoluteSize :: Vector2
+		end)
+		if not ok or size.X <= 0 or size.Y <= 0 then
 			return
 		end
 		local k = BloxUI.fitScale(size, opts)
@@ -278,7 +298,7 @@ function BloxUI.Button(parent: Instance, opts: any)
 	end
 	local label = BloxUI.label(b, "Label", b.Text, {
 		size = UDim2.fromScale(1 - x - 0.08, 0.72),
-		position = UDim2.fromScale(x, 0.12),
+		position = UDim2.fromScale(x, 0.14),
 	})
 	onChanged(b, "Text", function()
 		label.Text = b.Text
@@ -308,13 +328,13 @@ function BloxUI.CurrencyBar(parent: Instance, ids: { string }, opts: any?)
 	bar.Name = opts.name or "Currencies"
 	bar.AnchorPoint = Vector2.new(0.5, 0)
 	bar.Position = UDim2.fromScale(0.5, 0.01)
-	bar.Size = UDim2.fromScale(math.min(0.9, 0.22 * #ids), 0.08)
+	local w, h = opts.width or 170, opts.height or 46 -- design px per counter
+	bar.Size = UDim2.fromOffset(w * #ids + 10 * (#ids - 1), h)
 	bar.BackgroundTransparency = 1
-	minSize(bar, 120 * #ids, 36)
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.Padding = UDim.new(0.02, 0)
+	layout.Padding = UDim.new(0, 10)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = bar
 	local labels = {}
@@ -322,7 +342,7 @@ function BloxUI.CurrencyBar(parent: Instance, ids: { string }, opts: any?)
 		local box = Instance.new("Frame")
 		box.Name = id
 		box.LayoutOrder = i
-		box.Size = UDim2.fromScale(1 / #ids - 0.02, 1)
+		box.Size = UDim2.fromOffset(w, h)
 		BloxUI.depth(box, opts.color or "dark")
 		labels[id] = BloxUI.label(
 			box,
@@ -333,6 +353,7 @@ function BloxUI.CurrencyBar(parent: Instance, ids: { string }, opts: any?)
 		box.Parent = bar
 	end
 	bar.Parent = parent
+	designFit(bar, HUD_FIT)
 	return {
 		frame = bar,
 		labels = labels,
@@ -352,11 +373,11 @@ function BloxUI.Rail(parent: Instance, items: { any }, opts: any?)
 	rail.Name = opts.name or "Rail"
 	rail.AnchorPoint = Vector2.new(right and 1 or 0, 0.5)
 	rail.Position = UDim2.fromScale(right and 0.99 or 0.01, 0.55)
-	rail.Size = UDim2.fromScale(0.09, 0.6)
+	local cell = opts.size or 72 -- design px per button
+	rail.Size = UDim2.fromOffset(cell, cell * #items + 10 * (#items - 1))
 	rail.BackgroundTransparency = 1
-	minSize(rail, 56, 56 * #items)
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0.03, 0)
+	layout.Padding = UDim.new(0, 10)
 	layout.VerticalAlignment = Enum.VerticalAlignment.Center
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = rail
@@ -367,13 +388,14 @@ function BloxUI.Rail(parent: Instance, items: { any }, opts: any?)
 			text = it.text or it.id,
 			color = it.color or "info",
 			icon = it.icon,
-			size = UDim2.fromScale(1, 1),
+			size = UDim2.fromOffset(cell, cell),
 			round = true,
 		})
 		b.LayoutOrder = i
 		buttons[it.id] = b
 	end
 	rail.Parent = parent
+	designFit(rail, HUD_FIT)
 	return { frame = rail, buttons = buttons }
 end
 
@@ -416,31 +438,35 @@ function BloxUI.Panel(parent: Instance, opts: any)
 	p.Name = opts.name or "Panel"
 	p.AnchorPoint = opts.anchor or Vector2.new(0.5, 0.5)
 	p.Position = opts.position or UDim2.fromScale(0.5, 0.5)
-	p.Size = opts.size or UDim2.fromScale(0.62, 0.78)
+	-- design px (default 500x340), fitted to the screen; a Scale size opts out of fitting
+	local design = opts.design or Vector2.new(500, 340)
+	p.Size = opts.size or UDim2.fromOffset(design.X, design.Y)
 	p.Visible = not opts.hidden
 	BloxUI.depth(p, opts.color or "panel", { radius = Theme.panelRadius })
-	local limits = Instance.new("UISizeConstraint")
-	limits.MinSize = opts.minSize or Vector2.new(280, 220)
-	limits.MaxSize = opts.maxSize or Vector2.new(760, 600)
-	limits.Parent = p
+	local bar = BloxUI.designTouch -- title bar height = the close button
+	local pad = 12
 	local title = BloxUI.label(p, "Title", opts.title or p.Name, {
-		size = UDim2.fromScale(0.7, 0.11),
-		position = UDim2.fromScale(0.5, 0.025),
+		size = UDim2.new(1, -2 * (bar + pad), 0, bar - 18),
+		position = UDim2.new(0.5, 0, 0, pad + 9),
 		anchor = Vector2.new(0.5, 0),
 		font = Theme.fontHeavy,
 	})
 	local close = nil
 	if opts.close ~= false then
-		close = closeButton(p, UDim2.fromScale(0.11, 0.11), UDim2.fromScale(0.975, 0.025), Vector2.new(1, 0))
+		close = closeButton(p, UDim2.fromOffset(bar, bar), UDim2.new(1, -pad, 0, pad), Vector2.new(1, 0))
 	end
 	local body = Instance.new("Frame")
 	body.Name = "Body"
 	body.BackgroundTransparency = 1
-	body.Position = UDim2.fromScale(0.04, 0.16)
-	body.Size = UDim2.fromScale(0.92, 0.81)
+	body.Position = UDim2.fromOffset(pad + 4, bar + pad + 8)
+	body.Size = UDim2.new(1, -2 * (pad + 4), 1, -(bar + 2 * pad + 12))
 	body.ZIndex = 1
 	body.Parent = p
 	p.Parent = parent
+	if not opts.size or opts.size.X.Scale == 0 then
+		local d = opts.size and Vector2.new(opts.size.X.Offset, opts.size.Y.Offset) or design
+		designFit(p, { width = d.X / 0.96, height = d.Y / 0.86 })
+	end
 	local api = { frame = p, title = title, close = close, body = body }
 	function api.open()
 		p.Visible = true
@@ -469,7 +495,7 @@ function BloxUI.Tabs(parent: Instance, ids: { string }, opts: any?)
 	strip.ZIndex = 1
 	local l = Instance.new("UIListLayout")
 	l.FillDirection = if opts.vertical then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal
-	l.Padding = UDim.new(0.03, 0)
+	l.Padding = UDim.new(0, 8)
 	l.SortOrder = Enum.SortOrder.LayoutOrder
 	l.Parent = strip
 	local api = { frame = strip, buttons = {}, selected = ids[1] }
@@ -485,8 +511,8 @@ function BloxUI.Tabs(parent: Instance, ids: { string }, opts: any?)
 			text = id,
 			color = "tab",
 			size = if opts.vertical
-				then UDim2.fromScale(1, math.min(0.2, 1 / #ids - 0.03))
-				else UDim2.fromScale(1 / #ids - 0.03, 1),
+				then UDim2.new(1, 0, 0, BloxUI.designTouch)
+				else UDim2.new(1 / #ids, -8, 1, 0),
 		})
 		b.LayoutOrder = i
 		api.buttons[id] = b
@@ -502,23 +528,26 @@ end
 -- Centre modal: a hidden Panel with optional tabs and a scrolling list.
 -- { frame, close, list, tabs (id → button), tabBar, open, hide, toggle }.
 function BloxUI.Modal(parent: Instance, opts: any)
-	local p = BloxUI.Panel(
-		parent,
-		{ name = opts.name or "Modal", title = opts.title, color = opts.color, hidden = true }
-	)
+	local p = BloxUI.Panel(parent, {
+		name = opts.name or "Modal",
+		title = opts.title,
+		color = opts.color,
+		design = opts.design,
+		hidden = true,
+	})
 	local top = 0
 	local tabs, tabBar = {}, nil
 	if opts.tabs and #opts.tabs > 0 then
-		tabBar = BloxUI.Tabs(p.body, opts.tabs, { size = UDim2.fromScale(1, 0.15) })
+		tabBar = BloxUI.Tabs(p.body, opts.tabs, { size = UDim2.new(1, 0, 0, BloxUI.designTouch) })
 		tabs = tabBar.buttons
-		top = 0.19
+		top = BloxUI.designTouch + 10
 	end
 	local list = Instance.new("ScrollingFrame")
 	list.Name = "List"
 	list.BackgroundTransparency = 1
 	list.BorderSizePixel = 0
-	list.Position = UDim2.fromScale(0, top)
-	list.Size = UDim2.fromScale(1, 1 - top)
+	list.Position = UDim2.fromOffset(0, top)
+	list.Size = UDim2.new(1, 0, 1, -top)
 	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	list.CanvasSize = UDim2.new()
 	list.ScrollBarThickness = 6
@@ -526,6 +555,7 @@ function BloxUI.Modal(parent: Instance, opts: any)
 	local ll = Instance.new("UIListLayout")
 	ll.Padding = UDim.new(0, 10)
 	ll.SortOrder = Enum.SortOrder.LayoutOrder
+	ll.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	ll.Parent = list
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, 4)
@@ -549,7 +579,7 @@ end
 function BloxUI.Row(list: Instance, opts: any)
 	local row = Instance.new("Frame")
 	row.Name = opts.name or "Row"
-	row.Size = UDim2.new(1, -10, 0, 60)
+	row.Size = UDim2.new(1, -10, 0, BloxUI.designTouch + 14)
 	row.LayoutOrder = opts.order or 0
 	BloxUI.depth(row, opts.color or "row")
 	local label = BloxUI.label(row, "Label", opts.text or row.Name, {
@@ -561,7 +591,7 @@ function BloxUI.Row(list: Instance, opts: any)
 		name = "Action",
 		text = opts.action or "Buy",
 		color = opts.actionColor or "primary",
-		size = UDim2.fromScale(0.32, 0.74),
+		size = UDim2.new(0.32, 0, 0, BloxUI.designTouch),
 		position = UDim2.fromScale(0.97, 0.5),
 		anchor = Vector2.new(1, 0.5),
 	})
@@ -576,7 +606,7 @@ end
 function BloxUI.Tile(list: Instance, opts: any)
 	local t = Instance.new("Frame")
 	t.Name = opts.name or "Tile"
-	t.Size = UDim2.new(1, -10, 0, opts.height or 76)
+	t.Size = UDim2.new(1, -10, 0, opts.height or 84)
 	t.LayoutOrder = opts.order or 0
 	BloxUI.depth(t, opts.color or "row")
 	local x = 0.04
@@ -625,7 +655,7 @@ function BloxUI.Tile(list: Instance, opts: any)
 			color = opts.actionColor or "primary",
 			icon = opts.actionIcon,
 			disabled = opts.disabled,
-			size = UDim2.fromScale(0.29, 0.7),
+			size = UDim2.new(0.29, 0, 0, BloxUI.designTouch),
 			position = UDim2.fromScale(0.975, 0.5),
 			anchor = Vector2.new(1, 0.5),
 		})
@@ -649,29 +679,27 @@ function BloxUI.Dialog(parent: Instance, opts: any)
 		name = "Card",
 		title = opts.title or "Are you sure?",
 		color = opts.color,
-		size = UDim2.fromScale(0.42, 0.42),
-		minSize = Vector2.new(280, 190),
-		maxSize = Vector2.new(520, 340),
+		design = Vector2.new(420, 250),
 		close = false,
 	})
 	local text = BloxUI.label(card.body, "Text", opts.text or "", {
-		size = UDim2.fromScale(0.9, 0.3),
-		position = UDim2.fromScale(0.05, 0.06),
+		size = UDim2.new(0.9, 0, 1, -(BloxUI.designTouch + 24)),
+		position = UDim2.fromScale(0.05, 0),
 	})
 	local confirm = BloxUI.Button(card.body, {
 		name = "Confirm",
 		text = opts.confirm or "OK",
 		color = opts.confirmColor or "primary",
-		size = UDim2.fromScale(0.42, 0.34),
-		position = UDim2.fromScale(0.04, 0.92),
+		size = UDim2.new(0.46, 0, 0, BloxUI.designTouch),
+		position = UDim2.fromScale(0, 1),
 		anchor = Vector2.new(0, 1),
 	})
 	local cancel = BloxUI.Button(card.body, {
 		name = "Cancel",
 		text = opts.cancel or "Cancel",
 		color = "danger",
-		size = UDim2.fromScale(0.42, 0.34),
-		position = UDim2.fromScale(0.96, 0.92),
+		size = UDim2.new(0.46, 0, 0, BloxUI.designTouch),
+		position = UDim2.fromScale(1, 1),
 		anchor = Vector2.new(1, 1),
 	})
 	shade.Parent = parent
@@ -788,11 +816,8 @@ function BloxUI.Reveal(parent: Instance)
 	card.Name = "Card"
 	card.AnchorPoint = Vector2.new(0.5, 0.5)
 	card.Position = UDim2.fromScale(0.5, 0.5)
-	card.Size = UDim2.fromScale(0.45, 0.6)
+	card.Size = UDim2.fromOffset(420, 300)
 	BloxUI.depth(card, "panel", { radius = Theme.panelRadius })
-	local lim = Instance.new("UISizeConstraint")
-	lim.MinSize = Vector2.new(260, 200)
-	lim.Parent = card
 	local title = BloxUI.label(
 		card,
 		"Title",
@@ -808,11 +833,12 @@ function BloxUI.Reveal(parent: Instance)
 	local ok = BloxUI.Button(card, {
 		name = "Ok",
 		text = "Nice!",
-		size = UDim2.fromScale(0.5, 0.18),
-		position = UDim2.fromScale(0.5, 0.92),
+		size = UDim2.new(0.5, 0, 0, BloxUI.designTouch),
+		position = UDim2.new(0.5, 0, 1, -16),
 		anchor = Vector2.new(0.5, 1),
 	})
 	card.Parent = shade
+	designFit(card, { width = 420 / 0.9, height = 300 / 0.8 })
 	shade.Parent = parent
 	local api = { frame = shade, ok = ok }
 	function api.show(t: string, s: string?)

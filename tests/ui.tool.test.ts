@@ -80,7 +80,7 @@ describe('ui tool', () => {
   it('clean GUI passes', async () => {
     const r = await call({ action: 'lint', seconds: 0 }, ctx({ 'phone-landscape': [btn({})], 'phone-portrait': [btn({})], tablet: [btn({})], desktop: [btn({})] }));
     expect(r.isError).toBeFalsy();
-    expect(r.text).toMatch(/6\/6 rules pass/);
+    expect(r.text).toMatch(/9\/9 rules pass/);
   });
   it('no GUI at all is a note, not a pass of nothing', async () => {
     const r = await call({ action: 'lint', seconds: 0 }, ctx({}));
