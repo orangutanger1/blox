@@ -576,7 +576,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'ui',
     description:
-      'Sync, then deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit: screen, Button, CurrencyBar, Rail, Modal, Toast, Reveal — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
+      'Sync, then deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit in the depth-stack look — square-ish depth buttons, never pills: screen, Button, Tile, Panel, Dialog, Tabs, CurrencyBar, Rail, Modal, Row, Toast, Reveal, depth — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
     shape: {
       action: z.enum(['lint', 'install']),
       seconds: z.number().min(0).max(120).optional(),
