@@ -1,4 +1,4 @@
-import { StudioError, resultText, type StudioSession } from './session.js';
+import { StudioError, type StudioSession } from './session.js';
 import { runLuau, type LogEntry, type LogLevel } from './luau.js';
 
 // Playtest lifecycle with guarantees the raw start_stop_play tool lacks:
@@ -19,7 +19,17 @@ export interface PlayOptions {
   readyTimeoutMs?: number;
   waitForCharacter?: boolean;
   sleep?: (ms: number) => Promise<void>;
+  locked?: () => Promise<boolean>; // Windows session locked (default: LogonUI probe)
+  restore?: () => Promise<unknown>; // un-minimise Studio (default: ShowWindow)
+  enterTimeoutMs?: number; // how long Studio may take to leave Edit after "started"
 }
+
+const blocked = () =>
+  new StudioError(
+    'play_blocked',
+    'Windows session is locked (LogonUI is running): Studio cannot enter Play until someone unlocks the PC. Edit-mode tools (sync, check, ui preview, map check) still work.',
+    'unlock the PC, then retry',
+  );
 
 export async function startPlay(session: StudioSession, opts: PlayOptions = {}): Promise<PlayInfo> {
   const sleep = opts.sleep ?? defaultSleep;
@@ -28,17 +38,22 @@ export async function startPlay(session: StudioSession, opts: PlayOptions = {}):
   const st = await session.state();
   const alreadyRunning = st.mode !== 'Edit';
   if (!alreadyRunning) {
+    const host = (session as { host?: { locked(): Promise<boolean>; restore(): Promise<unknown> } }).host;
+    const locked = opts.locked ?? host?.locked ?? (async () => false);
+    await (opts.restore ?? host?.restore ?? (async () => {}))().catch(() => {});
+    if (await locked()) throw blocked();
     let started = false;
     for (let i = 0; i < 3 && !started; i++) {
-      const r = await session.call('start_stop_play', { is_start: true }, 60_000);
-      started = /started/i.test(resultText(r)) && !r.isError;
-      if (!started) {
-        const again = await session.state();
-        started = again.mode !== 'Edit';
+      await session.call('start_stop_play', { is_start: true }, 60_000);
+      // "started" in the reply is not proof: a locked PC leaves Studio in Edit.
+      const until = Date.now() + (opts.enterTimeoutMs ?? 15_000);
+      do {
+        started = (await session.state()).mode !== 'Edit';
         if (!started) await sleep(1000);
-      }
+      } while (!started && Date.now() < until);
+      if (!started && (await locked())) throw blocked();
     }
-    if (!started) throw new StudioError('tool_error', 'start_stop_play did not start a playtest');
+    if (!started) throw new StudioError('tool_error', 'Studio did not enter Play after start_stop_play (3 tries). If the PC is locked or asleep, unlock it; otherwise check Studio for a modal dialog.', 'unlock the PC or close Studio dialogs');
   }
   // Readiness: server sees a player; client has a character.
   const deadline = Date.now() + (opts.readyTimeoutMs ?? 30_000);

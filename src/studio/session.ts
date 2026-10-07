@@ -1,3 +1,4 @@
+import { isSessionLocked, restoreStudioWindow } from './host.js';
 import type { StudioLaunch } from '../bridge/types.js';
 import { resolveStudioLaunch } from './launcher.js';
 
@@ -70,7 +71,7 @@ export interface StudioState {
 
 export class StudioError extends Error {
   constructor(
-    readonly code: 'not_connected' | 'no_studio' | 'ambiguous_studio' | 'tool_error' | 'wrong_mode' | 'timeout',
+    readonly code: 'not_connected' | 'no_studio' | 'ambiguous_studio' | 'tool_error' | 'wrong_mode' | 'timeout' | 'play_blocked',
     message: string,
     readonly hint?: string,
   ) {
@@ -147,6 +148,8 @@ export class StudioSession {
   private readonly opts: Required<Omit<StudioSessionOptions, 'match' | 'launch' | 'evalBridge'>> & Pick<StudioSessionOptions, 'match'>;
   readonly launch: StudioLaunch;
   readonly evalBridge: boolean;
+  // Windows host probes (locked PC, minimised window); fakes leave them out.
+  readonly host = { locked: () => isSessionLocked(), restore: () => restoreStudioWindow() };
 
   constructor(options: StudioSessionOptions = {}) {
     this.launch = options.launch ?? resolveStudioLaunch();

@@ -1,3 +1,4 @@
+import { restoreFor } from '../studio/host.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StudioSession } from '../studio/session.js';
@@ -22,6 +23,7 @@ export async function renderShots(session: StudioSession, projectPath: string, d
     if (missing.length) throw new Error(`unknown shot id(s): ${missing.join(', ')}`);
   }
   const out: RenderResult = { rendered: [], failed: [] };
+  await restoreFor(session);
   mkdirSync(join(projectPath, '.blox/artifacts/present'), { recursive: true });
   for (const shot of shots) {
     try {

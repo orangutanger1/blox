@@ -7,3 +7,4 @@ import { join } from 'node:path';
 // to the live API.
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'blox-test-config-'));
 delete process.env.ROBLOX_OPEN_CLOUD_KEY;
+process.env.BLOX_HOST_PROBES = '0'; // never shell out to powershell.exe from unit tests
