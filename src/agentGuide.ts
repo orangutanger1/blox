@@ -60,8 +60,9 @@ state} → verify.
 release {action:"check"} lists every gate; publishing, live config and monetization are
 human decisions: prepare and dry-run, never confirm unless asked. After launch: liveops
 report → propose → apply (local), then a new release.
-UI pack? scout preview, clone its panels (skill ui-packs); else BloxUI (ui install,
-44px targets). Then ui {action:"lint"} on all device sizes, fix every error.
+UI: copy the reference, no extra decoration. Pack? scout preview (skill ui-packs); else
+BloxUI (ui install; depth tiles, no pills, 44px). Icons: image generate (1 batch) →
+asset sheet → upload. ui preview {mount} → ui {action:"lint"} mode:"edit" → fix.
 Store page: present {action:"generate"} → fix shot cameras → present {action:"render"}
 (16:9 viewport) → present {action:"lint"}; final title/art and upload are human.
 
