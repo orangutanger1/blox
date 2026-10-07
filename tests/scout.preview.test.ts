@@ -124,6 +124,13 @@ describe('scout preview', () => {
     expect(code).toContain('TimeLength');
     expect(code).toMatch(/Anchored = true/);
   });
+  it('model Luau: waits (capped) for meshes and textures to load before the shots, so the first capture is not half-drawn', () => {
+    const code = stageModelLuau('ServerStorage.BloxScout.rocks');
+    expect(code).toContain('PreloadAsync');
+    expect(code).toMatch(/MeshPart/);
+    expect(code).toMatch(/os\.clock\(\) - t0 < \d+/);
+    expect(code.indexOf('PreloadAsync')).toBeLessThan(code.indexOf('GetBoundingBox'));
+  });
   it('model cameras frame the bounding box from two angles', () => {
     const cams = modelCameras([0, 3000, -30000], [10, 10, 40]);
     expect(cams).toHaveLength(2);
