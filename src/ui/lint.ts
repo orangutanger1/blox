@@ -33,13 +33,15 @@ export interface UiElement {
   textFits?: boolean;
   textHeight?: number; // TextBounds.Y
   clipped?: boolean; // partly hidden by a ClipsDescendants ancestor (e.g. a scrolled list)
+  listed?: 'x' | 'y' | 'xy'; // axis a parent UIListLayout/UIGridLayout places it along
+  cr?: number; // buttons: corner radius in px (its UICorner, else its depth-stack Shadow's)
 }
 export interface UiSnapshot {
   device: Device;
   elements: UiElement[];
 }
-export type UiRule = 'offscreen' | 'safe-area' | 'touch-target' | 'overlap' | 'text-overflow' | 'text-tiny';
-export const UI_RULES: UiRule[] = ['offscreen', 'safe-area', 'touch-target', 'overlap', 'text-overflow', 'text-tiny'];
+export type UiRule = 'offscreen' | 'safe-area' | 'touch-target' | 'overlap' | 'text-overflow' | 'text-tiny' | 'off-centre' | 'touching' | 'pill';
+export const UI_RULES: UiRule[] = ['offscreen', 'safe-area', 'touch-target', 'overlap', 'text-overflow', 'text-tiny', 'off-centre', 'touching', 'pill'];
 export interface UiFinding {
   rule: UiRule;
   severity: 'error' | 'warn';
@@ -61,6 +63,12 @@ const MIN_TOUCH = { phone: 44, tablet: 44, desktop: 24 };
 const MIN_TEXT_PX = 9;
 const OVERLAP_FRACTION = 0.25;
 const r = (n: number) => Math.round(n);
+// Centred-looking but not centred: within NEAR px of the parent's centre, more than CENTRE_TOL off it.
+const CENTRE_TOL = 1.5;
+const CENTRE_NEAR = 6;
+const TOUCH_GAP = 2; // sibling buttons closer than this look stuck together
+const DEPTH_PART = /(^|\.)(Shadow|Face|Lift)(\.|$)/; // BloxUI depth stack internals sit offset on purpose
+const parentPath = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf('.')));
 
 function intersect(a: UiElement, b: UiElement): number {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -105,7 +113,28 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
       if (a.path.startsWith(b.path + '.') || b.path.startsWith(a.path + '.')) continue;
       const area = intersect(a, b);
       if (area > OVERLAP_FRACTION * Math.min(a.w * a.h, b.w * b.h)) add('overlap', 'error', b, `overlaps ${a.path} (${r((100 * area) / Math.min(a.w * a.h, b.w * b.h))}% of the smaller)`);
+      else if (area === 0 && parentPath(a.path) === parentPath(b.path)) {
+        const gx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
+        const gy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
+        const gap = gx >= 0 && gy < 0 ? gx : gy >= 0 && gx < 0 ? gy : null; // side by side or stacked
+        if (gap !== null && gap < TOUCH_GAP) add('touching', 'warn', b, `${r(gap)}px from ${a.path} — leave a visible gap`);
+      }
     }
+  for (const b of buttons) {
+    if (b.cr !== undefined && b.cr >= b.h / 2 - 1 && b.w >= 1.3 * b.h) add('pill', 'warn', b, `pill-shaped (radius ${r(b.cr)}px on ${r(b.w)}×${r(b.h)}) — use square-ish corners (BloxUI Theme.radius)`);
+  }
+  const byPath = new Map(s.elements.map((e) => [e.path, e]));
+  for (const e of s.elements) {
+    if (DEPTH_PART.test(e.path) || e.w <= 0 || e.h <= 0) continue;
+    const p = byPath.get(parentPath(e.path));
+    if (!p) continue;
+    const dx = Math.abs(e.x + e.w / 2 - (p.x + p.w / 2));
+    const dy = Math.abs(e.y + e.h / 2 - (p.y + p.h / 2));
+    const nearX = !e.listed?.includes('x') && dx > CENTRE_TOL && dx < CENTRE_NEAR;
+    const nearY = !e.listed?.includes('y') && dy > CENTRE_TOL && dy < CENTRE_NEAR;
+    const off = [nearX ? `${dx.toFixed(1)}px across` : '', nearY ? `${dy.toFixed(1)}px down` : ''].filter(Boolean);
+    if (off.length) add('off-centre', 'warn', e, `nearly centred in ${p.path} but ${off.join(' and ')} off`);
+  }
   return out;
 }
 

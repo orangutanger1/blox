@@ -43,6 +43,11 @@ function vec(s: string | boolean | undefined): [number, number, number] | undefi
   return p.length === 3 && p.every(Number.isFinite) ? (p as [number, number, number]) : undefined;
 }
 
+// "@path" reads a file; anything else is the value itself.
+function fileOrText(v: string): string {
+  return v.startsWith('@') ? readFileSync(v.slice(1), 'utf8') : v;
+}
+
 // Translate friendly CLI flags into tool args.
 function readJson(file: string, flag: string): unknown {
   try {
@@ -143,6 +148,9 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.prepare === 'string' ? { prepare: o.prepare } : {}),
           ...(typeof o.devices === 'string' ? { devices: o.devices.split(',') } : {}),
           ...(o['no-sync'] ? { sync: false } : {}),
+          ...(typeof o.mode === 'string' ? { mode: o.mode } : {}),
+          ...(typeof o.mount === 'string' ? { mount: fileOrText(o.mount) } : {}),
+          ...(typeof o.states === 'string' ? { states: JSON.parse(fileOrText(o.states)) } : {}),
         },
       };
     case 'present': {
@@ -390,7 +398,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox check [--fix]             (stylua + luau-lsp + rojo build, no Studio)
            blox kit [list]                blox kit apply <name>   (format kits: proven loops)
            blox metrics ftue|soak|install [--seconds N] [--bot walk|idle|<file>] [--archetype id]
-           blox ui lint|install [--devices a,b] [--prepare '<client luau>'] [--no-sync]
+           blox ui lint|preview|install [--devices a,b] [--prepare '<client luau>'] [--mode edit] [--mount '<luau>'|@file] [--states '<json>'|@file] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]

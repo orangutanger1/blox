@@ -4,6 +4,11 @@ import { startPlay, stopPlay } from '../studio/play.js';
 import { installProbe, newRunId, removeHosts, runProbes } from '../testing/playHost.js';
 import { DEVICES, lintResults, lintSnapshot, type Device, type UiElement, type UiFinding, type UiReport } from './lint.js';
 import { parseProbePage, uiProbeProgram } from './probe.js';
+import { mountProgram, previewProgram, UNSTAGE } from './stage.js';
+import { composeSheet, cropJpeg } from './sheet.js';
+import { restoreFor } from '../studio/host.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const MAX_PAGES = 50; // per device
 
@@ -24,13 +29,13 @@ export function pickDevices(names?: string[]): Device[] {
 }
 
 // Lays the player's GUI out at device d (client context, play mode), page by page.
-export async function probeDevice(session: StudioSession, d: Device): Promise<{ elements: UiElement[]; sources: number }> {
+export async function probeDevice(session: StudioSession, d: Device, root: 'player' | 'edit' = 'player'): Promise<{ elements: UiElement[]; sources: number }> {
   const elements: UiElement[] = [];
   let sources = 0;
   let skip = 0;
   for (let i = 0; ; i++) {
     if (i >= MAX_PAGES) throw new Error(`ui probe: more than ${MAX_PAGES} pages of elements on ${d.name}`);
-    const r = await runLuau(session, uiProbeProgram(d, skip), 'client', { chunkName: 'uiProbe', timeoutMs: 60_000 });
+    const r = await runLuau(session, uiProbeProgram(d, skip, undefined, root), root === 'edit' ? 'edit' : 'client', { chunkName: 'uiProbe', timeoutMs: 60_000 });
     if (!r.ok) throw new Error(`ui probe failed on ${d.name}: ${r.error?.message}`);
     const page = parseProbePage(r.values[0]);
     sources = page.sources;
@@ -83,4 +88,110 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
   }
   if (Object.values(elements).every((n) => n === 0)) notes.push(`no visible GUI elements (${sources} enabled ScreenGui(s)) — build the HUD first, or open it with prepare`);
   return { ranAt: new Date().toISOString(), devices: devices.map((d) => d.name), elements, findings, results: lintResults(findings), notes };
+}
+
+// --- edit mode (no Play) -----------------------------------------------
+
+export interface UiState {
+  name: string;
+  luau?: string; // run after the mount, with `host` in scope (open the shop, …)
+}
+export interface UiEditOptions {
+  mount?: string; // Luau that builds the UI under `host`; default: StarterGui's ScreenGuis
+  states?: UiState[];
+  devices?: string[];
+}
+
+function statesOf(o: UiEditOptions): UiState[] {
+  const states = o.states?.length ? o.states : [{ name: 'default' }];
+  const seen = new Set<string>();
+  for (const s of states) {
+    if (!s.name || !/^[\w-]+$/.test(s.name)) throw new Error(`ui state names are letters, digits, - and _ ("${s.name}")`);
+    if (seen.has(s.name)) throw new Error(`duplicate state name "${s.name}"`);
+    seen.add(s.name);
+  }
+  return states;
+}
+
+async function editOnly(session: StudioSession): Promise<void> {
+  if ((await session.state()).mode !== 'Edit') throw new Error('edit-mode UI tools stage the UI in the edit DataModel: stop the playtest first');
+}
+
+async function mountState(session: StudioSession, o: UiEditOptions, st: UiState, notes: string[]): Promise<void> {
+  const r = await runLuau(session, mountProgram(o.mount, st.luau), 'edit', { chunkName: `uiMount-${st.name}`, timeoutMs: 60_000 });
+  if (!r.ok) throw new Error(`ui mount failed (state "${st.name}"): ${r.error?.message}`);
+  if (Number(r.values[0] ?? 0) === 0)
+    notes.push(`state "${st.name}": no ScreenGui under host — parent your ScreenGuis to host (UI.screen("HUD", host)), or put them in StarterGui`);
+}
+
+const unstage = (session: StudioSession) => runLuau(session, UNSTAGE, 'edit', { chunkName: 'uiUnstage' }).catch(() => undefined);
+
+// Lint without Play: device names in the report are <device>@<state> when states are given.
+export async function runUiLintEdit(session: StudioSession, o: UiEditOptions): Promise<UiReport> {
+  const states = statesOf(o);
+  const devices = pickDevices(o.devices);
+  await editOnly(session);
+  const named = Boolean(o.states?.length);
+  const notes: string[] = ['edit mode: UI that sizes itself from Camera.ViewportSize is not measured truly; parent-size (Scale, AbsoluteSize, BloxUI.fit) UI is'];
+  const findings: UiFinding[] = [];
+  const elements: Record<string, number> = {};
+  const keys: string[] = [];
+  await unstage(session);
+  try {
+    for (const st of states) {
+      await mountState(session, o, st, notes);
+      for (const d of devices) {
+        const key = named ? `${d.name}@${st.name}` : d.name;
+        const p = await probeDevice(session, d, 'edit');
+        keys.push(key);
+        elements[key] = p.elements.length;
+        findings.push(...lintSnapshot({ device: { ...d, name: key }, elements: p.elements }));
+      }
+    }
+  } finally {
+    await unstage(session);
+  }
+  if (Object.values(elements).every((n) => n === 0)) notes.push('no visible GUI elements — check the mount');
+  return { ranAt: new Date().toISOString(), devices: keys, elements, findings, results: lintResults(findings), notes };
+}
+
+export interface UiPreview {
+  sheets: { state: string; path: string; data: string }[]; // data: base64 JPEG
+  notes: string[];
+}
+
+// One contact sheet per state, devices left to right (in `devices` order).
+export async function runUiPreview(session: StudioSession, projectPath: string, o: UiEditOptions): Promise<UiPreview> {
+  const states = statesOf(o);
+  const devices = pickDevices(o.devices);
+  await editOnly(session);
+  await restoreFor(session);
+  const notes: string[] = [];
+  const sheets: UiPreview['sheets'] = [];
+  const dir = join(projectPath, '.blox/ui-preview');
+  mkdirSync(dir, { recursive: true });
+  await unstage(session);
+  try {
+    for (const st of states) {
+      await mountState(session, o, st, notes);
+      const row: (Buffer | null)[] = [];
+      for (const d of devices) {
+        const r = await runLuau(session, previewProgram(d), 'edit', { chunkName: `uiPreview-${d.name}`, timeoutMs: 60_000 });
+        if (!r.ok) throw new Error(`ui preview failed on ${d.name}: ${r.error?.message}`);
+        const rect = JSON.parse(String(r.values[0])) as { vw: number; x: number; y: number; w: number; h: number };
+        const cap = await session.call('screen_capture', { capture_id: `ui-preview-${st.name}-${d.name}` }, 30_000);
+        const img = (cap.content ?? []).find((b) => b.type === 'image' && b.data);
+        const crop = img?.data ? cropJpeg(Buffer.from(img.data, 'base64'), rect, rect.vw) : null;
+        if (!crop) notes.push(`${st.name}/${d.name}: no capture (is the Studio window visible?)`);
+        row.push(crop);
+      }
+      const sheet = composeSheet([row]);
+      const path = join(dir, `${st.name}.jpg`);
+      writeFileSync(path, sheet);
+      sheets.push({ state: st.name, path: `.blox/ui-preview/${st.name}.jpg`, data: sheet.toString('base64') });
+    }
+  } finally {
+    await unstage(session);
+  }
+  return { sheets, notes };
 }

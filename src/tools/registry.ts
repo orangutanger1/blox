@@ -22,8 +22,8 @@ import { renderTunables, TUNABLES_PATH } from '../design/codegen.js';
 import { applyKit, formatApply, KITS_ROOT, listKits } from '../kits.js';
 import { runMetrics } from '../metrics/run.js';
 import { formatMetrics } from '../metrics/gamefeel.js';
-import { runUiLint } from '../ui/run.js';
-import { formatUiReport } from '../ui/lint.js';
+import { runUiLint, runUiLintEdit, runUiPreview, type UiState } from '../ui/run.js';
+import { DEVICES, formatUiReport } from '../ui/lint.js';
 import { validatePresentation, type Presentation } from '../present/schema.js';
 import { defaultShots, describe as describeGame, titleCandidates } from '../present/generate.js';
 import { formatPresentLint, lintPresentation, presentResults } from '../present/lint.js';
@@ -576,9 +576,12 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'ui',
     description:
-      'Sync, then deterministic UI lint across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080), no vision: lint {seconds?=3, prepare? (client Luau to open menus first), devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny | install (BloxUI component kit in the depth-stack look — square-ish depth buttons, never pills: screen, Button, Tile, Panel, Dialog, Tabs, CurrencyBar, Rail, Modal, Row, Toast, Reveal, depth — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
+      'Sync, then deterministic UI checks across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080). preview {mount?, states?, devices?} → one contact sheet image per state (devices across), edit mode, no Play: look at it and compare with the reference. lint {mode?:"play"|"edit", seconds?=3, prepare? (play: client Luau to open menus first), mount?, states?, devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny, off-centre (1.5px), touching (<2px gap), pill (warn). mount = edit Luau that builds your UI with `host` as its PlayerGui (UI.screen("HUD", host); require works and is fresh); default: clone StarterGui ScreenGuis. states = [{name, luau}] run after the mount (open the shop…). Edit mode is fast and needs no Play; do one play lint at the end (UI reading Camera.ViewportSize is only true in play) | install (BloxUI component kit in the depth-stack look — square-ish depth buttons, never pills: screen, Button, Tile, Panel, Dialog, Tabs, CurrencyBar, Rail, Modal, Row, Toast, Reveal, depth — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError.',
     shape: {
-      action: z.enum(['lint', 'install']),
+      action: z.enum(['lint', 'preview', 'install']),
+      mode: z.enum(['play', 'edit']).optional().describe('lint: edit = no Play, uses mount/states (default play)'),
+      mount: z.string().optional().describe('edit: Luau building the UI under `host`'),
+      states: z.array(z.object({ name: z.string(), luau: z.string().optional() })).optional(),
       seconds: z.number().min(0).max(120).optional(),
       prepare: z.string().optional(),
       devices: z.array(z.string()).optional(),
@@ -615,11 +618,23 @@ export const TOOLS: BloxTool[] = [
           pre = 'not synced: a playtest is running — linting the running game as it is\n';
         }
       }
-      const report = await runUiLint(ctx.session, {
-        seconds: (a.seconds as number | undefined) ?? 3,
-        prepare: a.prepare as string | undefined,
-        devices: a.devices as string[] | undefined,
-      });
+      const edit = { mount: a.mount as string | undefined, states: a.states as UiState[] | undefined, devices: a.devices as string[] | undefined };
+      if (a.action === 'preview') {
+        const p = await runUiPreview(ctx.session, ctx.projectPath, edit);
+        return {
+          text: pre + [`ui preview: ${p.sheets.length} sheet(s), devices left→right: ${(edit.devices?.length ? edit.devices : DEVICES.map((d) => d.name)).join(', ')}`, ...p.sheets.map((x) => `  ${x.state}: ${x.path}`), ...p.notes.map((n) => `  note: ${n}`)].join('\n'),
+          images: p.sheets.map((x) => ({ data: x.data, mimeType: 'image/jpeg' })),
+          artifacts: p.sheets.map((x) => x.path),
+          summary: `${p.sheets.length} sheet(s)`,
+        };
+      }
+      const report = a.mode === 'edit' || a.mount !== undefined || a.states !== undefined
+        ? await runUiLintEdit(ctx.session, edit)
+        : await runUiLint(ctx.session, {
+            seconds: (a.seconds as number | undefined) ?? 3,
+            prepare: a.prepare as string | undefined,
+            devices: a.devices as string[] | undefined,
+          });
       writeJson(ctx.projectPath, 'ui-report.json', report);
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
