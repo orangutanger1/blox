@@ -123,9 +123,9 @@ The article workflow still won specific things. These go on the blox gap list:
 1. **Workflow: UI depth stack.** The user preferred A's button and tile style (blue-shifted shadow, face
    gradient, top lift, even outline) over B's flat pills. Make it the default look of BloxUI / `ui install`,
    and teach it in the ui-packs skill.
-2. **Tooling: AI icon generation.** Batch FLUX on Kaggle with Cloudflare Workers AI as the fallback, then
-   background removal, then the sheet, then upload. A got real illustrated gun icons; B drew them in code.
-   Add as `blox image generate` feeding `asset sheet`.
+2. **Tooling: AI icon generation.** A got real illustrated gun icons (it used FLUX schnell on Kaggle); B drew
+   them in code. Add `blox image generate` feeding `asset sheet`. The user chose Qwen-Image-2.1 on Kaggle as
+   the default (see `docs/handoff/2026-10-08-ui-map-refine.md`), with Cloudflare FLUX as the fallback.
 3. **Workflow: palette guidance for maps.** The user noted A's saturated palette suits young players. Add
    a "bright, saturated, kid-readable" default to the map guidance and checks.
 4. **Tooling: map movement checker.** A wrote a raycast + jump-height MapCheck, and this bake-off's

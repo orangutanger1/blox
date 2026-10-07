@@ -71,11 +71,31 @@ components, so the next Dog Attack work (Plan 5 maps, Plan 5b UI polish) starts 
    Use square-ish rounded rectangles, not pills, for buttons and tiles. Build it as reusable Button / Tile /
    Panel / Dialog / Tabs pieces with ZA-style white text and a dark outline. Keep the colours themeable.
    **Proven win.**
-2. **AI icon generation:** `blox image generate` (a tool and CLI). Prompt → FLUX batch on Kaggle
-   (`~/.local/bin/kaggle`, token in `~/.kaggle/access_token`), with Cloudflare Workers AI
-   flux-1-schnell as the fallback (OAuth from `~/.wrangler/config/default.toml`, never printed). Then
-   background removal → a consistent style prompt → `asset sheet` → upload. The output feeds BloxUI icons.
-   Keep it model-agnostic (memory `model-agnostic-design`).
+2. **AI icon generation:** `blox image generate` (a tool and CLI). The default model is
+   **Qwen-Image-2.1** (7B, top open model, native transparent RGBA output, up to 2048²), which the user chose
+   over FLUX. Arm A used FLUX.1-schnell only because A picked it.
+   - **How it runs:** as a Kaggle batch job built on the user's chosen notebook
+     <https://www.kaggle.com/code/tamadaresearch/qwen-image-2-1-t4-x2-bring-your-own-weights> (T4 ×2,
+     int8 weights, attention "int8").
+   - **One-time setup.** The notebook includes no weights. Pull the three files from the pinned Comfy-Org
+     copy (<https://huggingface.co/Comfy-Org/Qwen-Image-2.1/tree/ace0edeb3791a594ddfa36ed5f41a178a394e921>):
+     `qwen_image_2.1_int8_convrot.safetensors` (7.3 GB), `qwen3vl_8b_int8_convrot.safetensors` (9.4 GB) and
+     `qwen_image_2.1_vae_bf16.safetensors` (0.7 GB). Make them a private Kaggle dataset under the user's
+     account, then attach that and the runtime dataset `tamadaresearch/qwen-image21-t4-runtime` (GPL-3.0
+     launcher, sha-pinned in the notebook).
+   - **Per batch.** Copy the notebook (`kaggle kernels pull … -m`), change it to loop over a list of
+     prompts and seeds from a JSON input, and ask for transparent RGBA if the runtime exposes it (check;
+     otherwise keep background removal). Then `kaggle kernels push`, poll `kaggle kernels status`, and run
+     `kaggle kernels output`. Use `~/.local/bin/kaggle` (2.2.4; the miniforge `kaggle` is too old), with the
+     token in `~/.kaggle/access_token`. Kaggle GPU time has a weekly quota, so batch many icons per job.
+   - **Fallback:** Cloudflare Workers AI flux-1-schnell when Kaggle is down or the quota runs out. Use the
+     OAuth token from `~/.wrangler/config/default.toml` and never print it.
+   - **After generation:** apply a consistent style prompt → `asset sheet` → upload. The output feeds
+     BloxUI icons. Keep the model a pluggable backend (memory `model-agnostic-design`).
+   - **Licence:** Qwen-Image-2.1's weights are under the Qwen Research License, which is non-commercial
+     only. The user confirmed (2026-10-07) that Dog Attack is personal, non-commercial use. Record the model
+     and licence in each icon's asset provenance, and flag it in `release check` if the game is ever
+     monetized.
 3. **Edit-mode UI preview and lint.** B had to write its own. Render a ScreenGui at a device size without
    Play, and lint it there. Use the device simulator (presets) where it is available, so runtime-sized UI is
    measured truly. Return contact sheets the agent can look at.
@@ -134,7 +154,8 @@ Read ~/blox/docs/handoff/2026-10-08-ui-map-refine.md and follow it. Goal: optimi
 component and map component, using what the blind quality bake-off (PR #129,
 bench/results/quality-bakeoff-2026-10-07.md) showed: keep blox's layout strengths, and port the article
 workflow's wins. UI: depth-stack buttons/tiles (no pills, no unrequested decoration), AI icon generation
-(Kaggle FLUX batch, Cloudflare fallback), edit-mode UI preview and lint. Map: `blox map check` (walkability
+(Qwen-Image-2.1 as a Kaggle T4x2 batch job via the tamadaresearch notebook, Cloudflare FLUX fallback),
+edit-mode UI preview and lint. Map: `blox map check` (walkability
 with real jump numbers, pockets, roofs, floating/overlapping parts, boundary leaks, triangle budget), a
 saturated kid-friendly palette by default, reusable building blocks, standard map shots. Also fail fast when
 a locked PC blocks Play. Brainstorm → spec → plan → implement with TDD, PR + merge each piece in ~/blox.
