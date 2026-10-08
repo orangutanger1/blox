@@ -183,10 +183,12 @@ export function planWorldBuilders(projectPath: string, worldDir = 'world'): Worl
 }
 
 // A builder also re-runs when a module it reads changes: dotted paths from a
-// service name (ReplicatedStorage.Config.Dogs, game.ServerStorage.X) and,
+// service name (ReplicatedStorage.Config.Dogs, game.ServerStorage.X,
+// game:GetService("ReplicatedStorage").BloxMap) and,
 // inside those modules, require(script.Parent...) chains are followed, and
 // their hashes fold into the builder's.
 const SERVICE_CHAIN_RE = /\b(?:game\.)?(ReplicatedStorage|ServerStorage|ServerScriptService|ReplicatedFirst|StarterPlayer|StarterGui|Workspace|workspace)((?:\.[A-Za-z_]\w*)+)/g;
+const GETSERVICE_CHAIN_RE = /:GetService\(\s*["'](ReplicatedStorage|ServerStorage|ServerScriptService|ReplicatedFirst|StarterPlayer|StarterGui|Workspace)["']\s*\)((?:\.[A-Za-z_]\w*)+)/g;
 const SCRIPT_CHAIN_RE = /\bscript((?:\.[A-Za-z_]\w*)+)/g;
 
 function moduleRefs(source: string, ownPath: string[] | undefined, byPath: Map<string, DesiredInstance>): DesiredInstance[] {
@@ -200,9 +202,11 @@ function moduleRefs(source: string, ownPath: string[] | undefined, byPath: Map<s
       }
     }
   };
-  for (const m of source.matchAll(SERVICE_CHAIN_RE)) {
-    const service = m[1] === 'workspace' ? 'Workspace' : m[1];
-    resolve([service, ...m[2].slice(1).split('.')]);
+  for (const re of [SERVICE_CHAIN_RE, GETSERVICE_CHAIN_RE]) {
+    for (const m of source.matchAll(re)) {
+      const service = m[1] === 'workspace' ? 'Workspace' : m[1];
+      resolve([service, ...m[2].slice(1).split('.')]);
+    }
   }
   if (ownPath) {
     for (const m of source.matchAll(SCRIPT_CHAIN_RE)) {

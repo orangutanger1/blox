@@ -159,6 +159,16 @@ describe('withDependencyHashes', () => {
     expect(a.hash).not.toBe(b.hash);
   });
 
+  it('follows game:GetService("Service").Path chains (and the module script.X children they require)', () => {
+    const viaService = 'local Map = require(game:GetService("ReplicatedStorage").BloxMap)\nreturn function(m) end';
+    const init = mod(['ReplicatedStorage', 'BloxMap'], 'return { Build = require(script.Build) }');
+    const build = mod(['ReplicatedStorage', 'BloxMap', 'Build'], 'return {}');
+    const [a] = withDependencyHashes([builder(viaService)], [init, build]);
+    const [b] = withDependencyHashes([builder(viaService)], [init, { ...build, hash: 'v2' }]);
+    expect(a.hash).not.toBe('own');
+    expect(a.hash).not.toBe(b.hash);
+  });
+
   it('leaves a builder with no dependencies unchanged', () => {
     const [a] = withDependencyHashes([builder('return function(m) end')], [config]);
     expect(a.hash).toBe('own');
