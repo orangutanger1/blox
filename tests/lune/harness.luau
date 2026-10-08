@@ -7,6 +7,8 @@ local luau = require("@lune/luau")
 local process = require("@lune/process")
 local serde = require("@lune/serde")
 local task = require("@lune/task")
+local roblox = require("@lune/roblox")
+local realGame
 
 local root = process.args[1]
 local specFiles = { table.unpack(process.args, 2) }
@@ -58,6 +60,16 @@ local game = setmetatable({}, {
 	__index = function(_, k)
 		if k == "GetService" then
 			return function(_, svc)
+				-- engine services with no project folder (Lighting, …) are real Lune instances
+				if not fs.isDir(root .. "/src/" .. svc) and not resolveFile(root .. "/src/" .. svc) then
+					realGame = realGame or roblox.Instance.new("DataModel")
+					local ok, s = pcall(function()
+						return realGame:GetService(svc)
+					end)
+					if ok then
+						return s
+					end
+				end
 				return proxy(root .. "/src/" .. svc, svc)
 			end
 		end

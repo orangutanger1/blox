@@ -24,6 +24,9 @@ import { runMetrics } from '../metrics/run.js';
 import { formatMetrics } from '../metrics/gamefeel.js';
 import { runUiLint, runUiLintEdit, runUiPreview, type UiState } from '../ui/run.js';
 import { DEVICES, formatUiReport } from '../ui/lint.js';
+import { runMapCheck, type MapConfig } from '../map/run.js';
+import { evaluateMap, formatMap, type MapReport } from '../map/evaluate.js';
+import { runMapShots } from '../map/shots.js';
 import { validatePresentation, type Presentation } from '../present/schema.js';
 import { defaultShots, describe as describeGame, titleCandidates } from '../present/generate.js';
 import { formatPresentLint, lintPresentation, presentResults } from '../present/lint.js';
@@ -640,6 +643,67 @@ export const TOOLS: BloxTool[] = [
       refreshCriteria(ctx.projectPath);
       const failed = report.results.filter((x) => !x.ok).length;
       return { text: pre + formatUiReport(report), isError: failed > 0, summary: `${report.results.length - failed}/${report.results.length} rules` };
+    },
+  },
+  {
+    name: 'map',
+    description:
+      'Maps. install (BloxMap kit: Palette — saturated, kid-friendly colours; Lighting.apply("bright"); Build — ground, boundary with invisible barrier, road with kerbs, house {L,D,H, roof gable|flat, enterable (real door gap, tagged interior)}, crate, bale, fence, tree, lamp, pole, silo, marker) | check {root?, spawns?} (sync, then edit-mode walkability with the real jump (StarterPlayer + 0.9 take-off): map:spawns-reach (every named spawn group reaches a player spawn), pockets, leak (outside the boundary), triangles (measured per view, budget map.triangleBudget=40000), and warnings roofs, covered (outside "Interior"-tagged parts), floating, overlap, saturation (part colours + lighting haze/colour correction + rendered shots)) | shots (8 standard views framed on the reachable area → one contact sheet image + its colour saturation; compare with the references). Config: blox.config.json map {root, spawns:{group: path}, jumpHeight?, boundary?, triangleBudget?}. Criteria bind via tests:["map:<check>"].',
+    shape: {
+      action: z.enum(['check', 'shots', 'install']),
+      root: z.string().optional(),
+      spawns: z.record(z.string(), z.string()).optional(),
+      sync: z.boolean().optional(),
+    },
+    async handler(a, ctx) {
+      if (a.action === 'install') {
+        const src = join(KITS_ROOT, '_common/files/src/ReplicatedStorage/BloxMap');
+        const created: string[] = [];
+        for (const f of readdirSync(src)) {
+          const rel = `src/ReplicatedStorage/BloxMap/${f}`;
+          const dest = join(ctx.projectPath, rel);
+          if (existsSync(dest)) continue;
+          mkdirSync(dirname(dest), { recursive: true });
+          writeFileSync(dest, readFileSync(join(src, f), 'utf8'));
+          created.push(rel);
+        }
+        return { text: `${created.length ? `wrote ${created.join(', ')}` : 'BloxMap already installed'}. In world/<Map>.luau: local Map = require(game.ReplicatedStorage.BloxMap); Map.Lighting.apply("bright"); local B = Map.Build … then map {action:"check"} and map {action:"shots"}.`, artifacts: created, summary: `${created.length} files` };
+      }
+      const mc = ctx.config.map;
+      const cfg: MapConfig = {
+        root: (a.root as string | undefined) ?? mc?.root ?? 'Workspace.Map',
+        spawns: (a.spawns as Record<string, string> | undefined) ?? mc?.spawns ?? {},
+        jumpHeight: mc?.jumpHeight,
+        boundary: mc?.boundary,
+        interiorTag: mc?.interiorTag ?? 'Interior',
+        triangleBudget: mc?.triangleBudget ?? 40000,
+      };
+      let pre = '';
+      if (a.sync !== false && (await ctx.session.state()).mode === 'Edit') {
+        const s = await pushProject(ctx.session, ctx.projectPath, { worldDir: ctx.config.worldDir });
+        writeJson(ctx.projectPath, 'last-sync.json', { ...s, at: new Date().toISOString() });
+        if (!s.ok) return { text: formatSyncResult(s), isError: true, summary: 'sync failed' };
+        pre = formatSyncResult(s).split('\n')[0] + '\n';
+      }
+      let rep = readJson<MapReport>(ctx.projectPath, 'map-report.json');
+      if (a.action === 'check' || !rep) rep = await runMapCheck(ctx.session, ctx.projectPath, cfg);
+      if (a.action === 'shots') {
+        const raw = rep.raw as MapReport['raw'] & { spawnPos?: number[] };
+        const far = raw.groups.flatMap((g) => g.points).map((p) => p.pos.split(',').map(Number)).sort((x, y) => Math.hypot(y[0] - (raw.spawnPos?.[0] ?? 0), y[2] - (raw.spawnPos?.[2] ?? 0)) - Math.hypot(x[0] - (raw.spawnPos?.[0] ?? 0), x[2] - (raw.spawnPos?.[2] ?? 0)))[0];
+        const shots = await runMapShots(ctx.session, ctx.projectPath, { bbox: raw.playBbox, spawn: raw.spawnPos ?? [0, 0, 0], far });
+        rep = evaluateMap({ ...raw, shotSaturation: shots.saturation }, { triangleBudget: cfg.triangleBudget });
+        writeJson(ctx.projectPath, 'map-report.json', rep);
+        refreshCriteria(ctx.projectPath);
+        return {
+          text: pre + `map shots: ${shots.path} — top row: ${shots.names.slice(0, 4).join(', ')}; bottom row: ${shots.names.slice(4).join(', ')}. Rendered colour saturation ${shots.saturation.toFixed(2)} (A bright kid-friendly map is about 0.5+).${shots.notes.length ? ' ' + shots.notes.join('; ') : ''}`,
+          images: [{ data: shots.data, mimeType: 'image/jpeg' }],
+          artifacts: [shots.path],
+          summary: `saturation ${shots.saturation.toFixed(2)}`,
+        };
+      }
+      refreshCriteria(ctx.projectPath);
+      const failed = rep.results.filter((x) => !x.ok).length;
+      return { text: pre + formatMap(rep), isError: failed > 0, summary: `${rep.results.length - failed}/${rep.results.length} checks` };
     },
   },
   {

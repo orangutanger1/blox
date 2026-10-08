@@ -153,6 +153,8 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.states === 'string' ? { states: JSON.parse(fileOrText(o.states)) } : {}),
         },
       };
+    case 'map':
+      return { tool: 'map', args: { action: f.rest[0] ?? 'check', ...(typeof o.root === 'string' ? { root: o.root } : {}), ...(typeof o.spawns === 'string' ? { spawns: JSON.parse(fileOrText(o.spawns)) } : {}), ...(o['no-sync'] ? { sync: false } : {}) } };
     case 'present': {
       const action = f.rest[0] ?? 'get';
       if (action === 'set') return { tool: 'present', args: { action, doc: JSON.parse(f.rest.slice(1).join(' ')) } };
@@ -416,6 +418,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
            blox image generate --items '<json>'|@file [--style icon|item|badge|'<text>'] [--size 512] [--backend kaggle-qwen|cloudflare-flux] [--overwrite] | setup | status
+           blox map check|shots|install [--root Workspace.Map] [--spawns '{"Dogs":"Workspace.Map.DogSpawns"}'] [--no-sync]
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] [--no-phone] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox idea research [--fresh] [--device all|phone|computer|tablet|console] | propose '<json ideas>' | list | brief <id>
            blox model brief <id> --prompt '…' [--tris N --rig --anims walk,run --refs a.png,b.png]
