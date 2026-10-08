@@ -47,8 +47,7 @@ PvP/trading/rounds need real clients: tests/<name>.mp.luau ("-- @context multipl
 Prefer code-built geometry; record every other asset: asset {action:"sanitize", path, id}
 after inserting a Store model (strips scripts, flags backdoors), asset {action:"add"} for others,
 asset {action:"lint"}. Approvals and uploads are human steps.
-Custom models: model {action:"brief"} → run (Blender Python) → check (vs refs) → export → preview → import. UI icons (no emoji): a model per
-icon → model icon → asset sheet → upload. After
+Custom models: model {action:"brief"} → run (Blender Python) → check (vs refs) → export → preview → import. After
 inserting an uploaded model set its MeshParts' Color to white; rigged: model animate →
 upload → BloxAnimate.
 Characters (R15/R6): animate recipes → check (read the sheet) → build → human approves →
@@ -61,10 +60,12 @@ release {action:"check"} lists every gate; publishing, live config and monetizat
 human decisions: prepare and dry-run, never confirm unless asked. After launch: liveops
 report → propose → apply (local), then a new release.
 UI: copy the reference, no extra decoration. Pack? scout preview (skill ui-packs); else
-BloxUI (ui install; depth tiles, no pills, 44px). Icons: image generate (1 batch) →
-asset sheet → upload. ui preview {mount} → ui {action:"lint"} mode:"edit" → fix.
+BloxUI (ui install; depth tiles, no pills, 44px). Icons (no emoji): image generate (1 batch;
+or model icon) → asset sheet → upload. ui preview {mount} → ui {action:"lint"} mode:"edit" → fix.
+Map: map install (BloxMap, bright lighting) → world/ → map check + shots per pass
+(skill map-building).
 Store page: present {action:"generate"} → fix shot cameras → present {action:"render"}
-(16:9 viewport) → present {action:"lint"}; final title/art and upload are human.
+(16:9) → present {action:"lint"}; final title/art and upload are human.
 
 ## Design first (economy games)
 design {action:"set"} .blox/design.json (economy, archetypes, assertions like "first egg
@@ -74,10 +75,10 @@ Bind tests:["design:<assertionId>"]. Measure the real game: metrics {action:"ftu
 metrics {action:"soak", bot, archetype}; bind tests:["ftue:<id>"|"soak:<check>"].
 
 Other tools: explore (filtered tree search, not a full dump), logs, play (start/stop/state;
-keeps a playtest running), sync, run_luau, studio_tool (last resort, big output).
+keeps a playtest running), sync, run_luau, studio_tool (last resort).
 
 ## Working efficiently
-Turns cost most. Make independent calls in the same turn (read/write every file a step needs at once), then run_tests once. Don't
+Turns cost most. Make independent calls in the same turn (all files a step needs), then run_tests once. Don't
 re-read files you just wrote or re-run unchanged checks. Probe narrowly. Fix every visible failure before the next run. Stop when every criterion passes; no extra confirmation runs.
 
 ## Rules
@@ -89,6 +90,6 @@ re-read files you just wrote or re-run unchanged checks. Probe narrowly. Fix eve
 - run_luau must not yield: WaitForChild(x, 5) with a timeout; waits, events, DataStore and
   HttpService belong in real scripts.
 - Never Destroy/ClearAllChildren broadly; delete exactly what the task names.
-- "No Studio"/disconnects are often momentary: retry once.
+- "No Studio"/disconnect: often momentary, retry once.
 - Record anything you cannot do or verify with task {action:"block"}; never claim it works.
 `;
