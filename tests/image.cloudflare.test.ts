@@ -14,12 +14,14 @@ function fakeFetch(o: { failRun?: boolean } = {}) {
 }
 
 describe('cloudflare flux backend', () => {
-  it('finds the account, runs flux-1-schnell per item with its seed', async () => {
+  it('finds the account, runs flux-1-schnell per item (the API takes no seed)', async () => {
     const { f, calls } = fakeFetch();
     const r = await runFluxBatch([{ file: 'a.png', prompt: 'coin', seed: 3 }, { file: 'b.png', prompt: 'gem', seed: 4 }], { fetch: f as any, token: async () => SECRET });
     expect(calls[0].url).toMatch(/\/client\/v4\/accounts$/);
     expect(calls[1].url).toMatch(/accounts\/acc1\/ai\/run\/@cf\/black-forest-labs\/flux-1-schnell$/);
-    expect(calls[1].body).toMatchObject({ prompt: 'coin', seed: 3 });
+    expect(calls[1].body).toMatchObject({ prompt: 'coin' });
+    expect(calls[1].body).not.toHaveProperty('seed');
+    expect(r[0].seed).toBeUndefined();
     expect(calls[1].auth).toBe(`Bearer ${SECRET}`);
     expect(r.map((x) => x.data!.toString())).toEqual(['JPEG2', 'JPEG3']);
   });

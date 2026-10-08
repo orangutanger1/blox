@@ -45,10 +45,10 @@ export async function runFluxBatch(items: KernelItem[], o: { fetch?: Fetch; toke
   const out: BatchResult[] = [];
   for (const it of items) {
     try {
-      const r = await f(`${API}/accounts/${account}/ai/run/${FLUX_MODEL}`, { method: 'POST', headers, body: JSON.stringify({ prompt: it.prompt, seed: it.seed, steps: o.steps ?? 8 }) });
+      const r = await f(`${API}/accounts/${account}/ai/run/${FLUX_MODEL}`, { method: 'POST', headers, body: JSON.stringify({ prompt: it.prompt, steps: o.steps ?? 8 }) }); // the API rejects `seed` (2026-10): FLUX runs aren't reproducible
       const j = (await r.json()) as { success?: boolean; result?: { image?: string }; errors?: { message: string }[] };
       if (!r.ok || !j.result?.image) throw new Error(`HTTP ${r.status}: ${(j.errors ?? []).map((e) => e.message).join('; ')}`);
-      out.push({ file: it.file, seed: it.seed, data: Buffer.from(j.result.image, 'base64') });
+      out.push({ file: it.file, seed: undefined, data: Buffer.from(j.result.image, 'base64') });
     } catch (e) {
       out.push({ file: it.file, seed: it.seed, error: scrub(`flux: ${(e as Error).message}`, token) });
     }

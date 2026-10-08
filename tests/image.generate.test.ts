@@ -50,6 +50,45 @@ describe('generateImages', () => {
   });
 });
 
+describe('image cache', () => {
+  const counting = (name: string) => { const b = ok(name); const run = b.run; const calls: string[][] = []; b.run = async (items, o) => { calls.push(items.map((i) => i.file)); return run(items, o); }; return { b, calls }; };
+  it('reuses a cached image for the same prompt, style, size and backend; only misses go to the backend', async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
+    const { b, calls } = counting('kaggle-qwen');
+    await generateImages(proj(), { items: [{ name: 'coin', prompt: 'a gold coin' }] }, { backends: [b], cacheDir });
+    const P = proj();
+    const r = await generateImages(P, { items: [{ name: 'coin', prompt: 'a gold coin' }, { name: 'gem', prompt: 'a gem' }] }, { backends: [b], cacheDir });
+    expect(calls).toEqual([['coin.png'], ['gem.png']]);
+    expect(r.written.map((w) => w.name).sort()).toEqual(['coin', 'gem']);
+    expect(r.cached).toEqual(['coin']);
+    expect(existsSync(join(P, 'assets/icons/coin.png'))).toBe(true);
+    expect(loadManifest(P).assets.find((a) => a.id === 'icon-coin')!.provenance).toMatchObject({ backend: 'kaggle-qwen', prompt: 'a gold coin' });
+  });
+  it('all hits: no backend run at all; a different size, style or fresh:true misses', async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
+    const { b, calls } = counting('kaggle-qwen');
+    const one = { items: [{ name: 'coin', prompt: 'a gold coin' }] };
+    await generateImages(proj(), one, { backends: [b], cacheDir });
+    await generateImages(proj(), one, { backends: [b], cacheDir });
+    expect(calls).toHaveLength(1);
+    await generateImages(proj(), { ...one, size: 256 }, { backends: [b], cacheDir });
+    await generateImages(proj(), { ...one, style: 'badge' }, { backends: [b], cacheDir });
+    await generateImages(proj(), { ...one, fresh: true }, { backends: [b], cacheDir });
+    expect(calls).toHaveLength(4);
+  });
+  it('a hit from a fallback backend counts; an explicit seed is part of the key', async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
+    const flux = counting('cloudflare-flux');
+    await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [down, flux.b], cacheDir });
+    const q = counting('kaggle-qwen');
+    const r = await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [q.b, flux.b], cacheDir });
+    expect(q.calls).toHaveLength(0);
+    expect(r.backend).toBe('cloudflare-flux');
+    await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem', seed: 7 }] }, { backends: [q.b], cacheDir });
+    expect(q.calls).toHaveLength(1);
+  });
+});
+
 describe('release licence gate', () => {
   it('fails when a monetized game uses a non-commercial generated asset', () => {
     const P = proj();
