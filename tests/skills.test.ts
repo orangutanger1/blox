@@ -5,7 +5,7 @@ import { TOOLS, invokeTool, type ToolCtx } from '../src/tools/registry.js';
 describe('skills', () => {
   it('lists the vendored roblox-brain skills and the blox skills by library', () => {
     const all = listSkills();
-    expect(all.length).toBe(32);
+    expect(all.length).toBe(33);
     expect(new Set(all.map((s) => s.library))).toEqual(new Set(['core', 'gameplay', 'design', 'tools', 'animation', 'ui', 'map']));
     expect(all.every((s) => s.description.length > 10)).toBe(true);
     expect(formatSkillList(all)).toMatch(/roblox-security — /);
@@ -36,5 +36,17 @@ describe('skills', () => {
     const out = await invokeTool(tool, { name: 'roblox-data' }, {} as ToolCtx);
     expect(out.isError).toBeFalsy();
     expect(out.text).toMatch(/# skill: roblox-data/);
+  });
+});
+
+describe('ui-check skill', () => {
+  it('states the preview/lint numbers the code uses', async () => {
+    const { DEVICES, TOPBAR } = await import('../src/ui/lint.js');
+    const { EDIT_HOST } = await import('../src/ui/stage.js');
+    const r = loadSkill('ui-check');
+    expect(r.ok).toBe(true);
+    expect(r.text).toContain(`CoreGui.${EDIT_HOST}`);
+    expect(r.text).toContain(`${TOPBAR} px top bar`);
+    for (const d of DEVICES) expect(r.text).toContain(`| ${d.name} | ${d.w}×${d.h} |`);
   });
 });
