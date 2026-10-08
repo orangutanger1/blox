@@ -8,6 +8,8 @@ import { fakeStudio } from './fakeStudio.js';
 
 const port = () => 38000 + Math.floor(Math.random() * 2000);
 const ok = JSON.stringify({ ok: true, n: 1, values: { v1: true }, logs: [] });
+// The run token the harness install wrote into the place (the real plugin reads it back from ServerStorage).
+let placeToken = '';
 
 function setup(mode: 'Edit' | 'Play' = 'Edit') {
   const p = mkdtempSync(join(tmpdir(), 'blox-mprun-'));
@@ -16,7 +18,7 @@ function setup(mode: 'Edit' | 'Play' = 'Edit') {
   const calls: string[] = [];
   const f = fakeStudio({
     mode,
-    luau: (code) => { calls.push(code.includes('Instance.new("Folder")') && code.includes('BloxMpRun') ? 'install' : code.includes('__BloxMp') ? 'cleanup' : 'other'); return ok; },
+    luau: (code) => { placeToken = /"token":"([^"]+)"/.exec(code)?.[1] ?? placeToken; calls.push(code.includes('Instance.new("Folder")') && code.includes('BloxMpRun') ? 'install' : code.includes('__BloxMp') ? 'cleanup' : 'other'); return ok; },
     // Scripts are created with multi_edit (Studio capability sandbox).
     tools: { multi_edit: (a) => { calls.push(`script ${String(a.file_path)} ${String(a.className)}`); return 'Created'; } },
   });
@@ -26,7 +28,7 @@ function setup(mode: 'Edit' | 'Play' = 'Edit') {
 
 async function plugin(lane: number, result: (clients: number) => unknown) {
   for (let i = 0; i < 300; i++) {
-    const j = (await fetch(`http://127.0.0.1:${lane}/lane/job`).then((r) => r.json(), () => ({}))) as { id?: string; clients: number };
+    const j = (await fetch(`http://127.0.0.1:${lane}/lane/job?mp=${placeToken}`).then((r) => r.json(), () => ({}))) as { id?: string; clients: number };
     if (j.id) {
       await fetch(`http://127.0.0.1:${lane}/lane/result`, { method: 'POST', body: JSON.stringify({ id: j.id, ok: true, result: result(j.clients) }) });
       return;

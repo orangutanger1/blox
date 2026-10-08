@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import type { SpecFile } from '../testing/runner.js';
@@ -48,10 +49,11 @@ export async function runMultiplayer(session: StudioSession, projectPath: string
   const mod = specsModule(found.specs, o.testTimeoutSec ?? 30);
   const report: MpReport = { ranAt: new Date().toISOString(), clients, results: [], fileErrors: [] };
   try {
-    const install = await runLuau(session, installProgram({ clients, joinTimeout: 60 }), 'edit', { chunkName: 'mp-install', timeoutMs: 60_000 });
+    const token = randomUUID();
+    const install = await runLuau(session, installProgram({ clients, joinTimeout: 60, token }), 'edit', { chunkName: 'mp-install', timeoutMs: 60_000 });
     if (!install.ok) throw new Error(`could not install the multiplayer harness: ${install.error?.message}`);
     for (const sc of mpScripts(mod.source)) await installScript(session, sc, sc.source, `multiplayer ${sc.path[sc.path.length - 1]}`);
-    const lane = await runLaneJob({ kind: 'multiplayer', clients }, { port: o.lanePort, pickupMs: o.pickupMs, timeoutMs: (o.timeoutSec ?? 180) * 1000 });
+    const lane = await runLaneJob({ kind: 'multiplayer', clients, token }, { port: o.lanePort, pickupMs: o.pickupMs, timeoutMs: (o.timeoutSec ?? 180) * 1000 });
     if (!lane.ok) {
       report.error = `StudioTestService: ${lane.error ?? 'failed'}`;
       return report;

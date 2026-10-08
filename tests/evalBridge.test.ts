@@ -64,12 +64,12 @@ describe('lane context routing', () => {
     expect(got).toMatchObject({ kind: 'eval', context: 'client', source: 's' });
     expect(await job).toEqual({ ok: true, result: 'r' });
   });
-  it('multiplayer jobs still go to edit pollers without a ctx (older plugins)', async () => {
+  it('multiplayer jobs go to edit pollers with the run token (no ctx = edit), never to play pollers', async () => {
     const p = port();
-    const job = runLaneJob({ kind: 'multiplayer', clients: 2 }, { port: p, pickupMs: 3000, timeoutMs: 3000 });
+    const job = runLaneJob({ kind: 'multiplayer', clients: 2, token: 't' }, { port: p, pickupMs: 3000, timeoutMs: 3000 });
     await new Promise((r) => setTimeout(r, 30));
-    expect(await (await fetch(`http://127.0.0.1:${p}/lane/job?ctx=play`)).json()).toEqual({});
-    const r = await fetch(`http://127.0.0.1:${p}/lane/job`);
+    expect(await (await fetch(`http://127.0.0.1:${p}/lane/job?ctx=play&mp=t`)).json()).toEqual({});
+    const r = await fetch(`http://127.0.0.1:${p}/lane/job?mp=t`);
     const j = (await r.json()) as { id: string };
     await fetch(`http://127.0.0.1:${p}/lane/result`, { method: 'POST', body: JSON.stringify({ id: j.id, ok: true, result: 1 }) });
     expect(await job).toEqual({ ok: true, result: 1 });
