@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { StudioSession } from '../studio/session.js';
 import { restoreFor } from '../studio/host.js';
 import { composeSheet, meanSaturation } from '../ui/sheet.js';
+import { withStage } from './run.js';
 
 // The standard map views, framed on the play area: four high corners, eye
 // level from the spawn and from the far end, straight down, and a player's
@@ -46,18 +47,20 @@ export interface MapShots {
   notes: string[];
 }
 
-export async function runMapShots(session: StudioSession, projectPath: string, o: { bbox: { min: V3; max: V3 }; spawn: V3; far?: V3 }): Promise<MapShots> {
+export async function runMapShots(session: StudioSession, projectPath: string, o: { bbox: { min: V3; max: V3 }; spawn: V3; far?: V3; root?: string }): Promise<MapShots> {
   if ((await session.state()).mode !== 'Edit') throw new Error('map shots are edit-mode captures: stop the playtest first');
   await restoreFor(session);
   const cams = shotCameras(o.bbox, o.spawn, o.far);
   const caps: (Buffer | null)[] = [];
   const notes: string[] = [];
-  for (const c of cams) {
-    const r = await session.call('screen_capture', { capture_id: `map-${c.name}`, camera_position: c.position, look_at_position: c.lookAt }, 30_000);
-    const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
-    if (!img?.data) notes.push(`${c.name}: no capture`);
-    caps.push(img?.data ? Buffer.from(img.data, 'base64') : null);
-  }
+  await withStage(session, o.root, async () => {
+    for (const c of cams) {
+      const r = await session.call('screen_capture', { capture_id: `map-${c.name}`, camera_position: c.position, look_at_position: c.lookAt }, 30_000);
+      const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
+      if (!img?.data) notes.push(`${c.name}: no capture`);
+      caps.push(img?.data ? Buffer.from(img.data, 'base64') : null);
+    }
+  });
   const shots = caps.filter((x): x is Buffer => !!x);
   const saturation = shots.length ? shots.reduce((a, b) => a + meanSaturation(b), 0) / shots.length : 0;
   const sheet = composeSheet([caps.slice(0, 4), caps.slice(4, 8)], 300);

@@ -24,7 +24,7 @@ import { runMetrics } from '../metrics/run.js';
 import { formatMetrics } from '../metrics/gamefeel.js';
 import { runUiLint, runUiLintEdit, runUiPreview, type UiState } from '../ui/run.js';
 import { DEVICES, formatUiReport } from '../ui/lint.js';
-import { runMapCheck, type MapConfig } from '../map/run.js';
+import { runMapChecks, mapRoots, mapReportFile, readMapReport, mergeLatestMapReports, type MapConfig } from '../map/run.js';
 import { evaluateMap, formatMap, type MapReport } from '../map/evaluate.js';
 import { runMapShots } from '../map/shots.js';
 import { validatePresentation, type Presentation } from '../present/schema.js';
@@ -648,7 +648,7 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'map',
     description:
-      'Maps. install (BloxMap kit: Palette — saturated, kid-friendly colours; Lighting.apply("bright"); Build — ground, boundary with invisible barrier, road with kerbs, house {L,D,H, roof gable|flat, enterable (real door gap, tagged interior)}, crate, bale, fence, tree, lamp, pole, silo, marker) | check {root?, spawns?} (sync, then edit-mode walkability with the real jump (StarterPlayer + 0.9 take-off): map:spawns-reach (every named spawn group reaches a player spawn), pockets, leak (outside the boundary), triangles (measured per view, budget map.triangleBudget=40000), and warnings roofs, covered (outside "Interior"-tagged parts), floating, overlap, saturation (part colours + lighting haze/colour correction + rendered shots)) | shots (8 standard views framed on the reachable area → one contact sheet image + its colour saturation; compare with the references). Config: blox.config.json map {root, spawns:{group: path}, jumpHeight?, boundary?, triangleBudget?}. Criteria bind via tests:["map:<check>"].',
+      'Maps. install (BloxMap kit: Palette — saturated, kid-friendly colours; Lighting.apply("bright"); Build — ground, boundary with invisible barrier, road with kerbs, house {L,D,H, roof gable|flat, enterable (real door gap, tagged interior)}, crate, bale, fence, tree, lamp, pole, silo, marker) | check {root?, spawns?} (sync, then edit-mode walkability with the real jump (StarterPlayer + 0.9 take-off): map:spawns-reach (every named spawn group reaches a player spawn), pockets, leak (outside the boundary), triangles (measured per view, budget map.triangleBudget=40000), and warnings roofs, covered (outside "Interior"-tagged parts), floating, overlap, saturation (part colours + lighting haze/colour correction + rendered shots)) | shots (8 standard views framed on the reachable area → one contact sheet image + its colour saturation; compare with the references). Config: blox.config.json map {root (a path or a list of maps; roots outside Workspace such as ServerStorage.Maps.Farm are checked on a temporary copy), playerSpawns? (marker parts players start at — a path or a name under each root — instead of SpawnLocations), spawns:{group: path or name under the root}, jumpHeight?, boundary?, triangleBudget?}. Several roots: check runs each (root arg = just that one; shots needs one) and map-report.json merges the latest result of every map for the gate. Criteria bind via tests:["map:<check>"].',
     shape: {
       action: z.enum(['check', 'shots', 'install']),
       root: z.string().optional(),
@@ -671,7 +671,8 @@ export const TOOLS: BloxTool[] = [
       }
       const mc = ctx.config.map;
       const cfg: MapConfig = {
-        root: (a.root as string | undefined) ?? mc?.root ?? 'Workspace.Map',
+        root: mc?.root ?? 'Workspace.Map',
+        playerSpawns: mc?.playerSpawns,
         spawns: (a.spawns as Record<string, string> | undefined) ?? mc?.spawns ?? {},
         jumpHeight: mc?.jumpHeight,
         boundary: mc?.boundary,
@@ -685,14 +686,22 @@ export const TOOLS: BloxTool[] = [
         if (!s.ok) return { text: formatSyncResult(s), isError: true, summary: 'sync failed' };
         pre = formatSyncResult(s).split('\n')[0] + '\n';
       }
-      let rep = readJson<MapReport>(ctx.projectPath, 'map-report.json');
-      if (a.action === 'check' || !rep) rep = await runMapCheck(ctx.session, ctx.projectPath, cfg);
+      const only = a.root ? [a.root as string] : undefined;
+      if (a.action === 'shots' && !only && mapRoots(cfg.root).length > 1) return { text: `map shots frames one map: pass root (one of ${mapRoots(cfg.root).join(', ')})`, isError: true, summary: 'root?' };
+      const one = only?.[0] ?? mapRoots(cfg.root)[0];
+      let rep = a.action === 'check' ? null : readMapReport(ctx.projectPath, one);
+      let checked: MapReport[] = [];
+      if (!rep) {
+        checked = await runMapChecks(ctx.session, ctx.projectPath, cfg, a.action === 'check' ? only : [one]);
+        rep = checked[0];
+      }
       if (a.action === 'shots') {
         const raw = rep.raw as MapReport['raw'] & { spawnPos?: number[] };
         const far = raw.groups.flatMap((g) => g.points).map((p) => p.pos.split(',').map(Number)).sort((x, y) => Math.hypot(y[0] - (raw.spawnPos?.[0] ?? 0), y[2] - (raw.spawnPos?.[2] ?? 0)) - Math.hypot(x[0] - (raw.spawnPos?.[0] ?? 0), x[2] - (raw.spawnPos?.[2] ?? 0)))[0];
-        const shots = await runMapShots(ctx.session, ctx.projectPath, { bbox: raw.playBbox, spawn: raw.spawnPos ?? [0, 0, 0], far });
+        const shots = await runMapShots(ctx.session, ctx.projectPath, { bbox: raw.playBbox, spawn: raw.spawnPos ?? [0, 0, 0], far, root: one });
         rep = evaluateMap({ ...raw, shotSaturation: shots.saturation }, { triangleBudget: cfg.triangleBudget });
-        writeJson(ctx.projectPath, 'map-report.json', rep);
+        writeJson(ctx.projectPath, mapReportFile(one), rep);
+        mergeLatestMapReports(ctx.projectPath, [...new Set([...mapRoots(cfg.root), one])]);
         refreshCriteria(ctx.projectPath);
         return {
           text: pre + `map shots: ${shots.path} — top row: ${shots.names.slice(0, 4).join(', ')}; bottom row: ${shots.names.slice(4).join(', ')}. Rendered colour saturation ${shots.saturation.toFixed(2)} (A bright kid-friendly map is about 0.5+).${shots.notes.length ? ' ' + shots.notes.join('; ') : ''}`,
@@ -702,8 +711,9 @@ export const TOOLS: BloxTool[] = [
         };
       }
       refreshCriteria(ctx.projectPath);
-      const failed = rep.results.filter((x) => !x.ok).length;
-      return { text: pre + formatMap(rep), isError: failed > 0, summary: `${rep.results.length - failed}/${rep.results.length} checks` };
+      const failed = checked.reduce((n, r) => n + r.results.filter((x) => !x.ok).length, 0);
+      const total = checked.reduce((n, r) => n + r.results.length, 0);
+      return { text: pre + checked.map(formatMap).join('\n'), isError: failed > 0, summary: `${total - failed}/${total} checks${checked.length > 1 ? ` over ${checked.length} maps` : ''}` };
     },
   },
   {
