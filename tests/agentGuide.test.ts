@@ -18,7 +18,7 @@ const MUST_KEEP = [
   // assets / models / animation
   'asset {action:"sanitize"', 'asset {action:"lint"}', 'model {action:"brief"}', 'Color to white', 'animate recipes', 'animate wire', 'animate npc',
   // release, ui, store, design, metrics
-  'release {action:"check"}', 'never confirm unless asked', 'liveops report', 'ui {action:"lint"}', '44px', 'present {action:"render"}', '16:9',
+  'release {action:"check"}', 'never confirm unless asked', 'liveops report', 'ui {action:"lint"}', '44px', 'present {action:"render"}', '16:9', 'map install', 'bright lighting', 'skill map-building', 'image generate',
   'design {action:"simulate"}', 'Tunables', 'design:<assertionId>', 'metrics {action:"soak"', 'ftue:<id>',
   // human gates and proof (safety wording: keep exact)
   'human approves', 'Approvals and uploads are human steps', 'human decisions', 'prepare and dry-run', 'apply (local)',
