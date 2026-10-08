@@ -76,6 +76,8 @@ export const BloxConfigSchema = z.object({
   // dock plugin, which can require() game modules. Off by default; see
   // src/studio/evalBridge.ts for the guardrails.
   bridge: z.object({ eval: z.boolean().default(false) }).prefault({}),
+  // The game earns money (passes, products, ads): non-commercial assets then fail release check.
+  monetized: z.boolean().default(false),
   testDir: z.string().default('tests'),
   worldDir: z.string().default('world'),
 });

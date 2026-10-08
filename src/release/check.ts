@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { bloxDir, readJson } from '../state/store.js';
 import { loadManifest, type AssetEntry } from '../assets/manifest.js';
@@ -78,6 +78,7 @@ export function releaseCheck(projectPath: string): ReleaseReport {
   if (existsSync(join(bloxDir(projectPath), 'assets.json'))) {
     gates.push(fromResults('assets', true, readJson<Results>(projectPath, 'asset-report.json')));
     gates.push(...provenanceGates(projectPath, code));
+    gates.push(licenceGate(projectPath));
   } else gates.push({ id: 'assets', required: false, status: 'n/a', detail: 'no assets.json' });
   gates.push(codeIdsGate(projectPath, code));
   const ready = gates.every((g) => !g.required || g.status === 'pass');
@@ -124,6 +125,30 @@ function provenanceGates(projectPath: string, code: CodeAssetRefs): Gate[] {
   const placeOnly = inGame.filter((a) => !quarantined(a) && !a.uploaded && !(a.ref.file && existsSync(join(projectPath, a.ref.file))) && a.source === 'creator-store');
   if (placeOnly.length) gates.push({ id: 'place-only', required: false, status: 'fail', detail: `${placeOnly.length} adopted pack(s) exist only in the Studio place (${placeOnly.slice(0, 4).map((a) => a.ref.path).join(', ')}): \`blox asset save\` writes them to assets/packs/ so sync can put them back (and save the place file)` });
   return gates;
+}
+
+// Non-commercial licences (Qwen-Image weights) are fine for a personal game,
+// not once it earns money: blox.config.json "monetized": true turns them into a failure.
+const NON_COMMERCIAL = new Set(['qwen-research']);
+function licenceGate(projectPath: string): Gate {
+  let m;
+  try {
+    m = loadManifest(projectPath);
+  } catch {
+    return { id: 'licence', required: false, status: 'n/a', detail: 'invalid manifest (see provenance)' };
+  }
+  const nc = m.assets.filter((a) => a.status !== 'rejected' && NON_COMMERCIAL.has(a.licence) && (a.uploaded || a.ref.path || a.ref.assetId));
+  if (!nc.length) return { id: 'licence', required: false, status: 'n/a', detail: 'no non-commercial assets in use' };
+  let monetized = false;
+  try {
+    monetized = JSON.parse(readFileSync(join(projectPath, 'blox.config.json'), 'utf8')).monetized === true;
+  } catch {
+    // no config: not monetized
+  }
+  const list = nc.slice(0, 6).map((a) => a.id).join(', ') + (nc.length > 6 ? `, +${nc.length - 6} more` : '');
+  return monetized
+    ? { id: 'licence', required: true, status: 'fail', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — regenerate them with a commercial-use backend (image generate backend:"cloudflare-flux") or replace them` }
+    : { id: 'licence', required: false, status: 'pass', detail: `${nc.length} non-commercial asset(s) (${list}); fine while blox.config.json has no "monetized": true` };
 }
 
 // An asset url in code with no manifest entry has no recorded source or licence.
