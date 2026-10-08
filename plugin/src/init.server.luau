@@ -174,7 +174,9 @@ local function frameInViewport(instance: Instance?)
 	local dist = math.max(size.Magnitude, 1) * 2
 	local target = CFrame.lookAt(cf.Position + Vector3.new(dist, dist * 0.6, dist), cf.Position)
 	local camera = workspace.CurrentCamera
-	TweenService:Create(camera, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = target }):Play()
+	TweenService
+		:Create(camera, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = target })
+		:Play()
 end
 
 -- Reject disposition (P2 spec §2): stash, don't destroy. Runs BEFORE the
@@ -447,7 +449,12 @@ end
 if RunService:IsEdit() then
 	task.spawn(function()
 		while true do
-			local job = laneRequest("GET", "/job")
+			-- Only the place `blox multiplayer` installed its harness into asks for
+			-- the job (other open Studios would run a test of the wrong place).
+			local raw = game:GetService("ServerStorage"):GetAttribute("BloxMpRun")
+			local okRun, run = pcall(HttpService.JSONDecode, HttpService, if type(raw) == "string" then raw else "")
+			local token = if okRun and type(run) == "table" and type(run.token) == "string" then run.token else nil
+			local job = if token then laneRequest("GET", "/job?ctx=edit&mp=" .. HttpService:UrlEncode(token)) else nil
 			if job and job.id and job.kind == "multiplayer" then
 				local ok, result = pcall(function()
 					return StudioTestService:ExecuteMultiplayerTestAsync(job.clients, {})

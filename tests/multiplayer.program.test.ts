@@ -42,7 +42,7 @@ describe('generated Luau', () => {
       'harness.luau': HARNESS_SOURCE,
       'client.luau': CLIENT_SOURCE,
       'cleanup.luau': CLEANUP,
-      'install.luau': installProgram({ clients: 2, joinTimeout: 60 }),
+      'install.luau': installProgram({ clients: 2, joinTimeout: 60, token: 't' }),
     };
     for (const [f, s] of Object.entries(files)) writeFileSync(join(d, f), s);
     expect(luneCheck(Object.keys(files).map((f) => join(d, f)))).toEqual([]);

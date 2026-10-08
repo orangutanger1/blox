@@ -6,7 +6,10 @@ import { randomUUID } from 'node:crypto';
 // GET /lane/job?ctx=<edit|play> hands the job out once, only to the plugin
 // instance in the DataModel that runs it (no ctx = edit, which is what older
 // plugins send): edit runs multiplayer jobs, the play server runs eval jobs for
-// both server and client (only the server may make HTTP requests).
+// both server and client (only the server may make HTTP requests). A
+// multiplayer job also needs &mp=<token>: the harness install writes the token
+// into the target place, so another open Studio (or an old plugin) never takes
+// the job and runs a test session of the wrong place.
 // POST /lane/result settles it.
 
 export const LANE_PORT = 35769;
@@ -14,7 +17,7 @@ export const LANE_PORT = 35769;
 export type LaneContext = 'edit' | 'play';
 
 export type LaneJob =
-  | { kind: 'multiplayer'; clients: number }
+  | { kind: 'multiplayer'; clients: number; token: string }
   | { kind: 'eval'; context: 'server' | 'client'; source: string; timeoutMs: number };
 
 export function laneJobContext(job: LaneJob): LaneContext {
@@ -62,6 +65,7 @@ export function runLaneJob(job: LaneJob, o: LaneRunOptions): Promise<LaneResult>
       const url = new URL(req.url ?? '/', 'http://lane');
       if (req.method === 'GET' && url.pathname === '/lane/job') {
         if (taken || done || (url.searchParams.get('ctx') ?? 'edit') !== laneJobContext(job)) return send(200, {});
+        if (job.kind === 'multiplayer' && url.searchParams.get('mp') !== job.token) return send(200, {});
         taken = true;
         return send(200, { id, ...job });
       }

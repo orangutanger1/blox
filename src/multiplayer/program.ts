@@ -183,7 +183,7 @@ return true`;
 // the run config. The three scripts are created separately with Studio's
 // multi_edit (mpScripts): since Studio's Sep 2026 capability sandbox the
 // execute_luau thread may not parent scripts it creates.
-export function installProgram(cfg: { clients: number; joinTimeout: number }): string {
+export function installProgram(cfg: { clients: number; joinTimeout: number; token: string }): string {
   return `${CLEANUP.replace(/\nreturn true$/, '')}
 local folder = Instance.new("Folder")
 folder.Name = "__BloxMp"
