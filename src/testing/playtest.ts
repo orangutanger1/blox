@@ -1,3 +1,4 @@
+import { shrinkJpeg } from '../ui/sheet.js';
 import { restoreFor } from '../studio/host.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -74,7 +75,9 @@ export async function captureScreenshot(
   const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
   if (!img?.data) return null;
   const mimeType = img.mimeType ?? 'image/jpeg';
-  return { path: saveArtifact(projectPath, label, mimeType, img.data), mimeType, data: img.data };
+  const path = saveArtifact(projectPath, label, mimeType, img.data); // full size on disk
+  const small = shrinkJpeg(Buffer.from(img.data, 'base64')).toString('base64'); // what the model sees
+  return small.length < img.data.length ? { path, mimeType: 'image/jpeg', data: small } : { path, mimeType, data: img.data };
 }
 
 const INPUT_TOOL: Record<'navigate' | 'keyboard' | 'mouse', string> = {

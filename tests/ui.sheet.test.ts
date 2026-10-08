@@ -31,3 +31,23 @@ describe('contact sheet', () => {
     expect(Math.abs(grey[0] - grey[2]) < 12 && grey[0] < 90).toBe(true);
   });
 });
+
+describe('image size caps', () => {
+  it('a sheet wider than 1600 px shrinks its cells to fit', () => {
+    const wide = solid(160, 90, [40, 160, 40]);
+    const sheet = composeSheet([[wide, wide, wide, wide]], 300); // natural ≈ 2170 px
+    const d = jpeg.decode(sheet, { useTArray: true });
+    expect(d.width).toBeLessThanOrEqual(1600);
+    expect(d.width).toBeGreaterThan(1500);
+    expect(near(px(sheet, d.width - 20, Math.floor(d.height / 2)), [40, 160, 40])).toBe(true); // last cell not cut off
+  });
+  it('shrinkJpeg keeps small images and scales big ones to maxW', async () => {
+    const { shrinkJpeg } = await import('../src/ui/sheet.js');
+    const small = solid(400, 200, [200, 30, 30]);
+    expect(shrinkJpeg(small, 1280)).toBe(small);
+    const big = shrinkJpeg(solid(2560, 1440, [200, 30, 30]), 1280);
+    const d = jpeg.decode(big, { useTArray: true });
+    expect([d.width, d.height]).toEqual([1280, 720]);
+    expect(near(px(big, 640, 360), [200, 30, 30])).toBe(true);
+  });
+});
