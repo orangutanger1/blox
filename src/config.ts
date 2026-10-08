@@ -82,7 +82,10 @@ export const BloxConfigSchema = z.object({
   // and the movement/budget numbers (see src/map/run.ts).
   map: z
     .object({
-      root: z.string().default('Workspace.Map'),
+      // one map or several (e.g. ServerStorage.Maps.Farm, …: checked on a copy in Workspace)
+      root: z.union([z.string(), z.array(z.string()).min(1)]).default('Workspace.Map'),
+      // marker parts players start at (path, or a name under each root); default: SpawnLocations
+      playerSpawns: z.string().optional(),
       spawns: z.record(z.string(), z.string()).default({}),
       jumpHeight: z.number().positive().optional(),
       boundary: z.object({ min: z.tuple([z.number(), z.number()]), max: z.tuple([z.number(), z.number()]) }).optional(),

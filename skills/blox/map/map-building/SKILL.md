@@ -33,7 +33,10 @@ and covered spots nobody meant to be reachable.
    `roofBlue`, `hay`…); pass a name as `style`. Keep neutrals (road, kerb,
    concrete, metal) for a minority of the area.
 4. Name enemy/NPC spawn groups in config: `"map": {"spawns": {"Dogs":
-   "Workspace.Map.DogSpawns"}}`. Player spawns are the SpawnLocations.
+   "Workspace.Map.DogSpawns"}}`. Player spawns are the SpawnLocations, or
+   marker parts named by `"playerSpawns": "PlayerSpawns"`. Several maps kept
+   in ServerStorage: `"root": ["ServerStorage.Maps.Farm", …]` (checked and
+   shot on a temporary Workspace copy; `--root` for one; shots need one).
 5. map {action:"check"} after each building pass. Fix every failure:
    - spawns-reach / pockets: open a path or lower the step (jump height
      includes 0.9 studs of take-off; a 7-stud ledge is climbable).

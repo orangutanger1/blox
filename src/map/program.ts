@@ -9,7 +9,8 @@ import { longString } from '../studio/luau.js';
 // article arm's MapCheck, plus overlaps, interiors and colour saturation.
 
 export interface MapCheckParams {
-  root: string; // e.g. "Workspace.Map"
+  root: string; // e.g. "Workspace.Map" or "ServerStorage.Maps.Farm" (cloned into Workspace for the check)
+  playerSpawns?: string; // marker parts players start at: a path or a descendant name under the root; default SpawnLocations
   groups: Record<string, string>; // spawn group name → instance path
   jump: number | null; // studs incl. take-off; null = read StarterPlayer + 0.9
   step: number;
@@ -21,6 +22,26 @@ export interface MapCheckParams {
 
 export const TAKEOFF = 0.9; // the Humanoid rises ~0.9 studs more than v²/2g (JumpPower 50 → 7.27)
 export const PROBE = '__BloxMapProbe';
+export const STAGE = '__BloxMapStage';
+
+// Renders (triangle views, map shots) only see Workspace: put a copy of a map
+// kept elsewhere (ServerStorage.Maps.<Id>) there while they run. Returns true when staged.
+export function stageProgram(root: string, on: boolean): string {
+  if (!on) return `local s = workspace:FindFirstChild("${STAGE}")
+if s then s:Destroy() end
+return s ~= nil`;
+  return `local old = workspace:FindFirstChild("${STAGE}")
+if old then old:Destroy() end
+local cur = game
+for name in string.gmatch(${JSON.stringify(root)}, "[^%.]+") do
+	if not (cur == game and name == "game") then cur = cur and cur:FindFirstChild(name) end
+end
+if not cur or cur:IsDescendantOf(workspace) then return false end
+local c = cur:Clone()
+c.Name = "${STAGE}"
+c.Parent = workspace
+return true`;
+}
 
 export function mapCheckProgram(p: MapCheckParams): string {
   return `local HttpService = game:GetService("HttpService")
@@ -36,8 +57,42 @@ local function resolve(path)
 	end
 	return cur
 end
-local map = resolve(P.root)
-if not map then error("map root " .. P.root .. " not found (set map.root in blox.config.json)") end
+local src = resolve(P.root)
+if not src then error("map root " .. P.root .. " not found (set map.root in blox.config.json)") end
+-- raycasts only see Workspace: check a copy of a map kept elsewhere (ServerStorage.Maps.<Id>)
+-- and look at nothing but that copy, so the lobby or another map can't get in the way
+local map, tmp = src, nil
+if not src:IsDescendantOf(workspace) then
+	tmp = src:Clone()
+	tmp.Name = "__BloxMapCheck"
+	tmp.Parent = workspace
+	map = tmp
+end
+local function scoped(extra)
+	local q = RaycastParams.new()
+	if tmp then
+		q.FilterType = Enum.RaycastFilterType.Include
+		q.FilterDescendantsInstances = { tmp }
+	else
+		q.FilterType = Enum.RaycastFilterType.Exclude
+		q.FilterDescendantsInstances = extra or {}
+	end
+	q.RespectCanCollide = true
+	return q
+end
+-- a group path: absolute ("ServerStorage.Maps.Farm.DogSpawns") or a name under the root ("DogSpawns")
+local function find(path)
+	return resolve(path) or src:FindFirstChild(path, true)
+end
+local function points(g)
+	local list = {}
+	if g:IsA("BasePart") then list = { g } else for _, c in g:GetChildren() do if c:IsA("BasePart") or c:IsA("Model") then table.insert(list, c) end end end
+	return list
+end
+local function where(c)
+	if c:IsA("Model") then return c:GetPivot().Position, 0 end
+	return c.Position, c.Size.Y
+end
 local SP = game:GetService("StarterPlayer")
 local JUMP = P.jump
 if JUMP == nil then
@@ -77,20 +132,29 @@ end
 if #visible == 0 then error("map root " .. P.root .. " has no visible parts") end
 
 local spawns = {}
-for _, d in map:GetDescendants() do
-	if d:IsA("SpawnLocation") then table.insert(spawns, d) end
-end
-if #spawns == 0 then
-	for _, d in workspace:GetDescendants() do
-		if d:IsA("SpawnLocation") then table.insert(spawns, d) end
+if P.playerSpawns then
+	local g = find(P.playerSpawns)
+	if not g then
+		if tmp then tmp:Destroy() end
+		error("player spawns " .. P.playerSpawns .. " not found under " .. P.root .. " (map.playerSpawns)")
+	end
+	for _, c in points(g) do local pos, h = where(c) table.insert(spawns, { pos = pos, h = h }) end
+else
+	for _, d in src:GetDescendants() do
+		if d:IsA("SpawnLocation") then table.insert(spawns, { pos = d.Position, h = d.Size.Y }) end
+	end
+	if #spawns == 0 then
+		for _, d in workspace:GetDescendants() do
+			if d:IsA("SpawnLocation") and not (tmp and d:IsDescendantOf(tmp)) then table.insert(spawns, { pos = d.Position, h = d.Size.Y }) end
+		end
 	end
 end
-if #spawns == 0 then error("no SpawnLocation in the map: add one (players start there; map check walks from it)") end
+if #spawns == 0 then
+	if tmp then tmp:Destroy() end
+	error("no player spawns in the map: add a SpawnLocation, or set map.playerSpawns to the marker parts players start at (map check walks from them)")
+end
 
-local params = RaycastParams.new()
-params.FilterType = Enum.RaycastFilterType.Exclude
-params.RespectCanCollide = true
-params.FilterDescendantsInstances = {}
+local params = scoped()
 
 local PAD = 24
 local topY = maxV.Y + 40
@@ -111,9 +175,9 @@ probe.Transparency = 1
 probe.Size = Vector3.new(1.2, HEADROOM - 0.3, 1.2)
 probe.Parent = workspace
 local overlap = OverlapParams.new()
-overlap.FilterType = Enum.RaycastFilterType.Exclude
+overlap.FilterType = if tmp then Enum.RaycastFilterType.Include else Enum.RaycastFilterType.Exclude
 overlap.RespectCanCollide = true
-overlap.FilterDescendantsInstances = { probe }
+overlap.FilterDescendantsInstances = if tmp then { tmp } else { probe }
 
 local interiors = {}
 for _, t in CollectionService:GetTagged(P.interiorTag) do
@@ -215,7 +279,7 @@ local function search()
 		return seen
 	end
 	local starts = {}
-	for _, s in spawns do table.insert(starts, nearest(s.Position + Vector3.new(0, s.Size.Y / 2, 0))) end
+	for _, s in spawns do table.insert(starts, nearest(s.pos + Vector3.new(0, s.h / 2, 0))) end
 	local fwd, back = bfs(starts, adj), bfs(starts, radj)
 	return { nodes = nodes, nodeY = nodeY, nodeI = nodeI, nodeJ = nodeJ, nodeRoof = nodeRoof, N = N, groundY = groundY, nearest = nearest, fwd = fwd, back = back }
 end
@@ -265,13 +329,11 @@ local ok, err = pcall(function()
 
 	local groups = {}
 	for name, path in pairs(P.groups) do
-		local g = resolve(path)
+		local g = find(path)
 		local entry = { name = name, path = path, found = g ~= nil, points = {} }
 		if g then
-			local list = {}
-			if g:IsA("BasePart") then list = { g } else for _, c in g:GetChildren() do if c:IsA("BasePart") or c:IsA("Model") then table.insert(list, c) end end end
-			for _, c in list do
-				local pos = if c:IsA("Model") then c:GetPivot().Position else c.Position
+			for _, c in points(g) do
+				local pos = where(c)
 				local n = nearest(pos)
 				table.insert(entry.points, { name = c.Name, pos = string.format("%d,%d,%d", pos.X, pos.Y, pos.Z), reaches = n ~= nil and back[n] == true })
 			end
@@ -281,14 +343,19 @@ local ok, err = pcall(function()
 
 	-- floating: visible anchored collidable parts above the ground with nothing within 0.3 studs
 	local op = OverlapParams.new()
-	op.FilterType = Enum.RaycastFilterType.Exclude
+	op.FilterType = if tmp then Enum.RaycastFilterType.Include else Enum.RaycastFilterType.Exclude
+	if tmp then op.FilterDescendantsInstances = { tmp } end
 	local floating, floatS = 0, {}
 	for _, d in visible do
 		if d.Anchored and d.CanCollide and d.Position.Y - d.Size.Y / 2 > groundY + 0.5 then
-			op.FilterDescendantsInstances = { d }
-			if #workspace:GetPartBoundsInBox(d.CFrame, d.Size + Vector3.new(0.6, 0.6, 0.6), op) == 0 then
+			if not tmp then op.FilterDescendantsInstances = { d } end
+			local touching = 0
+			for _, o in workspace:GetPartBoundsInBox(d.CFrame, d.Size + Vector3.new(0.6, 0.6, 0.6), op) do
+				if o ~= d then touching += 1 end
+			end
+			if touching == 0 then
 				floating += 1
-				if #floatS < 8 then table.insert(floatS, d:GetFullName()) end
+				if #floatS < 8 then table.insert(floatS, (d:GetFullName():gsub("^Workspace%.__BloxMapCheck", P.root))) end
 			end
 		end
 	end
@@ -327,7 +394,7 @@ local ok, err = pcall(function()
 
 	return {
 		root = P.root, jump = JUMP, step = STEP, groundY = groundY, standable = N, reachable = R.reach,
-		playerSpawns = #spawns, spawnPos = { spawns[1].Position.X, spawns[1].Position.Y, spawns[1].Position.Z },
+		playerSpawns = #spawns, spawnPos = { spawns[1].pos.X, spawns[1].pos.Y, spawns[1].pos.Z },
 		bbox = { min = { minV.X, minV.Y, minV.Z }, max = { maxV.X, maxV.Y, maxV.Z } },
 		playBbox = { min = { rminX, minV.Y, rminZ }, max = { rmaxX, maxV.Y, rmaxZ } },
 		groups = groups,
@@ -348,6 +415,7 @@ local ok, err = pcall(function()
 	}
 end)
 probe:Destroy()
+if tmp then tmp:Destroy() end
 if not ok then error(err, 0) end
 return HttpService:JSONEncode(err)`;
 }

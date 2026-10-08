@@ -7,6 +7,7 @@ import { shotCameras, runMapShots } from '../src/map/shots.js';
 import { meanSaturation } from '../src/ui/sheet.js';
 import { StudioSession } from '../src/studio/session.js';
 import { fakeStudio } from './fakeStudio.js';
+import { STAGE } from '../src/map/program.js';
 
 const box = { min: [-100, 0, -50], max: [100, 30, 50] };
 const inside = (p: number[]) => p[0] >= -100 && p[0] <= 100 && p[2] >= -50 && p[2] <= 50;
@@ -36,5 +37,16 @@ describe('map shots', () => {
     expect(f.calls.filter((c) => c.name === 'screen_capture')).toHaveLength(8);
     expect(r.path).toBe('.blox/map-shots.jpg');
     expect(r.saturation).toBeGreaterThan(0.5);
+  });
+  it('a map kept outside Workspace is staged for the captures and removed after', async () => {
+    const order: string[] = [];
+    const f = fakeStudio({
+      luau: (code) => { if (code.includes(STAGE)) order.push(code.includes(':Clone()') ? 'stage' : 'unstage'); return JSON.stringify({ ok: true, n: 1, values: { v1: true }, logs: [] }); },
+      tools: { screen_capture: () => { order.push('cap'); return { content: [] }; } },
+    });
+    const s = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    await runMapShots(s, mkdtempSync(join(tmpdir(), 'blox-shots-')), { bbox: box, spawn: [-80, 2, -30], root: 'ServerStorage.Maps.Farm' });
+    expect(order[0]).toBe('stage');
+    expect(order.at(-1)).toBe('unstage');
   });
 });

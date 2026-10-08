@@ -30,3 +30,10 @@ describe('map criteria and release gate', () => {
     expect(c.map).toMatchObject({ root: 'Workspace.Farm', interiorTag: 'Interior', triangleBudget: 40000 });
   });
 });
+
+describe('map config: several roots and marker spawns', () => {
+  it('root may be a list; playerSpawns names the marker parts', () => {
+    const c = BloxConfigSchema.parse({ projectPath: '/x', map: { root: ['ServerStorage.Maps.Farm', 'ServerStorage.Maps.Island'], playerSpawns: 'PlayerSpawns' } });
+    expect(c.map).toMatchObject({ root: ['ServerStorage.Maps.Farm', 'ServerStorage.Maps.Island'], playerSpawns: 'PlayerSpawns' });
+  });
+});

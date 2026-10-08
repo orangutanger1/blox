@@ -56,6 +56,21 @@ export interface MapReport {
   ranAt: string;
   raw: MapRaw;
   results: MetricResult[];
+  roots?: string[]; // a merge of several maps' reports (raw = the first map's)
+}
+
+// One result per check across maps: fails if any map fails; the detail names each map that isn't clean.
+export function mergeMapReports(reps: MapReport[]): MapReport {
+  const name = (r: MapReport) => r.raw.root.split('.').pop()!;
+  const ids = [...new Set(reps.flatMap((r) => r.results.map((x) => x.id)))];
+  const results = ids.map((id): MetricResult => {
+    const per = reps.map((r) => ({ r, x: r.results.find((x) => x.id === id) })).filter((p) => p.x);
+    const ok = per.every((p) => p.x!.ok);
+    const noisy = per.filter((p) => !p.x!.ok || /^warn/.test(p.x!.detail ?? ''));
+    const shown = noisy.length ? noisy : per;
+    return { id, ok, actual: per.reduce((a, p) => a + (Number(p.x!.actual) || 0), 0), detail: shown.map((p) => `${name(p.r)}: ${p.x!.detail}`).join(' | ') };
+  });
+  return { ranAt: reps.map((r) => r.ranAt).sort().pop()!, raw: reps[0].raw, results, roots: reps.map((r) => r.raw.root) };
 }
 
 export const MIN_SATURATION = 0.3;
