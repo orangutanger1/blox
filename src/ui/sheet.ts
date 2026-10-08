@@ -90,3 +90,17 @@ export function composeSheet(rows: (Buffer | null)[][], cellH = 360): Buffer {
   }
   return encode({ w: W, h: H, data: out });
 }
+
+// Mean HSV saturation (0..1) of an image's pixels: how colourful a render is.
+export function meanSaturation(b: Buffer): number {
+  const img = decode(b);
+  if (!img) return 0;
+  let sum = 0;
+  const n = img.w * img.h;
+  for (let i = 0; i < n; i++) {
+    const r = img.data[i * 4], g = img.data[i * 4 + 1], bl = img.data[i * 4 + 2];
+    const max = Math.max(r, g, bl);
+    sum += max === 0 ? 0 : (max - Math.min(r, g, bl)) / max;
+  }
+  return n ? sum / n : 0;
+}

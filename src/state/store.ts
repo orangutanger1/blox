@@ -130,7 +130,8 @@ export function evaluateCriteria(task: TaskState, lastTests: TestSummaryLike | n
 // with tests: ["design:<id>"] (design sim, .blox/sim-report.json) or
 // ["ftue:<id>"] / ["soak:<check>"] (playtest metrics, .blox/metrics-report.json) or
 // ["ui:<rule>"] (UI lint, .blox/ui-report.json) or ["present:<rule>"]
-// (store-page lint, .blox/present-report.json). Multiplayer specs
+// (store-page lint, .blox/present-report.json) or ["map:<check>"] (map check,
+// .blox/map-report.json). Multiplayer specs
 // (.blox/mp-report.json) keep their own file/name, like run_tests results.
 export function withSyntheticResults(projectPath: string, lt: TestSummaryLike | null): TestSummaryLike | null {
   const sim = readJson<{ ranAt: string; assertions: { id: string; ok: boolean }[] }>(projectPath, 'sim-report.json');
@@ -139,7 +140,8 @@ export function withSyntheticResults(projectPath: string, lt: TestSummaryLike | 
   const pres = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'present-report.json');
   const mp = readJson<{ ranAt: string; results: { file: string; name: string; status: string }[] }>(projectPath, 'mp-report.json');
   const assets = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'asset-report.json');
-  if (!sim && !met && !ui && !pres && !mp && !assets) return lt;
+  const map = readJson<{ ranAt: string; results: { id: string; ok: boolean }[] }>(projectPath, 'map-report.json');
+  if (!sim && !met && !ui && !pres && !mp && !assets && !map) return lt;
   const tests = [
     ...(sim?.assertions ?? []).map((a) => ({ file: 'design', name: `design:${a.id}`, status: a.ok ? 'pass' : 'fail' })),
     ...(met?.results ?? []).map((r) => ({ file: 'metrics', name: r.id, status: r.ok ? 'pass' : 'fail' })),
@@ -147,8 +149,9 @@ export function withSyntheticResults(projectPath: string, lt: TestSummaryLike | 
     ...(pres?.results ?? []).map((r) => ({ file: 'present', name: r.id, status: r.ok ? 'pass' : 'fail' })),
     ...(mp?.results ?? []).map((r) => ({ file: r.file, name: r.name, status: r.status })),
     ...(assets?.results ?? []).map((r) => ({ file: 'assets', name: r.id, status: r.ok ? 'pass' : 'fail' })),
+    ...(map?.results ?? []).map((r) => ({ file: 'map', name: r.id, status: r.ok ? 'pass' : 'fail' })),
   ];
-  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui?.ranAt ?? pres?.ranAt ?? mp?.ranAt ?? assets!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
+  return { ranAt: lt?.ranAt ?? sim?.ranAt ?? met?.ranAt ?? ui?.ranAt ?? pres?.ranAt ?? mp?.ranAt ?? assets?.ranAt ?? map!.ranAt, tests: [...(lt?.tests ?? []), ...tests] };
 }
 
 // compact: for outputs repeated every turn (run_tests). Passing criteria shrink

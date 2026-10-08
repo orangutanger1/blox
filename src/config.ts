@@ -78,6 +78,18 @@ export const BloxConfigSchema = z.object({
   bridge: z.object({ eval: z.boolean().default(false) }).prefault({}),
   // The game earns money (passes, products, ads): non-commercial assets then fail release check.
   monetized: z.boolean().default(false),
+  // map check: the map's root, named spawn groups that must reach the players,
+  // and the movement/budget numbers (see src/map/run.ts).
+  map: z
+    .object({
+      root: z.string().default('Workspace.Map'),
+      spawns: z.record(z.string(), z.string()).default({}),
+      jumpHeight: z.number().positive().optional(),
+      boundary: z.object({ min: z.tuple([z.number(), z.number()]), max: z.tuple([z.number(), z.number()]) }).optional(),
+      interiorTag: z.string().default('Interior'),
+      triangleBudget: z.number().int().positive().default(40000),
+    })
+    .optional(),
   testDir: z.string().default('tests'),
   worldDir: z.string().default('world'),
 });

@@ -74,6 +74,7 @@ export function releaseCheck(projectPath: string): ReleaseReport {
   } else gates.push({ id: 'multiplayer', required: false, status: 'n/a', detail: 'no *.mp.luau specs' });
   gates.push(fromResults('ui', true, readJson<Results>(projectPath, 'ui-report.json')));
   gates.push(fromResults('present', true, readJson<Results>(projectPath, 'present-report.json')));
+  gates.push(hasMapConfig(projectPath) ? fromResults('map', true, readJson<Results>(projectPath, 'map-report.json')) : { id: 'map', required: false, status: 'n/a', detail: 'no map in blox.config.json' });
   const code = codeAssetRefs(projectPath);
   if (existsSync(join(bloxDir(projectPath), 'assets.json'))) {
     gates.push(fromResults('assets', true, readJson<Results>(projectPath, 'asset-report.json')));
@@ -149,6 +150,14 @@ function licenceGate(projectPath: string): Gate {
   return monetized
     ? { id: 'licence', required: true, status: 'fail', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — regenerate them with a commercial-use backend (image generate backend:"cloudflare-flux") or replace them` }
     : { id: 'licence', required: false, status: 'pass', detail: `${nc.length} non-commercial asset(s) (${list}); fine while blox.config.json has no "monetized": true` };
+}
+
+function hasMapConfig(projectPath: string): boolean {
+  try {
+    return JSON.parse(readFileSync(join(projectPath, 'blox.config.json'), 'utf8')).map !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 // An asset url in code with no manifest entry has no recorded source or licence.
