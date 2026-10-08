@@ -25,13 +25,29 @@ export interface Operation {
   error?: { message?: string };
 }
 
-export function openCloudKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (env.ROBLOX_OPEN_CLOUD_KEY) return env.ROBLOX_OPEN_CLOUD_KEY;
+// NAME from the environment, else from ~/.config/blox/opencloud.env.
+export function openCloudSetting(name: string, env: NodeJS.ProcessEnv = process.env): { value: string; from: 'env' | 'file' } | undefined {
+  if (env[name]) return { value: env[name]!, from: 'env' };
   const file = join(authConfigDir(env), 'opencloud.env');
   if (!existsSync(file)) return undefined;
-  const m = /^\s*(?:export\s+)?ROBLOX_OPEN_CLOUD_KEY=(.*)$/m.exec(readFileSync(file, 'utf8'));
+  const m = new RegExp(`^\\s*(?:export\\s+)?${name}=(.*)$`, 'm').exec(readFileSync(file, 'utf8'));
   const v = m?.[1].trim().replace(/^(['"])(.*)\1$/, '$2');
-  return v || undefined;
+  return v ? { value: v, from: 'file' } : undefined;
+}
+
+export function openCloudKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return openCloudSetting('ROBLOX_OPEN_CLOUD_KEY', env)?.value;
+}
+
+// Who owns uploads when .blox/assets.json names no creator: ROBLOX_CREATOR_GROUP_ID
+// or ROBLOX_CREATOR_USER_ID (environment, else opencloud.env).
+export function defaultCreator(env: NodeJS.ProcessEnv = process.env): { creator: { userId?: number; groupId?: number }; from: string } | undefined {
+  for (const [name, key] of [['ROBLOX_CREATOR_GROUP_ID', 'groupId'], ['ROBLOX_CREATOR_USER_ID', 'userId']] as const) {
+    const s = openCloudSetting(name, env);
+    const n = Number(s?.value);
+    if (s && Number.isInteger(n) && n > 0) return { creator: { [key]: n }, from: `${name} (${s.from === 'env' ? 'environment' : '~/.config/blox/opencloud.env'})` };
+  }
+  return undefined;
 }
 
 export const NO_KEY = 'no Open Cloud API key: a human must create one (Creator Hub → Open Cloud → API Keys, scoped to this experience) and export ROBLOX_OPEN_CLOUD_KEY or put `export ROBLOX_OPEN_CLOUD_KEY=...` in ~/.config/blox/opencloud.env (chmod 600)';

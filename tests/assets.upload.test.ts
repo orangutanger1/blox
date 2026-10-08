@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addAsset, approveAsset, loadManifest, saveManifest } from '../src/assets/manifest.js';
@@ -77,5 +77,28 @@ describe('planUpload animation', () => {
     writeFileSync(join(dir, 'walk.rbxm'), 'x');
     writeFileSync(join(dir, '.blox/assets.json'), JSON.stringify({ version: 1, creator: { userId: 1 }, assets: [{ id: 'dog-walk', kind: 'animation', source: 'generated', licence: 'owned', ref: { file: 'walk.rbxm' }, provenance: { tool: 't', createdAt: '2026-10-02T00:00:00Z' }, status: 'approved' }] }));
     expect(planUpload(dir, 'dog-walk').plan).toMatchObject({ assetType: 'Animation', contentType: 'model/x-rbxm' });
+  });
+});
+
+describe('upload creator default', () => {
+  it('without a manifest creator, takes ROBLOX_CREATOR_USER_ID from the env and says so', async () => {
+    const { planUpload } = await import('../src/assets/upload.js');
+    const p = project(true, false);
+    const { plan } = planUpload(p, 'rock', { ROBLOX_CREATOR_USER_ID: '77', XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), 'blox-cfg-')) });
+    expect(plan.creator).toEqual({ userId: 77 });
+    expect(plan.creatorFrom).toMatch(/ROBLOX_CREATOR_USER_ID/);
+  });
+  it('reads the creator from opencloud.env; a group id wins over a user id; the manifest wins over both', async () => {
+    const { planUpload } = await import('../src/assets/upload.js');
+    const cfg = mkdtempSync(join(tmpdir(), 'blox-cfg-'));
+    mkdirSync(join(cfg, 'blox'));
+    writeFileSync(join(cfg, 'blox/opencloud.env'), 'export ROBLOX_OPEN_CLOUD_KEY=k\nexport ROBLOX_CREATOR_USER_ID="5"\nROBLOX_CREATOR_GROUP_ID=9\n');
+    const env = { XDG_CONFIG_HOME: cfg };
+    expect(planUpload(project(true, false), 'rock', env).plan).toMatchObject({ creator: { groupId: 9 }, creatorFrom: expect.stringMatching(/opencloud\.env/) });
+    expect(planUpload(project(true, true), 'rock', env).plan).toMatchObject({ creator: { userId: 42 }, creatorFrom: '.blox/assets.json' });
+  });
+  it('with no creator anywhere, the error names every place to set one', async () => {
+    const { planUpload } = await import('../src/assets/upload.js');
+    expect(() => planUpload(project(true, false), 'rock', { XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), 'blox-cfg-')) })).toThrow(/ROBLOX_CREATOR_USER_ID.*opencloud\.env/);
   });
 });

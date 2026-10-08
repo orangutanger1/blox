@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import { NO_KEY, OpenCloud, openCloudKey } from '../opencloud/client.js';
+import { NO_KEY, OpenCloud, defaultCreator, openCloudKey } from '../opencloud/client.js';
 import { loadManifest, saveManifest, type AssetEntry } from './manifest.js';
 
 // Upload = publishing content to Roblox (moderated, public-facing). Three gates:
@@ -31,9 +31,10 @@ export interface UploadPlan {
   displayName: string;
   description: string;
   creator: { userId?: number; groupId?: number };
+  creatorFrom: string; // where the creator came from (.blox/assets.json or the default)
 }
 
-export function planUpload(projectPath: string, id: string): { plan: UploadPlan; entry: AssetEntry } {
+export function planUpload(projectPath: string, id: string, env: NodeJS.ProcessEnv = process.env): { plan: UploadPlan; entry: AssetEntry } {
   const m = loadManifest(projectPath);
   const entry = m.assets.find((a) => a.id === id);
   if (!entry) throw new Error(`unknown asset "${id}"`);
@@ -45,10 +46,11 @@ export function planUpload(projectPath: string, id: string): { plan: UploadPlan;
   if (!found) throw new Error(`unsupported upload type ${extname(file)} (supported: ${Object.keys(TYPES).join(' ')})`);
   // A KeyframeSequence .rbxm goes up as an Animation, not a Model.
   const t = entry.kind === 'animation' && extname(file).toLowerCase() === '.rbxm' ? { ...found, assetType: 'Animation' } : found;
-  if (!m.creator?.userId && !m.creator?.groupId) throw new Error('set "creator": {"userId": N} or {"groupId": N} in .blox/assets.json');
+  const own = m.creator?.userId || m.creator?.groupId ? { creator: m.creator, from: '.blox/assets.json' } : defaultCreator(env);
+  if (!own) throw new Error('no upload creator: export ROBLOX_CREATOR_USER_ID=<your user id> (or ROBLOX_CREATOR_GROUP_ID) in ~/.config/blox/opencloud.env, or set "creator": {"userId": N} in .blox/assets.json');
   return {
     entry,
-    plan: { id, file: entry.ref.file, ...t, displayName: id.slice(0, 50), description: `${entry.kind} (${entry.source}, ${entry.licence}) via blox`, creator: m.creator },
+    plan: { id, file: entry.ref.file, ...t, displayName: id.slice(0, 50), description: `${entry.kind} (${entry.source}, ${entry.licence}) via blox`, creator: own.creator, creatorFrom: own.from },
   };
 }
 
@@ -57,7 +59,8 @@ export async function uploadAsset(projectPath: string, id: string, o: { confirm?
   if (!o.confirm) return { dryRun: true, plan };
   if (!o.client && !openCloudKey()) throw new Error(NO_KEY);
   const client = o.client ?? new OpenCloud();
-  const op = await client.uploadAsset({ ...plan, file: readFileSync(join(projectPath, plan.file)), fileName: basename(plan.file) });
+  const { creatorFrom: _from, ...req } = plan;
+  const op = await client.uploadAsset({ ...req, file: readFileSync(join(projectPath, plan.file)), fileName: basename(plan.file) });
   const res = op.done ? op.response ?? {} : await client.waitOperation(op.path, { sleep: o.sleep });
   const assetId = Number(res.assetId);
   if (!Number.isFinite(assetId) || assetId <= 0) throw new Error(`upload finished without an assetId (operation ${op.path})`);
