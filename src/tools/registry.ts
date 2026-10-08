@@ -25,7 +25,7 @@ import { formatMetrics } from '../metrics/gamefeel.js';
 import { runUiLint, runUiLintEdit, runUiPreview, type UiState } from '../ui/run.js';
 import { DEVICES, formatUiReport } from '../ui/lint.js';
 import { runMapChecks, mapRoots, mapReportFile, readMapReport, mergeLatestMapReports, type MapConfig } from '../map/run.js';
-import { evaluateMap, formatMap, type MapReport } from '../map/evaluate.js';
+import { evaluateMap, formatMap, mapDetail, DETAIL_CHECKS, type MapReport } from '../map/evaluate.js';
 import { runMapShots } from '../map/shots.js';
 import { validatePresentation, type Presentation } from '../present/schema.js';
 import { defaultShots, describe as describeGame, titleCandidates } from '../present/generate.js';
@@ -648,10 +648,11 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'map',
     description:
-      'Maps. install (BloxMap kit: Palette — saturated, kid-friendly colours; Lighting.apply("bright"); Build — ground, boundary with invisible barrier, road with kerbs, house {L,D,H, roof gable|flat, enterable (real door gap, tagged interior)}, crate, bale, fence, tree, lamp, pole, silo, marker) | check {root?, spawns?} (sync, then edit-mode walkability with the real jump (StarterPlayer + 0.9 take-off): map:spawns-reach (every named spawn group reaches a player spawn), pockets, leak (outside the boundary), triangles (measured per view, budget map.triangleBudget=40000), and warnings roofs, covered (outside "Interior"-tagged parts), floating, overlap, saturation (part colours + lighting haze/colour correction + rendered shots)) | shots (8 standard views framed on the reachable area → one contact sheet image + its colour saturation; compare with the references). Config: blox.config.json map {root (a path or a list of maps; roots outside Workspace such as ServerStorage.Maps.Farm are checked on a temporary copy), playerSpawns? (marker parts players start at — a path or a name under each root — instead of SpawnLocations), spawns:{group: path or name under the root}, jumpHeight?, boundary?, triangleBudget?}. Several roots: check runs each (root arg = just that one; shots needs one) and map-report.json merges the latest result of every map for the gate. Criteria bind via tests:["map:<check>"].',
+      'Maps. install (BloxMap kit: Palette — saturated, kid-friendly colours; Lighting.apply("bright"); Build — ground, boundary with invisible barrier, road with kerbs, house {L,D,H, roof gable|flat, enterable (real door gap, tagged interior)}, crate, bale, fence, tree, lamp, pole, silo, marker) | check {root?, spawns?} (sync, then edit-mode walkability with the real jump (StarterPlayer + 0.9 take-off): map:spawns-reach (every named spawn group reaches a player spawn), pockets, leak (outside the boundary), triangles (measured per view, budget map.triangleBudget=40000), and warnings roofs, covered (outside "Interior"-tagged parts), floating, overlap, saturation (part colours + lighting haze/colour correction + rendered shots)) | detail {check, root?} (no Studio: every sample of one check from the last report, grouped into regions — coordinates to fix, no need to parse .blox/map-report.json) | shots (8 standard views framed on the reachable area → one contact sheet image + its colour saturation; compare with the references). Config: blox.config.json map {root (a path or a list of maps; roots outside Workspace such as ServerStorage.Maps.Farm are checked on a temporary copy), playerSpawns? (marker parts players start at — a path or a name under each root — instead of SpawnLocations), spawns:{group: path or name under the root}, jumpHeight?, boundary?, triangleBudget?}. Several roots: check runs each (root arg = just that one; shots needs one) and map-report.json merges the latest result of every map for the gate. Criteria bind via tests:["map:<check>"].',
     shape: {
-      action: z.enum(['check', 'shots', 'install']),
+      action: z.enum(['check', 'shots', 'install', 'detail']),
       root: z.string().optional(),
+      check: z.string().optional(),
       spawns: z.record(z.string(), z.string()).optional(),
       sync: z.boolean().optional(),
     },
@@ -670,6 +671,13 @@ export const TOOLS: BloxTool[] = [
         return { text: `${created.length ? `wrote ${created.join(', ')}` : 'BloxMap already installed'}. In world/<Map>.luau: local Map = require(game.ReplicatedStorage.BloxMap); Map.Lighting.apply("bright"); local B = Map.Build … then map {action:"check"} and map {action:"shots"}.`, artifacts: created, summary: `${created.length} files` };
       }
       const mc = ctx.config.map;
+      if (a.action === 'detail') {
+        const root = (a.root as string | undefined) ?? mapRoots(mc?.root ?? 'Workspace.Map')[0];
+        const rep = readMapReport(ctx.projectPath, root);
+        if (!rep) return { text: `no map report for ${root}: run map {action:"check"} first`, isError: true, summary: 'no report' };
+        if (typeof a.check !== 'string') return { text: `detail needs check: one of ${DETAIL_CHECKS.join(', ')}`, isError: true, summary: 'check?' };
+        return { text: mapDetail(rep, a.check), summary: a.check };
+      }
       const cfg: MapConfig = {
         root: mc?.root ?? 'Workspace.Map',
         playerSpawns: mc?.playerSpawns,

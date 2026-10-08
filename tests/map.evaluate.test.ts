@@ -53,3 +53,22 @@ describe('evaluateMap', () => {
     expect(t).toMatch(/✓ map:pockets/);
   });
 });
+
+describe('map detail', () => {
+  it('lists every sample of one check, grouped into regions', async () => {
+    const { mapDetail } = await import('../src/map/evaluate.js');
+    const raw = base({ step: 2, coveredOutside: 6, coveredSamples: ['0,0,0', '2,0,0', '2,0,2', '50,0,50', '52,0,50', '100,9,0'] });
+    const rep = evaluateMap(raw, { triangleBudget: 60000 });
+    const t = mapDetail(rep, 'covered');
+    expect(t).toMatch(/map:covered \(Workspace\.Map, .*\): ok — 6 point\(s\), 6 sampled, 3 region\(s\)/);
+    expect(t).toMatch(/3 pts x 0\.\.2 z 0\.\.2 y 0/);
+    expect(t).toMatch(/0,0,0; 2,0,0; 2,0,2/);
+  });
+  it('spawns-reach lists every point and whether it reaches; unknown checks name the choices', async () => {
+    const { mapDetail } = await import('../src/map/evaluate.js');
+    const rep = evaluateMap(base(), { triangleBudget: 60000 });
+    expect(mapDetail(rep, 'spawns-reach')).toMatch(/DogSpawns\/D2 at 5,0,5 reaches/);
+    expect(mapDetail(rep, 'map:triangles')).toMatch(/top: 12000 opaque/);
+    expect(() => mapDetail(rep, 'nope')).toThrow(/pockets.*roofs/);
+  });
+});

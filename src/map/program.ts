@@ -309,7 +309,7 @@ local ok, err = pcall(function()
 	local seenS = {}
 	local function sample(k, x, y, z)
 		local t = string.format("%d,%d,%d", x, y, z)
-		if #S[k] < 8 and not seenS[k .. t] then seenS[k .. t] = true table.insert(S[k], t) end
+		if #S[k] < 200 and not seenS[k .. t] then seenS[k .. t] = true table.insert(S[k], t) end
 	end
 	local rminX, rmaxX, rminZ, rmaxZ = math.huge, -math.huge, math.huge, -math.huge
 	for n = 1, N do
@@ -355,7 +355,7 @@ local ok, err = pcall(function()
 			end
 			if touching == 0 then
 				floating += 1
-				if #floatS < 8 then table.insert(floatS, (d:GetFullName():gsub("^Workspace%.__BloxMapCheck", P.root))) end
+				if #floatS < 60 then table.insert(floatS, (d:GetFullName():gsub("^Workspace%.__BloxMapCheck", P.root))) end
 			end
 		end
 	end
@@ -383,7 +383,7 @@ local ok, err = pcall(function()
 					if not seenPair[key] then
 						seenPair[key] = true
 						overlaps += 1
-						if #overS < 8 then table.insert(overS, d.Name .. " × " .. o.Name .. " (" .. (d.Parent and d.Parent.Name or "?") .. ")") end
+						if #overS < 60 then table.insert(overS, d.Name .. " × " .. o.Name .. " (" .. (d.Parent and d.Parent.Name or "?") .. ")") end
 					end
 				end
 			end

@@ -135,3 +135,49 @@ export function formatMap(rep: MapReport): string {
   for (const r of rep.results) lines.push(`  ${r.ok ? '✓' : '✗'} ${r.id}  ${r.detail}`);
   return lines.join('\n');
 }
+
+const SAMPLES: Record<string, { field: keyof MapRaw; count: keyof MapRaw }> = {
+  pockets: { field: 'pocketSamples', count: 'pockets' },
+  roofs: { field: 'highSamples', count: 'high' },
+  covered: { field: 'coveredSamples', count: 'coveredOutside' },
+  leak: { field: 'outsideSamples', count: 'outside' },
+  floating: { field: 'floatSamples', count: 'floating' },
+  overlap: { field: 'overlapSamples', count: 'overlaps' },
+};
+export const DETAIL_CHECKS = ['spawns-reach', ...Object.keys(SAMPLES), 'triangles', 'saturation'];
+
+// Sample points joined into regions: neighbours within two grid steps and 3 studs of height.
+function regions(pts: number[][], step: number): number[][][] {
+  const parent = pts.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < pts.length; i++)
+    for (let j = 0; j < i; j++)
+      if (Math.hypot(pts[i][0] - pts[j][0], pts[i][2] - pts[j][2]) <= 2 * step + 0.01 && Math.abs(pts[i][1] - pts[j][1]) <= 3) parent[find(i)] = find(j);
+  const by = new Map<number, number[][]>();
+  pts.forEach((p, i) => by.set(find(i), [...(by.get(find(i)) ?? []), p]));
+  return [...by.values()].sort((a, b) => b.length - a.length);
+}
+const range = (xs: number[]) => (Math.min(...xs) === Math.max(...xs) ? `${Math.min(...xs)}` : `${Math.min(...xs)}..${Math.max(...xs)}`);
+
+// `map {action:"detail", check}`: every stored sample of one check from the last report, as text.
+export function mapDetail(rep: MapReport, check: string): string {
+  const id = check.replace(/^map:/, '');
+  if (!DETAIL_CHECKS.includes(id)) throw new Error(`unknown map check "${check}": one of ${DETAIL_CHECKS.join(', ')}`);
+  const x = rep.raw;
+  const res = rep.results.find((r) => r.id === `map:${id}`);
+  const head = `map:${id} (${x.root}, ${rep.ranAt}): ${res ? (res.ok ? 'ok' : 'FAIL') : '?'}`;
+  if (id === 'spawns-reach')
+    return [head, ...x.groups.flatMap((g) => (g.found ? g.points.map((p) => `  ${g.name}/${p.name} at ${p.pos} ${p.reaches ? 'reaches' : "CAN'T reach"} a player spawn`) : [`  ${g.name}: ${g.path} not found`]))].join('\n');
+  if (id === 'triangles') return [head, ...(x.triangles?.views ?? []).map((v) => `  ${v.name}: ${v.opaque} opaque + ${v.shadows} shadow, ${v.drawcalls} draw calls`), `  ${x.shadowCasters}/${x.parts} parts cast shadows`].join('\n');
+  if (id === 'saturation') return [head, `  ${res?.detail ?? ''}`, `  lighting ${JSON.stringify(x.lighting ?? {})}`].join('\n');
+  const { field, count } = SAMPLES[id];
+  const samples = (x[field] as string[] | undefined) ?? [];
+  const n = Number(x[count]);
+  if (id === 'floating' || id === 'overlap') return [`${head} — ${n} total, ${samples.length} listed`, ...samples.map((s) => `  ${s}`)].join('\n');
+  const pts = samples.map((s) => s.split(',').map(Number));
+  const rs = regions(pts, x.step);
+  return [
+    `${head} — ${n} point(s), ${samples.length} sampled, ${rs.length} region(s)`,
+    ...rs.map((r) => `  ${r.length} pts x ${range(r.map((p) => p[0]))} z ${range(r.map((p) => p[2]))} y ${range(r.map((p) => p[1]))}: ${r.slice(0, 12).map((p) => p.join(',')).join('; ')}${r.length > 12 ? '; …' : ''}`),
+  ].join('\n');
+}
