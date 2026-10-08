@@ -59,12 +59,12 @@ state} → verify.
 release {action:"check"} lists every gate; publishing, live config and monetization are
 human decisions: prepare and dry-run, never confirm unless asked. After launch: liveops
 report → propose → apply (local), then a new release.
-UI: copy the reference, no extra decoration. Pack? scout preview (skill ui-packs); else
-BloxUI (ui install; depth tiles, no pills, 44px). Icons (no emoji): image generate (1 batch;
-or model icon) → asset sheet → upload. ui preview {mount} → ui {action:"lint"} mode:"edit" → fix.
+UI: copy the reference, no extra decor. Pack? scout preview (skill ui-packs); else
+BloxUI (ui install; depth tiles, no pills, 44px). Icons (no emoji): image generate (1 batch
+job → status; or model icon) → asset sheet → upload. ui preview {mount} → ui {action:"lint"} mode:"edit" → fix.
 Map: map install (BloxMap, bright lighting) → world/ → map check + shots per pass
 (skill map-building).
-Store page: present {action:"generate"} → fix shot cameras → present {action:"render"}
+Store page: present {action:"generate"} → fix cameras → present {action:"render"}
 (16:9) → present {action:"lint"}; final title/art and upload are human.
 
 ## Design first (economy games)

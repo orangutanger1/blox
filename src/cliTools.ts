@@ -282,6 +282,8 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.backend === 'string' ? { backend: o.backend } : {}),
           ...(o.overwrite === true ? { overwrite: true } : {}),
           ...(o.fresh === true ? { fresh: true } : {}),
+          ...(typeof o.job === 'string' ? { job: o.job } : {}),
+          ...(f.rest[0] === 'generate' ? { wait: true } : {}), // the CLI exits when done: no background job
         },
       };
     case 'scout': {
@@ -418,7 +420,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
            blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
-           blox image generate --items '<json>'|@file [--style icon|item|badge|'<text>'] [--size 512] [--backend kaggle-qwen|cloudflare-flux] [--overwrite] [--fresh] | setup | status
+           blox image generate --items '<json>'|@file [--style icon|item|badge|'<text>'] [--size 512] [--backend kaggle-qwen|cloudflare-flux] [--overwrite] [--fresh] | setup | status [--job <id>]
            blox map check|shots|install [--root Workspace.Map] [--spawns '{"Dogs":"Workspace.Map.DogSpawns"}'] [--no-sync]
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] [--no-phone] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox idea research [--fresh] [--device all|phone|computer|tablet|console] | propose '<json ideas>' | list | brief <id>

@@ -68,7 +68,8 @@ export function cacheKey(k: { prompt: string; style: string; size: number; backe
 }
 interface CacheMeta { backend: BackendName; model: string; licence: ImageBackend['licence']; seed?: number; prompt: string }
 
-export async function generateImages(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; onStatus?: (s: string) => void; cacheDir?: string | null } = {}): Promise<GenerateResult> {
+// Input errors surface before any backend (or background job) starts.
+export function validateImages(P: string, input: GenerateInput): void {
   if (!input.items?.length) throw new Error('image generate: give at least one item {name, prompt}');
   const dir = input.dir ?? 'assets/icons';
   const seen = new Set<string>();
@@ -78,7 +79,22 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
     seen.add(it.name);
     if (!input.overwrite && existsSync(join(P, dir, `${it.name}.png`))) throw new Error(`${dir}/${it.name}.png exists — pass overwrite: true to replace it`);
   }
-  const style = input.style === undefined ? STYLES.icon : (STYLES as Record<string, string>)[input.style] ?? input.style;
+}
+
+const styleOf = (input: GenerateInput) => (input.style === undefined ? STYLES.icon : (STYLES as Record<string, string>)[input.style] ?? input.style);
+
+// The cache file (without extension) holding this item from any of the backends, or null.
+function cached(input: GenerateInput, it: ImageItem, backends: ImageBackend[], cache: string | null): string | null {
+  if (!cache || input.fresh) return null;
+  const style = styleOf(input), size = input.size ?? 512;
+  return backends.map((b) => join(cache, cacheKey({ prompt: it.prompt, style, size, backend: b.name, seed: it.seed }))).find((f) => existsSync(`${f}.png`) && existsSync(`${f}.json`)) ?? null;
+}
+export const cacheMisses = (input: GenerateInput, backends: ImageBackend[], cache: string | null): ImageItem[] => input.items.filter((it) => !cached(input, it, backends, cache));
+
+export async function generateImages(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; onStatus?: (s: string) => void; cacheDir?: string | null } = {}): Promise<GenerateResult> {
+  validateImages(P, input);
+  const dir = input.dir ?? 'assets/icons';
+  const style = styleOf(input);
   const size = input.size ?? 512;
   const notes: string[] = [];
   const backends = o.backends ?? defaultBackends();
@@ -110,7 +126,7 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
   if (cache && !input.fresh) {
     todo = [];
     for (const it of input.items) {
-      const hit = backends.map((b) => join(cache, key(it, b.name))).find((f) => existsSync(`${f}.png`) && existsSync(`${f}.json`));
+      const hit = cached(input, it, backends, cache);
       if (!hit) { todo.push(it); continue; }
       const meta = JSON.parse(readFileSync(`${hit}.json`, 'utf8')) as CacheMeta;
       write(it, readFileSync(`${hit}.png`), meta);
