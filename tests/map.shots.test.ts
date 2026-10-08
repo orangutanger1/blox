@@ -38,15 +38,39 @@ describe('map shots', () => {
     expect(r.path).toBe('.blox/map-shots.jpg');
     expect(r.saturation).toBeGreaterThan(0.5);
   });
+  it('a view that times out is retried once with a longer timeout; views that still fail are named, the rest returned', async () => {
+    const d = Buffer.alloc(32 * 18 * 4); for (let i = 0; i < 32 * 18; i++) d.set([40, 160, 40, 255], i * 4);
+    const tiny = Buffer.from(jpeg.encode({ data: d, width: 32, height: 18 }, 90).data).toString('base64');
+    const tries: Record<string, number> = {};
+    const f = fakeStudio({ tools: { screen_capture: (a) => {
+      const id = String(a.capture_id);
+      tries[id] = (tries[id] ?? 0) + 1;
+      if (id === 'map-corner2' && tries[id] === 1) throw new Error('Request timed out');
+      if (id === 'map-top') throw new Error('Request timed out');
+      return { content: [{ type: 'image', data: tiny, mimeType: 'image/jpeg' }] };
+    } } });
+    const s = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    const r = await runMapShots(s, mkdtempSync(join(tmpdir(), 'blox-shots-')), { bbox: box, spawn: [-80, 2, -30] });
+    expect(tries['map-corner2']).toBe(2);
+    expect(tries['map-top']).toBe(2);
+    expect(r.failed).toEqual(['top']);
+    expect(r.notes.join(' ')).toMatch(/top: .*timed out/);
+    expect(r.saturation).toBeGreaterThan(0.5);
+  });
   it('a map kept outside Workspace is staged for the captures and removed after', async () => {
     const order: string[] = [];
     const f = fakeStudio({
       luau: (code) => { if (code.includes(STAGE)) order.push(code.includes(':Clone()') ? 'stage' : 'unstage'); return JSON.stringify({ ok: true, n: 1, values: { v1: true }, logs: [] }); },
-      tools: { screen_capture: () => { order.push('cap'); return { content: [] }; } },
+      tools: { screen_capture: () => { order.push('cap'); const d = Buffer.alloc(16 * 16 * 4, 200); return { content: [{ type: 'image', data: Buffer.from(jpeg.encode({ data: d, width: 16, height: 16 }, 90).data).toString('base64'), mimeType: 'image/jpeg' }] }; } },
     });
     const s = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
     await runMapShots(s, mkdtempSync(join(tmpdir(), 'blox-shots-')), { bbox: box, spawn: [-80, 2, -30], root: 'ServerStorage.Maps.Farm' });
     expect(order[0]).toBe('stage');
     expect(order.at(-1)).toBe('unstage');
+  });
+  it('no view at all is an error that says why', async () => {
+    const f = fakeStudio({ tools: { screen_capture: () => ({ content: [] }) } });
+    const s = new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 });
+    await expect(runMapShots(s, mkdtempSync(join(tmpdir(), 'blox-shots-')), { bbox: box, spawn: [-80, 2, -30] })).rejects.toThrow(/no view captured/);
   });
 });

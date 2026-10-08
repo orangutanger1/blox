@@ -712,7 +712,7 @@ export const TOOLS: BloxTool[] = [
         mergeLatestMapReports(ctx.projectPath, [...new Set([...mapRoots(cfg.root), one])]);
         refreshCriteria(ctx.projectPath);
         return {
-          text: pre + `map shots: ${shots.path} — top row: ${shots.names.slice(0, 4).join(', ')}; bottom row: ${shots.names.slice(4).join(', ')}. Rendered colour saturation ${shots.saturation.toFixed(2)} (A bright kid-friendly map is about 0.5+).${shots.notes.length ? ' ' + shots.notes.join('; ') : ''}`,
+          text: pre + `map shots: ${shots.path} — top row: ${shots.names.slice(0, 4).join(', ')}; bottom row: ${shots.names.slice(4).join(', ')}. Rendered colour saturation ${shots.saturation.toFixed(2)} (A bright kid-friendly map is about 0.5+).${shots.notes.length ? ' ' + shots.notes.join('; ') : ''}${shots.failed.length ? ` — ${shots.failed.length} view(s) blank on the sheet; the rest are fine, rerun shots only if you need those` : ''}`,
           images: [{ data: shots.data, mimeType: 'image/jpeg' }],
           artifacts: [shots.path],
           summary: `saturation ${shots.saturation.toFixed(2)}`,

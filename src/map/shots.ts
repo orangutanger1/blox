@@ -44,7 +44,24 @@ export interface MapShots {
   data: string; // base64 JPEG sheet
   saturation: number;
   names: string[];
+  failed: string[]; // views with no image after a retry
   notes: string[];
+}
+
+// screen_capture times out now and then (2 of 4 calls in the bake-off): try
+// once more with a longer timeout before giving a view up.
+async function capture(session: StudioSession, c: ShotCamera): Promise<{ img?: Buffer; error?: string }> {
+  let error = 'no image';
+  for (const timeout of [30_000, 75_000]) {
+    try {
+      const r = await session.call('screen_capture', { capture_id: `map-${c.name}`, camera_position: c.position, look_at_position: c.lookAt }, timeout);
+      const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
+      if (img?.data) return { img: Buffer.from(img.data, 'base64') };
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+  return { error };
 }
 
 export async function runMapShots(session: StudioSession, projectPath: string, o: { bbox: { min: V3; max: V3 }; spawn: V3; far?: V3; root?: string }): Promise<MapShots> {
@@ -53,18 +70,22 @@ export async function runMapShots(session: StudioSession, projectPath: string, o
   const cams = shotCameras(o.bbox, o.spawn, o.far);
   const caps: (Buffer | null)[] = [];
   const notes: string[] = [];
+  const failed: string[] = [];
   await withStage(session, o.root, async () => {
     for (const c of cams) {
-      const r = await session.call('screen_capture', { capture_id: `map-${c.name}`, camera_position: c.position, look_at_position: c.lookAt }, 30_000);
-      const img = (r.content ?? []).find((b) => b.type === 'image' && b.data);
-      if (!img?.data) notes.push(`${c.name}: no capture`);
-      caps.push(img?.data ? Buffer.from(img.data, 'base64') : null);
+      const r = await capture(session, c);
+      if (!r.img) {
+        notes.push(`${c.name}: no capture (${r.error})`);
+        failed.push(c.name);
+      }
+      caps.push(r.img ?? null);
     }
   });
   const shots = caps.filter((x): x is Buffer => !!x);
+  if (!shots.length) throw new Error(`map shots: no view captured (${notes.join('; ')}) — is the Studio window minimised or behind a dialog?`);
   const saturation = shots.length ? shots.reduce((a, b) => a + meanSaturation(b), 0) / shots.length : 0;
   const sheet = composeSheet([caps.slice(0, 4), caps.slice(4, 8)], 300);
   mkdirSync(join(projectPath, '.blox'), { recursive: true });
   writeFileSync(join(projectPath, '.blox/map-shots.jpg'), sheet);
-  return { path: '.blox/map-shots.jpg', data: sheet.toString('base64'), saturation, names: cams.map((c) => c.name), notes };
+  return { path: '.blox/map-shots.jpg', data: sheet.toString('base64'), saturation, names: cams.map((c) => c.name), failed, notes };
 }
