@@ -14,6 +14,6 @@ describe.skipIf(!luneBin())('BloxMap (offline, @lune/roblox instances)', () => {
     const r = runLuneSpecs(d, ['tests/blox_map.spec.luau']);
     expect(r.fileErrors).toEqual([]);
     expect(r.results.filter((t) => t.status !== 'pass')).toEqual([]);
-    expect(r.results.length).toBe(9);
+    expect(r.results.length).toBe(13);
   });
 });

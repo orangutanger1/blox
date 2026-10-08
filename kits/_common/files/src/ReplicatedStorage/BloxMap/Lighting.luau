@@ -6,6 +6,7 @@ local Lighting = {}
 local PRESETS = {
 	bright = {
 		ClockTime = 14,
+		ExposureCompensation = 0,
 		Brightness = 2.6,
 		Ambient = Color3.fromRGB(96, 96, 108),
 		OutdoorAmbient = Color3.fromRGB(150, 150, 160),
@@ -22,8 +23,30 @@ local PRESETS = {
 		},
 		color = { Saturation = 0.16, Contrast = 0.06, Brightness = 0.02 },
 	},
+	-- night: dark blue sky, ambient kept high enough that kids can see (never 0),
+	-- no haze; light comes from shadowless canopy/lamp lights in the map
+	night = {
+		ClockTime = 0,
+		Brightness = 2,
+		ExposureCompensation = 0.3,
+		Ambient = Color3.fromRGB(105, 110, 145),
+		OutdoorAmbient = Color3.fromRGB(115, 120, 165),
+		EnvironmentDiffuseScale = 0.3,
+		EnvironmentSpecularScale = 0.2,
+		GlobalShadows = true,
+		atmosphere = {
+			Density = 0.12,
+			Offset = 0,
+			Haze = 0,
+			Glare = 0,
+			Color = Color3.fromRGB(60, 66, 110),
+			Decay = Color3.fromRGB(40, 44, 90),
+		},
+		color = { Saturation = 0.12, Contrast = 0.08, Brightness = 0.04 },
+	},
 	soft = {
 		ClockTime = 15.5,
+		ExposureCompensation = 0,
 		Brightness = 2.2,
 		Ambient = Color3.fromRGB(100, 100, 110),
 		OutdoorAmbient = Color3.fromRGB(150, 145, 150),
