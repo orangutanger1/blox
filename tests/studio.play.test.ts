@@ -46,4 +46,35 @@ describe('startPlay on a locked PC', () => {
     await startPlay(s, { sleep: instant, readyTimeoutMs: 0, locked: async () => false, restore: async () => { order.push('restore'); } });
     expect(order[0]).toBe('restore');
   });
+
+});
+
+describe('startPlay when Studio is wedged', () => {
+  const wedged = (onCall?: () => void) => {
+    let mode = 'Edit';
+    const s = {
+      setMode: (m: string) => (mode = m),
+      state: async () => ({ mode }),
+      call: async () => {
+        onCall?.();
+        return { isError: true, content: [{ type: 'text', text: "Start play hasn't finished yet" }] };
+      },
+    };
+    return s as unknown as StudioSession & { setMode(m: string): void };
+  };
+  it('presses Play once in Studio, then carries on when Play starts', async () => {
+    const s = wedged();
+    let presses = 0;
+    const info = await startPlay(s, { sleep: instant, readyTimeoutMs: 0, locked: async () => false, restore: instant, pressPlay: async () => { presses++; s.setMode('Server'); return true; } });
+    expect(presses).toBe(1);
+    expect(info.alreadyRunning).toBe(false);
+  });
+  it('names the stuck request when pressing Play does not help', async () => {
+    const s = wedged();
+    let presses = 0;
+    await expect(
+      startPlay(s, { sleep: instant, enterTimeoutMs: 0, locked: async () => false, restore: instant, pressPlay: async () => (presses++, true) }),
+    ).rejects.toMatchObject({ code: 'play_blocked', message: expect.stringMatching(/stuck.*F5/s) });
+    expect(presses).toBe(1);
+  });
 });

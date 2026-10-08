@@ -1,4 +1,4 @@
-import { isSessionLocked, restoreStudioWindow } from './host.js';
+import { isSessionLocked, pressStudioPlay, restoreStudioWindow } from './host.js';
 import type { StudioLaunch } from '../bridge/types.js';
 import { resolveStudioLaunch } from './launcher.js';
 
@@ -148,8 +148,8 @@ export class StudioSession {
   private readonly opts: Required<Omit<StudioSessionOptions, 'match' | 'launch' | 'evalBridge'>> & Pick<StudioSessionOptions, 'match'>;
   readonly launch: StudioLaunch;
   readonly evalBridge: boolean;
-  // Windows host probes (locked PC, minimised window); fakes leave them out.
-  readonly host = { locked: () => isSessionLocked(), restore: () => restoreStudioWindow() };
+  // Windows host probes (locked PC, minimised window, wedged Play); fakes leave them out.
+  readonly host = { locked: () => isSessionLocked(), restore: () => restoreStudioWindow(), pressPlay: () => pressStudioPlay(this.studio?.name ?? null) };
 
   constructor(options: StudioSessionOptions = {}) {
     this.launch = options.launch ?? resolveStudioLaunch();

@@ -1,4 +1,4 @@
-import { StudioError, type StudioSession } from './session.js';
+import { resultText, StudioError, type StudioSession } from './session.js';
 import { runLuau, type LogEntry, type LogLevel } from './luau.js';
 
 // Playtest lifecycle with guarantees the raw start_stop_play tool lacks:
@@ -13,6 +13,8 @@ export interface PlayInfo {
   readyMs: number;
 }
 
+const STUCK_RE = /hasn'?t finished yet/i;
+
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface PlayOptions {
@@ -21,6 +23,7 @@ export interface PlayOptions {
   sleep?: (ms: number) => Promise<void>;
   locked?: () => Promise<boolean>; // Windows session locked (default: LogonUI probe)
   restore?: () => Promise<unknown>; // un-minimise Studio (default: ShowWindow)
+  pressPlay?: () => Promise<boolean>; // press F5 in the Studio window (default: SendKeys)
   enterTimeoutMs?: number; // how long Studio may take to leave Edit after "started"
 }
 
@@ -38,13 +41,21 @@ export async function startPlay(session: StudioSession, opts: PlayOptions = {}):
   const st = await session.state();
   const alreadyRunning = st.mode !== 'Edit';
   if (!alreadyRunning) {
-    const host = (session as { host?: { locked(): Promise<boolean>; restore(): Promise<unknown> } }).host;
+    const host = (session as { host?: { locked(): Promise<boolean>; restore(): Promise<unknown>; pressPlay?(): Promise<boolean> } }).host;
     const locked = opts.locked ?? host?.locked ?? (async () => false);
+    const pressPlay = opts.pressPlay ?? host?.pressPlay?.bind(host) ?? (async () => false);
+    let wedged = false;
+    let pressed = false;
     await (opts.restore ?? host?.restore ?? (async () => {}))().catch(() => {});
     if (await locked()) throw blocked();
     let started = false;
     for (let i = 0; i < 3 && !started; i++) {
-      await session.call('start_stop_play', { is_start: true }, 60_000);
+      const reply = resultText(await session.call('start_stop_play', { is_start: true }, 60_000));
+      // A wedged Studio answers this to every start (and stop) until Play is pressed for real.
+      if (STUCK_RE.test(reply)) {
+        wedged = true;
+        if (!pressed) pressed = await pressPlay().catch(() => false);
+      }
       // "started" in the reply is not proof: a locked PC leaves Studio in Edit.
       const until = Date.now() + (opts.enterTimeoutMs ?? 15_000);
       do {
@@ -53,6 +64,12 @@ export async function startPlay(session: StudioSession, opts: PlayOptions = {}):
       } while (!started && Date.now() < until);
       if (!started && (await locked())) throw blocked();
     }
+    if (!started && wedged)
+      throw new StudioError(
+        'play_blocked',
+        `Studio's Play request is stuck ("Start play hasn't finished yet"), usually after the PC locked mid-start${pressed ? '; pressing F5 in Studio did not clear it' : ''}. Press Play (F5) once in that Studio window, stop it, then retry.`,
+        'press Play once in Studio, then retry',
+      );
     if (!started) throw new StudioError('tool_error', 'Studio did not enter Play after start_stop_play (3 tries). If the PC is locked or asleep, unlock it; otherwise check Studio for a modal dialog.', 'unlock the PC or close Studio dialogs');
   }
   // Readiness: server sees a player; client has a character.

@@ -51,6 +51,31 @@ export async function restoreStudioWindow(run: PsRun = runPowerShell): Promise<'
   }
 }
 
+// Studio's MCP can wedge after an interrupted start (screen-time lock, sleep): every
+// start_stop_play then answers "Start play hasn't finished yet". One real Play press
+// (F5 in that Studio window) clears it. Brings the window to the front.
+const pressPlayPs = (place: string | null) => `Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class BloxK { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e); }
+"@
+$p = Get-Process RobloxStudioBeta -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like '*${(place ?? '').replace(/'/g, "''").replace(/\.rbxl$/i, '')}*' } | Select-Object -First 1
+if ($p) {
+  $h = $p.MainWindowHandle; [BloxK]::ShowWindow($h, 9) | Out-Null
+  # a background process may not take the foreground; a synthetic Alt tap lets it
+  [BloxK]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [BloxK]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+  [BloxK]::SetForegroundWindow($h) | Out-Null; Start-Sleep -Milliseconds 700
+  # keys go to the foreground window: never press F5 anywhere but Studio
+  if ([BloxK]::GetForegroundWindow() -eq $h) { Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{F5}'); "pressed" } else { "not-foreground" }
+}`;
+
+export async function pressStudioPlay(place: string | null, run: PsRun = runPowerShell): Promise<boolean> {
+  try {
+    return (await run(pressPlayPs(place), 10_000))?.includes('pressed') ?? false;
+  } catch {
+    return false;
+  }
+}
+
 // Un-minimise Studio through the session's probes (fake sessions have none).
 export async function restoreFor(session: unknown): Promise<void> {
   await (session as { host?: { restore(): Promise<unknown> } }).host?.restore().catch(() => {});
