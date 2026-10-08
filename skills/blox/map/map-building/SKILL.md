@@ -32,6 +32,10 @@ and covered spots nobody meant to be reachable.
    Colours come from `Map.Palette` names (`grass`, `barnRed`, `cream`,
    `roofBlue`, `hay`…); pass a name as `style`. Keep neutrals (road, kerb,
    concrete, metal) for a minority of the area.
+   Night maps: `Map.Lighting.apply("night")` plus a few shadowless lights
+   (`B.canopy{lights=true}`, `B.lamp`) — never zero ambient. Overhead parts
+   (roofs, canopies, lintels, upper storeys) carry the "Roof" tag; tag your
+   own with `B.roof(part)` so enemy heightfield navigation sees the floor below.
 4. Name enemy/NPC spawn groups in config: `"map": {"spawns": {"Dogs":
    "Workspace.Map.DogSpawns"}}`. Player spawns are the SpawnLocations, or
    marker parts named by `"playerSpawns": "PlayerSpawns"`. Several maps kept

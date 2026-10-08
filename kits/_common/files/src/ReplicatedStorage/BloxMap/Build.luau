@@ -36,6 +36,13 @@ function B.part(parent: Instance, name: string, size: Vector3, cf: CFrame, style
 end
 
 -- axis-aligned box between two corners
+-- "Roof": overhead parts (roofs, upper storeys, lintels, canopies). Games whose
+-- enemies path on a heightfield cast through them to find the floor below.
+function B.roof(p: BasePart): BasePart
+	p:AddTag("Roof")
+	return p
+end
+
 function B.box(parent: Instance, name: string, a: Vector3, b: Vector3, style: any, opts: any?): Part
 	local lo, hi = a:Min(b), a:Max(b)
 	return B.part(parent, name, hi - lo, CFrame.new((lo + hi) / 2), style, opts)
@@ -119,12 +126,14 @@ function B.gableRoof(
 	roofStyle: any?
 )
 	local s = D / SQRT2
-	B.part(
-		parent,
-		"Gable",
-		Vector3.new(L, s, s),
-		base * CFrame.new(0, H, 0) * CFrame.Angles(RAD45, 0, 0),
-		wallStyle
+	B.roof(
+		B.part(
+			parent,
+			"Gable",
+			Vector3.new(L, s, s),
+			base * CFrame.new(0, H, 0) * CFrame.Angles(RAD45, 0, 0),
+			wallStyle
+		)
 	)
 	local o, t = 0.75, 0.8
 	for _, sz in { -1, 1 } do
@@ -132,23 +141,27 @@ function B.gableRoof(
 		local normal = Vector3.new(0, 1, sz) / SQRT2
 		local down = Vector3.new(0, -1, sz) / SQRT2
 		local c = mid + normal * (t / 2) + down * (o / 2)
-		B.part(
-			parent,
-			"Roof",
-			Vector3.new(L + 2 * o, t, s + o),
-			base * CFrame.new(c) * CFrame.Angles(sz * RAD45, 0, 0),
-			roofStyle or "roofGrey"
+		B.roof(
+			B.part(
+				parent,
+				"Roof",
+				Vector3.new(L + 2 * o, t, s + o),
+				base * CFrame.new(c) * CFrame.Angles(sz * RAD45, 0, 0),
+				roofStyle or "roofGrey"
+			)
 		)
 	end
 end
 
 function B.flatRoof(parent: Instance, base: CFrame, L: number, D: number, H: number, roofStyle: any?)
-	B.part(
-		parent,
-		"Roof",
-		Vector3.new(L + 1.5, 1, D + 1.5),
-		base * CFrame.new(0, H + 0.5, 0),
-		roofStyle or "roofGrey"
+	B.roof(
+		B.part(
+			parent,
+			"Roof",
+			Vector3.new(L + 1.5, 1, D + 1.5),
+			base * CFrame.new(0, H + 0.5, 0),
+			roofStyle or "roofGrey"
+		)
 	)
 end
 
@@ -170,7 +183,15 @@ function B.house(parent: Instance, name: string, base: CFrame, o: any): Model
 		m:SetAttribute("Enterable", true)
 		local G = math.min(11, H)
 		if H > G then
-			B.part(m, "UpperFloor", Vector3.new(L, H - G, D), base * CFrame.new(0, G + (H - G) / 2, 0), style)
+			B.roof(
+				B.part(
+					m,
+					"UpperFloor",
+					Vector3.new(L, H - G, D),
+					base * CFrame.new(0, G + (H - G) / 2, 0),
+					style
+				)
+			)
 		end
 		B.part(m, "Floor", Vector3.new(L - 2 * T, 0.3, D - 2 * T), base * CFrame.new(0, 0.15, 0), "wood")
 		B.part(m, "BackWall", Vector3.new(L, G, T), base * CFrame.new(0, G / 2, -front + T / 2), style)
@@ -194,12 +215,14 @@ function B.house(parent: Instance, name: string, base: CFrame, o: any): Model
 			)
 		end
 		if G > DH then
-			B.part(
-				m,
-				"Lintel",
-				Vector3.new(DW, G - DH, T),
-				base * CFrame.new(0, DH + (G - DH) / 2, front - T / 2),
-				style
+			B.roof(
+				B.part(
+					m,
+					"Lintel",
+					Vector3.new(DW, G - DH, T),
+					base * CFrame.new(0, DH + (G - DH) / 2, front - T / 2),
+					style
+				)
 			)
 		end
 		B.part(m, "Step", Vector3.new(DW + 2, 0.4, 2.5), base * CFrame.new(0, 0.2, front + 1.25), "concrete")
@@ -508,6 +531,164 @@ function B.silo(parent: Instance, pos: Vector3, o: any?): Model
 		CFrame.new(pos + Vector3.new(0, H + 1.8, 0)) * CFrame.Angles(0, RAD45, 0),
 		"roofGrey"
 	)
+	return m
+end
+
+-- flat-top acacia tree (Zombie Attack's Island): bent trunk, two flat leaf slabs
+function B.flatTree(parent: Instance, pos: Vector3, o: any?): Model
+	o = o or {}
+	local k = o.scale or 1
+	local yaw = math.rad(o.yaw or 0)
+	local lean = math.rad(o.lean or 6)
+	local m = B.model(parent, "Tree")
+	local base = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+	local h1, h2 = 5 * k, 5 * k
+	B.part(m, "Trunk", Vector3.new(1.4 * k, h1, 1.4 * k), base * CFrame.new(0, h1 / 2, 0), "trunk")
+	local bend = base * CFrame.new(0, h1, 0) * CFrame.Angles(0, 0, lean)
+	B.part(m, "Trunk", Vector3.new(1.2 * k, h2, 1.2 * k), bend * CFrame.new(0, h2 / 2, 0), "trunk")
+	local top = bend * CFrame.new(0, h2, 0) * CFrame.Angles(0, 0, -lean)
+	B.part(
+		m,
+		"Leaves",
+		Vector3.new(9 * k, 1.6 * k, 7 * k),
+		top * CFrame.new(0, 0.8 * k, 0),
+		o.style or "grassDark"
+	)
+	B.part(
+		m,
+		"Leaves",
+		Vector3.new(6 * k, 1.4 * k, 6.5 * k),
+		top * CFrame.new(1.2 * k, 2.1 * k, -0.6 * k) * CFrame.Angles(0, RAD45 / 2, 0),
+		o.style or "leaf"
+	)
+	return m
+end
+
+-- blocky car (front -Z): body, cabin, glass, 4 wheels, lights
+function B.car(parent: Instance, cf: CFrame, o: any?): Model
+	o = o or {}
+	local m = B.model(parent, "Car")
+	local style = o.style or "skyBlue"
+	B.part(m, "Body", Vector3.new(5, 2, 10), cf * CFrame.new(0, 1.9, 0), style)
+	B.part(m, "Cabin", Vector3.new(4.6, 1.8, 5), cf * CFrame.new(0, 3.8, 0.6), style)
+	B.part(m, "Glass", Vector3.new(4.7, 1.3, 5.1), cf * CFrame.new(0, 3.85, 0.6), "glass", { shadow = false })
+	for _, x in { -2.3, 2.3 } do
+		for _, z in { -3.2, 3.2 } do
+			B.part(
+				m,
+				"Wheel",
+				Vector3.new(0.8, 1.8, 1.8),
+				cf * CFrame.new(x, 0.9, z),
+				{ color = Color3.fromRGB(28, 28, 32), material = Enum.Material.SmoothPlastic },
+				{ shadow = false }
+			)
+		end
+	end
+	for _, x in { -1.7, 1.7 } do
+		B.part(
+			m,
+			"Light",
+			Vector3.new(1, 0.5, 0.2),
+			cf * CFrame.new(x, 2.3, -5.05),
+			"neonWarm",
+			{ shadow = false }
+		)
+		B.part(
+			m,
+			"TailLight",
+			Vector3.new(1, 0.5, 0.2),
+			cf * CFrame.new(x, 2.3, 5.05),
+			{ color = Color3.fromRGB(230, 60, 60), material = Enum.Material.Neon },
+			{ shadow = false }
+		)
+	end
+	return m
+end
+
+-- fuel tanker (front -Z): cab + chassis + an 8-sided tank from flat panels
+function B.tanker(parent: Instance, cf: CFrame, o: any?): Model
+	o = o or {}
+	local m = B.model(parent, "Tanker")
+	B.part(m, "Chassis", Vector3.new(6, 1.2, 26), cf * CFrame.new(0, 1.6, 0), "metal")
+	B.part(m, "Cab", Vector3.new(6, 5, 6), cf * CFrame.new(0, 4.6, -9.5), o.style or "orange")
+	B.part(m, "Glass", Vector3.new(5.4, 2, 0.2), cf * CFrame.new(0, 5.6, -12.55), "glass", { shadow = false })
+	local r = 3.1
+	for i = 0, 7 do
+		local a = i * RAD45
+		B.part(
+			m,
+			"Tank",
+			Vector3.new(2.6, 0.4, 18),
+			cf * CFrame.new(0, 5.4, 3) * CFrame.Angles(0, 0, a) * CFrame.new(0, r, 0),
+			o.tankStyle or "white"
+		)
+	end
+	for _, z in { -9.5, -1, 9 } do
+		for _, x in { -3, 3 } do
+			B.part(
+				m,
+				"Wheel",
+				Vector3.new(0.8, 2, 2),
+				cf * CFrame.new(x, 1, z),
+				{ color = Color3.fromRGB(28, 28, 32), material = Enum.Material.SmoothPlastic },
+				{ shadow = false }
+			)
+		end
+	end
+	return m
+end
+
+-- gas-station canopy: 4 red/white pillars, white top (Roof), lit underside
+function B.canopy(parent: Instance, cf: CFrame, o: any): Model
+	local m = B.model(parent, "Canopy")
+	local L, D, H = o.L, o.D, o.H
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local p = cf * CFrame.new(sx * (L / 2 - 3), 0, sz * (D / 2 - 3))
+			B.part(m, "Pillar", Vector3.new(1.6, H, 1.6), p * CFrame.new(0, H / 2, 0), "white")
+			B.part(
+				m,
+				"Stripe",
+				Vector3.new(1.7, H * 0.35, 1.7),
+				p * CFrame.new(0, H * 0.22, 0),
+				{ color = Color3.fromRGB(200, 30, 34), material = Enum.Material.SmoothPlastic }
+			)
+		end
+	end
+	local top = B.roof(B.part(m, "Canopy", Vector3.new(L, 1.6, D), cf * CFrame.new(0, H + 0.8, 0), "white"))
+	B.part(
+		m,
+		"Trim",
+		Vector3.new(L + 0.2, 0.6, D + 0.2),
+		cf * CFrame.new(0, H + 1.2, 0),
+		{ color = Color3.fromRGB(200, 30, 34), material = Enum.Material.SmoothPlastic },
+		{ shadow = false }
+	)
+	if o.lights then
+		local panel = B.part(
+			m,
+			"LightPanel",
+			Vector3.new(L - 4, 0.2, D - 4),
+			cf * CFrame.new(0, H - 0.1, 0),
+			"neonWarm",
+			{ shadow = false }
+		)
+		local n = math.max(2, math.floor(L / 20))
+		for i = 1, n do
+			local a = Instance.new("Attachment")
+			a.Position = Vector3.new(-L / 2 + (i - 0.5) * L / n, 0, 0)
+			a.Parent = panel
+			local light = Instance.new("SpotLight")
+			light.Face = Enum.NormalId.Bottom
+			light.Range = 24
+			light.Angle = 120
+			light.Brightness = 3
+			light.Color = Color3.fromRGB(255, 244, 220)
+			light.Shadows = false
+			light.Parent = a
+		end
+		top:SetAttribute("Lit", true)
+	end
 	return m
 end
 
