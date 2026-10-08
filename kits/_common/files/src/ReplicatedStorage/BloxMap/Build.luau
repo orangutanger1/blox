@@ -656,22 +656,26 @@ function B.canopy(parent: Instance, cf: CFrame, o: any): Model
 		end
 	end
 	local top = B.roof(B.part(m, "Canopy", Vector3.new(L, 1.6, D), cf * CFrame.new(0, H + 0.8, 0), "white"))
-	B.part(
-		m,
-		"Trim",
-		Vector3.new(L + 0.2, 0.6, D + 0.2),
-		cf * CFrame.new(0, H + 1.2, 0),
-		{ color = Color3.fromRGB(200, 30, 34), material = Enum.Material.SmoothPlastic },
-		{ shadow = false }
+	B.roof(
+		B.part(
+			m,
+			"Trim",
+			Vector3.new(L + 0.2, 0.6, D + 0.2),
+			cf * CFrame.new(0, H + 1.2, 0),
+			{ color = Color3.fromRGB(200, 30, 34), material = Enum.Material.SmoothPlastic },
+			{ shadow = false }
+		)
 	)
 	if o.lights then
-		local panel = B.part(
-			m,
-			"LightPanel",
-			Vector3.new(L - 4, 0.2, D - 4),
-			cf * CFrame.new(0, H - 0.1, 0),
-			"neonWarm",
-			{ shadow = false }
+		local panel = B.roof(
+			B.part(
+				m,
+				"LightPanel",
+				Vector3.new(L - 4, 0.2, D - 4),
+				cf * CFrame.new(0, H - 0.1, 0),
+				"neonWarm",
+				{ shadow = false }
+			)
 		)
 		local n = math.max(2, math.floor(L / 20))
 		for i = 1, n do

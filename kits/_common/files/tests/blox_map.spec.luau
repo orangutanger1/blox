@@ -198,6 +198,9 @@ test("canopy: lit white top tagged Roof on four pillars, no light casts shadows"
 	local c = B.canopy(root, CFrame.new(), { L = 40, D = 20, H = 12, lights = true })
 	local top = c:FindFirstChild("Canopy")
 	expect(top:HasTag("Roof")).toBe(true)
+	-- everything overhead is Roof, or heightfield navigation reads the trim/panel as a floor
+	expect(c:FindFirstChild("Trim"):HasTag("Roof")).toBe(true)
+	expect(c:FindFirstChild("LightPanel"):HasTag("Roof")).toBe(true)
 	local pillars, lights = 0, 0
 	for _, d in c:GetDescendants() do
 		if d.Name == "Pillar" then
