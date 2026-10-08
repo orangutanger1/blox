@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { cutout } from './post.js';
@@ -29,6 +30,7 @@ export interface GenerateInput {
   style?: StyleName | string; // preset name, or a raw style string ('' for none)
   size?: number; // output px (default 512)
   overwrite?: boolean;
+  fresh?: boolean; // skip the image cache (new art for the same prompt)
   dir?: string; // default assets/icons
 }
 export type BackendName = 'kaggle-qwen' | 'cloudflare-flux';
@@ -51,11 +53,22 @@ export interface GenerateResult {
   written: { name: string; file: string; seed?: number }[];
   failed: { name: string; error: string }[];
   notes: string[];
+  cached?: string[]; // names reused from the image cache (no backend run)
 }
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 
-export async function generateImages(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; onStatus?: (s: string) => void } = {}): Promise<GenerateResult> {
+// ~/.cache/blox/images/<sha256 of prompt+style+size+backend(+seed)>.png (+ .json meta):
+// icons repeat across projects and re-runs, and a Kaggle batch costs minutes of weekly GPU quota.
+export function imageCacheDir(): string {
+  return process.env.BLOX_IMAGE_CACHE || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'blox', 'images');
+}
+export function cacheKey(k: { prompt: string; style: string; size: number; backend: BackendName; seed?: number }): string {
+  return createHash('sha256').update(JSON.stringify([k.prompt, k.style, k.size, k.backend, k.seed ?? null])).digest('hex').slice(0, 32);
+}
+interface CacheMeta { backend: BackendName; model: string; licence: ImageBackend['licence']; seed?: number; prompt: string }
+
+export async function generateImages(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; onStatus?: (s: string) => void; cacheDir?: string | null } = {}): Promise<GenerateResult> {
   if (!input.items?.length) throw new Error('image generate: give at least one item {name, prompt}');
   const dir = input.dir ?? 'assets/icons';
   const seen = new Set<string>();
@@ -67,9 +80,46 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
   }
   const style = input.style === undefined ? STYLES.icon : (STYLES as Record<string, string>)[input.style] ?? input.style;
   const size = input.size ?? 512;
-  const kitems: KernelItem[] = input.items.map((it) => ({ file: `${it.name}.png`, prompt: style ? `${it.prompt}. ${style}` : it.prompt, seed: it.seed ?? Math.floor(Math.random() * 2 ** 31) }));
   const notes: string[] = [];
   const backends = o.backends ?? defaultBackends();
+  const cache = o.cacheDir ?? null;
+  const key = (it: ImageItem, b: BackendName) => cacheKey({ prompt: it.prompt, style, size, backend: b, seed: it.seed });
+  const m = loadManifest(P);
+  const out: GenerateResult = { backend: backends[0]?.name ?? 'kaggle-qwen', written: [], failed: [], notes, cached: [] };
+  const write = (it: ImageItem, png: Buffer, meta: CacheMeta) => {
+    mkdirSync(join(P, dir), { recursive: true });
+    const file = `${dir}/${it.name}.png`;
+    writeFileSync(join(P, file), png);
+    const id = `icon-${it.name}`;
+    const provenance = { tool: 'blox image', model: meta.model, backend: meta.backend, prompt: it.prompt, seed: meta.seed, createdAt: new Date().toISOString() };
+    const prev = m.assets.find((a) => a.id === id);
+    if (prev) {
+      // regenerated: new art needs a fresh human look
+      Object.assign(prev, { licence: meta.licence, provenance, status: 'candidate', ref: { ...prev.ref, file } });
+      delete prev.uploaded;
+      saveManifest(P, m);
+    } else {
+      const a = addAsset(P, { id, kind: 'image', source: 'generated', licence: meta.licence, ref: { file }, provenance });
+      if (!a.ok) throw new Error(`manifest: ${a.errors.join('; ')}`);
+      m.assets.push(a.entry);
+    }
+    out.written.push({ name: it.name, file, seed: meta.seed });
+  };
+
+  let todo = input.items;
+  if (cache && !input.fresh) {
+    todo = [];
+    for (const it of input.items) {
+      const hit = backends.map((b) => join(cache, key(it, b.name))).find((f) => existsSync(`${f}.png`) && existsSync(`${f}.json`));
+      if (!hit) { todo.push(it); continue; }
+      const meta = JSON.parse(readFileSync(`${hit}.json`, 'utf8')) as CacheMeta;
+      write(it, readFileSync(`${hit}.png`), meta);
+      out.cached!.push(it.name);
+      out.backend = meta.backend;
+    }
+    if (!todo.length) return out;
+  }
+  const kitems: KernelItem[] = todo.map((it) => ({ file: `${it.name}.png`, prompt: style ? `${it.prompt}. ${style}` : it.prompt, seed: it.seed ?? Math.floor(Math.random() * 2 ** 31) }));
   for (let b = 0; b < backends.length; b++) {
     const be = backends[b];
     let results: BatchResult[];
@@ -82,10 +132,8 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
       }
       throw e;
     }
-    mkdirSync(join(P, dir), { recursive: true });
-    const out: GenerateResult = { backend: be.name, written: [], failed: [], notes };
-    const m = loadManifest(P);
-    for (const it of input.items) {
+    out.backend = be.name;
+    for (const it of todo) {
       const r = results.find((x) => x.file === `${it.name}.png`);
       if (!r?.data) {
         out.failed.push({ name: it.name, error: r?.error ?? 'no image returned' });
@@ -98,22 +146,18 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
         out.failed.push({ name: it.name, error: `post-process: ${(e as Error).message}` });
         continue;
       }
-      const file = `${dir}/${it.name}.png`;
-      writeFileSync(join(P, file), png);
-      const id = `icon-${it.name}`;
-      const provenance = { tool: 'blox image', model: be.model, backend: be.name, prompt: it.prompt, seed: r.seed ?? kitems.find((k) => k.file === r.file)!.seed, createdAt: new Date().toISOString() };
-      const prev = m.assets.find((a) => a.id === id);
-      if (prev) {
-        // regenerated: new art needs a fresh human look
-        Object.assign(prev, { licence: be.licence, provenance, status: 'candidate', ref: { ...prev.ref, file } });
-        delete prev.uploaded;
-        saveManifest(P, m);
-      } else {
-        const a = addAsset(P, { id, kind: 'image', source: 'generated', licence: be.licence, ref: { file }, provenance });
-        if (!a.ok) throw new Error(`manifest: ${a.errors.join('; ')}`);
-        m.assets.push(a.entry);
+      const meta: CacheMeta = { backend: be.name, model: be.model, licence: be.licence, seed: 'seed' in r ? r.seed : kitems.find((k) => k.file === r.file)!.seed, prompt: it.prompt }; // FLUX ignores seeds: none recorded
+      if (cache) {
+        try {
+          mkdirSync(cache, { recursive: true });
+          const f = join(cache, key(it, be.name));
+          writeFileSync(`${f}.png`, png);
+          writeFileSync(`${f}.json`, JSON.stringify(meta));
+        } catch (e) {
+          notes.push(`cache write failed: ${(e as Error).message}`);
+        }
       }
-      out.written.push({ name: it.name, file, seed: provenance.seed });
+      write(it, png, meta);
     }
     return out;
   }
