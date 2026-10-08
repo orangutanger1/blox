@@ -22,6 +22,8 @@ const GAP = 8;
 const BG = 28;
 const MISSING = 60;
 const MAX_SIDE = 8192;
+// Sheets and screenshots go back to the model as images: wider adds bytes, not judgement.
+export const MAX_SHEET_W = 1600;
 
 function decode(b: Buffer): Rgba | null {
   if (b[0] === 0x89 && b[1] === 0x50) {
@@ -56,13 +58,21 @@ export function cropJpeg(b: Buffer, rect: Rect, viewport?: number): Buffer | nul
 }
 
 // rows[r][c]: a JPEG or null (capture failed: a grey cell). cellH: cell height in px.
-export function composeSheet(rows: (Buffer | null)[][], cellH = 360): Buffer {
+export function composeSheet(rows: (Buffer | null)[][], cellH = 360, maxW = MAX_SHEET_W): Buffer {
   const imgs = rows.map((row) => row.map((b) => (b ? decode(b) : null)));
   const cols = Math.max(1, ...imgs.map((r) => r.length));
-  const colW = Array.from({ length: cols }, (_, c) => {
-    const ws = imgs.map((r) => r[c]).filter((x): x is Rgba => !!x).map((x) => Math.round((x.w * cellH) / x.h));
-    return ws.length ? Math.max(...ws) : Math.round((cellH * 16) / 9);
-  });
+  const widths = (h: number) =>
+    Array.from({ length: cols }, (_, c) => {
+      const ws = imgs.map((r) => r[c]).filter((x): x is Rgba => !!x).map((x) => Math.round((x.w * h) / x.h));
+      return ws.length ? Math.max(...ws) : Math.round((h * 16) / 9);
+    });
+  let colW = widths(cellH);
+  const natural = colW.reduce((a, w) => a + w, 0);
+  const room = maxW - GAP * (cols + 1);
+  if (natural > room) {
+    cellH = Math.max(40, Math.floor((cellH * room) / natural));
+    colW = widths(cellH);
+  }
   const W = Math.min(MAX_SIDE, GAP + colW.reduce((a, w) => a + w + GAP, 0));
   const H = Math.min(MAX_SIDE, GAP + rows.length * (cellH + GAP));
   const out = new Uint8Array(W * H * 4);
@@ -89,6 +99,29 @@ export function composeSheet(rows: (Buffer | null)[][], cellH = 360): Buffer {
     y += cellH + GAP;
   }
   return encode({ w: W, h: H, data: out });
+}
+
+// A capture scaled down to maxW wide (box filter), or the same buffer when it already fits.
+export function shrinkJpeg(b: Buffer, maxW = 1280): Buffer {
+  const src = decode(b);
+  if (!src || src.w <= maxW) return b;
+  const w = maxW, h = Math.max(1, Math.round((src.h * maxW) / src.w));
+  const fx = src.w / w, fy = src.h / h;
+  const data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.floor(y * fy), y1 = Math.max(y0 + 1, Math.floor((y + 1) * fy));
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x * fx), x1 = Math.max(x0 + 1, Math.floor((x + 1) * fx));
+      let r = 0, g = 0, bl = 0, n = 0;
+      for (let sy = y0; sy < y1; sy++)
+        for (let sx = x0; sx < x1; sx++) {
+          const i = (sy * src.w + sx) * 4;
+          r += src.data[i]; g += src.data[i + 1]; bl += src.data[i + 2]; n++;
+        }
+      data.set([r / n, g / n, bl / n, 255], (y * w + x) * 4);
+    }
+  }
+  return encode({ w, h, data }, 85);
 }
 
 // Mean HSV saturation (0..1) of an image's pixels: how colourful a render is.
