@@ -155,10 +155,11 @@ for _, o in D:GetDescendants() do
 				if o.Rotation ~= 0 then
 					e.rot = o.Rotation
 				end
-				local top = o
-				while top.Parent and top.Parent ~= D do top = top.Parent end
+				local top, widget = o, o
+				while top.Parent and top.Parent ~= D do widget = top; top = top.Parent end
 				local layer = top:GetAttribute("BloxLayer")
 				if layer and layer ~= 0 then e.layer = layer end
+				if widget ~= top and widget.ZIndex ~= 1 then e.z = widget.ZIndex end
 				-- surface: draws something (a background, text, an image or a 3D viewport)
 				local surf = o.BackgroundTransparency < 0.9
 				if not surf and (o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox")) then surf = o.Text ~= "" and o.TextTransparency < 0.9 end

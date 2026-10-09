@@ -75,6 +75,8 @@ describe('covered', () => {
     expect(rules([el('Hud.Top', 400, 0, 440, 120), s('Mobile.Throw', 500, 70, 64, 64)])).toEqual([]);
     expect(rules([s('Menu.Window.Header', 10, 10, 300, 40), s('Menu.Window.Tabs', 10, 20, 300, 40)])).toEqual([]);
     expect(rules([s('Hud.Top.Row.Tab', 400, 10, 100, 44), s('Menu.Window', 0, 0, 900, 300, { layer: 10 })])).toEqual([]);
+    // a dialog sibling with a higher ZIndex over its own window (same ScreenGui)
+    expect(rules([s('Menu.Window', 0, 0, 900, 300), s('Menu.Confirm', 300, 100, 320, 150, { z: 10 })])).toEqual([]);
   });
 });
 
