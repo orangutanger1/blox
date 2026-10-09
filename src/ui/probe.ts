@@ -151,6 +151,9 @@ for _, o in D:GetDescendants() do
 					x = x0 - ox, y = y0 - oy, w = o.AbsoluteSize.X, h = o.AbsoluteSize.Y,
 					button = o:IsA("GuiButton") and o.Interactable, clipped = clipped,
 				}
+				if o.Rotation ~= 0 then
+					e.rot = o.Rotation
+				end
 				if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
 					e.text = string.sub(o.Text, 1, 200)
 					e.textScaled = o.TextScaled

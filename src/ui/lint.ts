@@ -35,6 +35,7 @@ export interface UiElement {
   clipped?: boolean; // partly hidden by a ClipsDescendants ancestor (e.g. a scrolled list)
   listed?: 'x' | 'y' | 'xy'; // axis a parent UIListLayout/UIGridLayout places it along
   cr?: number; // buttons: corner radius in px (its UICorner, else its depth-stack Shadow's)
+  rot?: number; // Rotation in degrees when not 0 (icon pieces drawn from bars)
 }
 export interface UiSnapshot {
   device: Device;
@@ -125,7 +126,7 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
   }
   const byPath = new Map(s.elements.map((e) => [e.path, e]));
   for (const e of s.elements) {
-    if (DEPTH_PART.test(e.path) || e.w <= 0 || e.h <= 0) continue;
+    if (DEPTH_PART.test(e.path) || e.w <= 0 || e.h <= 0 || e.rot) continue;
     const p = byPath.get(parentPath(e.path));
     if (!p) continue;
     const dx = Math.abs(e.x + e.w / 2 - (p.x + p.w / 2));
