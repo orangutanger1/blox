@@ -1,7 +1,7 @@
 import type { StudioSession } from '../studio/session.js';
 import { runLuau } from '../studio/luau.js';
 import { startPlay, stopPlay } from '../studio/play.js';
-import { installProbe, newRunId, removeHosts, runProbes } from '../testing/playHost.js';
+import { installProbe, newRunId, removeHosts, runProbe, runProbes } from '../testing/playHost.js';
 import { DEVICES, lintResults, lintSnapshot, type Device, type UiElement, type UiFinding, type UiReport } from './lint.js';
 import { parseProbePage, uiProbeProgram } from './probe.js';
 import { mountProgram, previewProgram, UNSTAGE } from './stage.js';
@@ -15,6 +15,9 @@ const MAX_PAGES = 50; // per device
 export interface UiLintOptions {
   seconds: number;
   prepare?: string; // client Luau run before the snapshot (open a menu, …)
+  // play states: per state, server Luau then client Luau (luau), then every device
+  // is linted as <device>@<name>
+  states?: UiState[];
   devices?: string[];
   sleep?: (ms: number) => Promise<void>;
 }
@@ -47,6 +50,7 @@ export async function probeDevice(session: StudioSession, d: Device, root: 'play
 }
 
 export async function runUiLint(session: StudioSession, o: UiLintOptions): Promise<UiReport> {
+  if (o.states?.length) return runUiLintStates(session, o, statesOf(o));
   const devices = pickDevices(o.devices);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const notes: string[] = [];
@@ -90,11 +94,67 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
   return { ranAt: new Date().toISOString(), devices: devices.map((d) => d.name), elements, findings, results: lintResults(findings), notes };
 }
 
+// Play mode, several screen states in one playtest: each state's server and
+// client Luau run as steps of injected probe scripts (game VM: require, shared),
+// or through the eval bridge when it is on.
+async function runUiLintStates(session: StudioSession, o: UiLintOptions, states: UiState[]): Promise<UiReport> {
+  const devices = pickDevices(o.devices);
+  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const notes: string[] = [];
+  const hasServer = states.some((s) => s.server);
+  const hosted = !session.evalBridge && (await session.state()).mode === 'Edit';
+  const runId = newRunId();
+  if (hosted) {
+    await removeHosts(session);
+    if (hasServer) await installProbe(session, 'server', states.map((s) => s.server ?? ''), runId);
+    await installProbe(session, 'client', states.map((s) => s.luau ?? ''), runId);
+  }
+  const info = await startPlay(session);
+  const pages: Record<string, UiElement[]> = {};
+  const keys: string[] = [];
+  let sources = 0;
+  try {
+    await sleep(o.seconds * 1000);
+    for (const [k, st] of states.entries()) {
+      for (const [ctx, code] of [['server', st.server], ['client', st.luau]] as const) {
+        if (!code && !(hosted && ctx === 'client')) continue;
+        if (ctx === 'server' && !hasServer) continue;
+        const r = hosted ? await runProbe(session, ctx, runId, Date.now() + 30_000, sleep, k + 1) : await runLuau(session, code!, ctx, { chunkName: `state-${st.name}` });
+        if (!r.ok) notes.push(`state "${st.name}" ${ctx} failed: ${r.error?.message}`);
+      }
+      await sleep((st.settle ?? 1) * 1000);
+      for (const d of devices) {
+        const key = `${d.name}@${st.name}`;
+        const p = await probeDevice(session, d);
+        sources = p.sources;
+        pages[key] = p.elements;
+        keys.push(key);
+      }
+    }
+  } finally {
+    const stopped = !info.alreadyRunning && (await stopPlay(session).catch(() => false));
+    if (hosted && stopped) await removeHosts(session).catch(() => {});
+  }
+  const findings: UiFinding[] = [];
+  const elements: Record<string, number> = {};
+  for (const st of states)
+    for (const d of devices) {
+      const key = `${d.name}@${st.name}`;
+      const els = pages[key] ?? [];
+      elements[key] = els.length;
+      findings.push(...lintSnapshot({ device: { ...d, name: key }, elements: els }));
+    }
+  if (Object.values(elements).every((n) => n === 0)) notes.push(`no visible GUI elements (${sources} enabled ScreenGui(s))`);
+  return { ranAt: new Date().toISOString(), devices: keys, elements, findings, results: lintResults(findings), notes };
+}
+
 // --- edit mode (no Play) -----------------------------------------------
 
 export interface UiState {
   name: string;
-  luau?: string; // run after the mount, with `host` in scope (open the shop, …)
+  luau?: string; // edit: run after the mount, with `host` in scope (open the shop, …); play: client Luau
+  server?: string; // play only: server Luau run before the client step (start a wave, set a boss)
+  settle?: number; // play only: seconds to wait after the state's code (default 1)
 }
 export interface UiEditOptions {
   mount?: string; // Luau that builds the UI under `host`; default: StarterGui's ScreenGuis

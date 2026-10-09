@@ -582,12 +582,12 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'ui',
     description:
-      'Sync, then deterministic UI checks across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080). preview {mount?, states?, devices?} → one contact sheet image per state (devices across), edit mode, no Play: look at it and compare with the reference. lint {mode?:"play"|"edit", seconds?=3, prepare? (play: client Luau to open menus first), mount?, states?, devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny, off-centre (1.5px), touching (<2px gap), pill (warn). mount = edit Luau that builds your UI with `host` as its PlayerGui (UI.screen("HUD", host); require works and is fresh); default: clone StarterGui ScreenGuis. states = [{name, luau}] run after the mount (open the shop…). Edit mode is fast and needs no Play; do one play lint at the end (UI reading Camera.ViewportSize is only true in play) | install (BloxUI component kit in the depth-stack look — square-ish depth buttons, never pills: screen, Button, Tile, Panel, Dialog, Tabs, CurrencyBar, Rail, Modal, Row, Toast, Reveal, depth — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError. Full contract (host, states, device insets, thresholds): skill ui-check — no need to read blox source.',
+      'Sync, then deterministic UI checks across a device matrix (phone-landscape 844x390, phone-portrait 390x844, tablet 1024x768, desktop 1920x1080). preview {mount?, states?, devices?} → one contact sheet image per state (devices across), edit mode, no Play: look at it and compare with the reference. lint {mode?:"play"|"edit", seconds?=3, prepare? (play: client Luau to open menus first), mount?, states?, devices?} → offscreen, safe-area (top bar/notch), touch-target (>=44px mobile), overlap, text-overflow, text-tiny, off-centre (1.5px), touching (<2px gap), pill (warn). mount = edit Luau that builds your UI with `host` as its PlayerGui (UI.screen("HUD", host); require works and is fresh); default: clone StarterGui ScreenGuis. states = [{name, luau}] run after the mount (open the shop…). Play states: mode:"play" + states [{name, server?, luau?, settle?=1}] → one playtest; per state the server Luau, then the client Luau (luau) run in the game VM (require, shared), then every device is linted as <device>@<state>. Edit mode is fast and needs no Play; do one play lint at the end (UI reading Camera.ViewportSize is only true in play) | install (BloxUI component kit in the depth-stack look — square-ish depth buttons, never pills: screen, Button, Tile, Panel, Dialog, Tabs, CurrencyBar, Rail, Modal, Row, Toast, Reveal, depth — mobile-first). Criteria bind via tests:["ui:<rule>"]. Errors = isError. Full contract (host, states, device insets, thresholds): skill ui-check — no need to read blox source.',
     shape: {
       action: z.enum(['lint', 'preview', 'install']),
       mode: z.enum(['play', 'edit']).optional().describe('lint: edit = no Play, uses mount/states (default play)'),
       mount: z.string().optional().describe('edit: Luau building the UI under `host`'),
-      states: z.array(z.object({ name: z.string(), luau: z.string().optional() })).optional(),
+      states: z.array(z.object({ name: z.string(), luau: z.string().optional(), server: z.string().optional(), settle: z.number().min(0).max(30).optional() })).optional(),
       seconds: z.number().min(0).max(120).optional(),
       prepare: z.string().optional(),
       devices: z.array(z.string()).optional(),
@@ -634,11 +634,13 @@ export const TOOLS: BloxTool[] = [
           summary: `${p.sheets.length} sheet(s)`,
         };
       }
-      const report = a.mode === 'edit' || a.mount !== undefined || a.states !== undefined
+      const playStates = a.mode === 'play' && a.states !== undefined;
+      const report = !playStates && (a.mode === 'edit' || a.mount !== undefined || a.states !== undefined)
         ? await runUiLintEdit(ctx.session, edit)
         : await runUiLint(ctx.session, {
             seconds: (a.seconds as number | undefined) ?? 3,
             prepare: a.prepare as string | undefined,
+            states: playStates ? (a.states as UiState[]) : undefined,
             devices: a.devices as string[] | undefined,
           });
       writeJson(ctx.projectPath, 'ui-report.json', report);

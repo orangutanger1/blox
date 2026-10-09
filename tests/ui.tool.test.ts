@@ -28,7 +28,7 @@ function ctx(devices: Record<string, unknown[]>, seen: string[] = [], pageSize =
     luau: (code, dm) => {
       seen.push(`${dm}:${code}`);
       if (code.includes('__BloxUiLint')) return env([probePage(code, devices, pageSize)]);
-      if (code.includes('GetLogHistory') && code.includes('probe-client')) return '1/1:{"ok":true,"values":[]}';
+      if (code.includes('GetLogHistory') && (code.includes('probe-client') || code.includes('probe-server'))) return '1/1:{"ok":true,"values":[]}';
       if (code.includes('GetPlayers()')) return env([1]);
       if (code.includes('LocalPlayer')) return env([true]);
       return env([]);
@@ -76,6 +76,29 @@ describe('ui tool', () => {
     expect(go).toBeGreaterThan(install);
     expect(probe).toBeGreaterThan(go);
     expect(seen.some((s) => s.startsWith('Client:') && s.includes('UIController:Open') && !s.includes('BloxProbeHost'))).toBe(false);
+  });
+  it('lint play states: server then client setup per state, each linted as device@state', async () => {
+    const seen: string[] = [];
+    const c = ctx({ desktop: [btn({})] }, seen);
+    const states = [
+      { name: 'boss', server: 'shared.BloxSystems.MatchService:StartWave(11)', luau: 'shared.BloxControllers.UIController:Open("Hud")' },
+      { name: 'shop', luau: 'shared.BloxControllers.UIController:Open("Menu")' },
+    ];
+    const r = await call({ action: 'lint', mode: 'play', seconds: 0, devices: ['desktop'], states }, c);
+    expect(r.isError).toBeFalsy();
+    const report = readJson<{ devices: string[] }>(c.projectPath, 'ui-report.json')!;
+    expect(report.devices).toEqual(['desktop@boss', 'desktop@shop']);
+    expect(seen.some((s) => s.startsWith('Edit:') && s.includes('BloxProbeHost') && s.includes('StartWave(11)'))).toBe(true);
+    const at = (pred: (s: string) => boolean) => seen.findIndex(pred);
+    const serverGo1 = at((s) => s.startsWith('Server:') && s.includes('SetAttribute("BloxGo", 1)'));
+    const clientGo1 = at((s) => s.startsWith('Client:') && s.includes('SetAttribute("BloxGo", 1)'));
+    const clientGo2 = at((s) => s.startsWith('Client:') && s.includes('SetAttribute("BloxGo", 2)'));
+    const probes = seen.map((s, i) => (s.includes('__BloxUiLint') ? i : -1)).filter((i) => i >= 0);
+    expect(serverGo1).toBeGreaterThanOrEqual(0);
+    expect(clientGo1).toBeGreaterThan(serverGo1);
+    expect(probes[0]).toBeGreaterThan(clientGo1);
+    expect(clientGo2).toBeGreaterThan(probes[0]);
+    expect(probes[1]).toBeGreaterThan(clientGo2);
   });
   it('clean GUI passes', async () => {
     const r = await call({ action: 'lint', seconds: 0 }, ctx({ 'phone-landscape': [btn({})], 'phone-portrait': [btn({})], tablet: [btn({})], desktop: [btn({})] }));
