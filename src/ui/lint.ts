@@ -36,13 +36,15 @@ export interface UiElement {
   listed?: 'x' | 'y' | 'xy'; // axis a parent UIListLayout/UIGridLayout places it along
   cr?: number; // buttons: corner radius in px (its UICorner, else its depth-stack Shadow's)
   rot?: number; // Rotation in degrees when not 0 (icon pieces drawn from bars)
+  surface?: boolean; // something visible is drawn: a background, text, an image or a 3D viewport
+  layer?: number; // its ScreenGui's DisplayOrder when not 0 (a modal drawn over the HUD)
 }
 export interface UiSnapshot {
   device: Device;
   elements: UiElement[];
 }
-export type UiRule = 'offscreen' | 'safe-area' | 'touch-target' | 'overlap' | 'text-overflow' | 'text-tiny' | 'off-centre' | 'touching' | 'pill';
-export const UI_RULES: UiRule[] = ['offscreen', 'safe-area', 'touch-target', 'overlap', 'text-overflow', 'text-tiny', 'off-centre', 'touching', 'pill'];
+export type UiRule = 'offscreen' | 'safe-area' | 'touch-target' | 'overlap' | 'covered' | 'outside' | 'text-overflow' | 'text-tiny' | 'off-centre' | 'touching' | 'pill';
+export const UI_RULES: UiRule[] = ['offscreen', 'safe-area', 'touch-target', 'overlap', 'covered', 'outside', 'text-overflow', 'text-tiny', 'off-centre', 'touching', 'pill'];
 export interface UiFinding {
   rule: UiRule;
   severity: 'error' | 'warn';
@@ -86,6 +88,7 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
     if (e.w <= 0 || e.h <= 0) {
       // a label squeezed out by its row (Size (1, -N) with N > the row's width)
       if (e.text) add('text-overflow', 'error', e, `"${e.text.slice(0, 30)}" has no room: ${r(e.w)}×${r(e.h)}px`);
+      else if (e.surface) add('outside', 'error', e, `${e.cls} has no room: ${r(e.w)}×${r(e.h)}px`);
       continue;
     }
     if (e.clipped) continue; // scrolled partly out of view: judged when scrolled in
@@ -125,6 +128,29 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
         if (gap !== null && gap < TOUCH_GAP) add('touching', 'warn', b, `${r(gap)}px from ${a.path} — leave a visible gap`);
       }
     }
+  // covered: visible surfaces of two different widgets (ScreenGui.Child) on the same layer drawn over each other
+  const widget = (p: string) => p.split('.').slice(0, 2).join('.');
+  const surfaces = s.elements.filter((e) => e.surface && e.w > 0 && e.h > 0 && !e.clipped);
+  const coveredSeen = new Set<string>();
+  for (let i = 0; i < surfaces.length; i++)
+    for (let j = 0; j < i; j++) {
+      const a = surfaces[j];
+      const b = surfaces[i];
+      if ((a.layer ?? 0) !== (b.layer ?? 0) || widget(a.path) === widget(b.path) || coveredSeen.has(b.path)) continue;
+      const area = intersect(a, b);
+      if (area > OVERLAP_FRACTION * Math.min(a.w * a.h, b.w * b.h)) {
+        coveredSeen.add(b.path);
+        add('covered', 'error', b, `drawn over ${a.path} (${r((100 * area) / Math.min(a.w * a.h, b.w * b.h))}% of the smaller)`);
+      }
+    }
+  // outside: a visible element mostly outside its parent element (a Size (1, -N) offset gone negative)
+  const parents = new Map(s.elements.map((e) => [e.path, e]));
+  for (const e of surfaces) {
+    const p = parents.get(parentPath(e.path));
+    if (!p || p.w <= 0 || p.h <= 0) continue;
+    const inside = intersect(e, p);
+    if (inside < (1 - OVERLAP_FRACTION) * e.w * e.h) add('outside', 'error', e, `${r((100 * (e.w * e.h - inside)) / (e.w * e.h))}% outside ${p.path}`);
+  }
   for (const b of buttons) {
     if (b.cr !== undefined && b.cr >= b.h / 2 - 1 && b.w >= 1.3 * b.h) add('pill', 'warn', b, `pill-shaped (radius ${r(b.cr)}px on ${r(b.w)}×${r(b.h)}) — use square-ish corners (BloxUI Theme.radius)`);
   }

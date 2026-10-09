@@ -64,3 +64,31 @@ it('off-centre skips the axis a list layout places the element along', () => {
   expect(rules([parent, el('HUD.List.Row', 103, 297, 394, 10, { listed: 'y' })])).toEqual([]);
   expect(rules([parent, el('HUD.List.Row', 97, 0, 400, 10, { listed: 'y' })])).toContain('off-centre:HUD.List.Row');
 });
+
+describe('covered', () => {
+  const s = (path: string, x: number, y: number, w: number, h: number, extra: Partial<UiElement> = {}) => el(path, x, y, w, h, { surface: true, ...extra });
+  it('flags visible surfaces of different widgets overlapping more than 25% of the smaller', () => {
+    expect(rules([s('Economy.CashPlus', 10, 300, 168, 44, { button: true }), s('Economy.Level', 10, 320, 220, 48)])).toContain('covered:Economy.Level');
+    expect(rules([s('Hud.Top.BossBar', 400, 90, 360, 22), s('Mobile.Throw', 500, 70, 64, 64, { button: true })])).toContain('covered:Mobile.Throw');
+  });
+  it('ignores transparent containers, the same widget, and higher layers (modals)', () => {
+    expect(rules([el('Hud.Top', 400, 0, 440, 120), s('Mobile.Throw', 500, 70, 64, 64)])).toEqual([]);
+    expect(rules([s('Menu.Window.Header', 10, 10, 300, 40), s('Menu.Window.Tabs', 10, 20, 300, 40)])).toEqual([]);
+    expect(rules([s('Hud.Top.Row.Tab', 400, 10, 100, 44), s('Menu.Window', 0, 0, 900, 300, { layer: 10 })])).toEqual([]);
+  });
+});
+
+describe('outside', () => {
+  it('flags a visible element mostly outside its parent', () => {
+    const parent = el('Menu.Window.Body.Shop.Detail', 500, 100, 200, 140, { surface: true });
+    expect(rules([parent, el('Menu.Window.Body.Shop.Detail.Title', 508, 56, 184, 24, { surface: true, text: 'Revolver', cls: 'TextLabel' })])).toContain('outside:Menu.Window.Body.Shop.Detail.Title');
+    expect(rules([parent, el('Menu.Window.Body.Shop.Detail.Buy', 508, 190, 184, 44, { surface: true, button: true })])).toEqual([]);
+  });
+  it('flags a visible non-text element squeezed to no size', () => {
+    const parent = el('Menu.Window.Body.Shop.Detail', 500, 100, 200, 140, { surface: true });
+    expect(rules([parent, el('Menu.Window.Body.Shop.Detail.View.Icon', 508, 108, 184, -56, { surface: true, cls: 'ViewportFrame' })])).toContain('outside:Menu.Window.Body.Shop.Detail.View.Icon');
+  });
+  it('ignores transparent elements and children of the screen itself', () => {
+    expect(rules([el('Hud.Top', 400, 0, 440, 120), el('Hud.Top.Row', 380, 0, 480, 44)])).toEqual([]);
+  });
+});
