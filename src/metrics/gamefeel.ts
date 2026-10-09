@@ -30,6 +30,13 @@ export interface MetricsReport {
   bot: string;
   results: MetricResult[];
   notes: string[];
+  // the bot player's Telemetry events, oldest first: what happened when a check failed
+  timeline?: TimelineEvent[];
+}
+export interface TimelineEvent {
+  t: number;
+  name: string;
+  value?: number;
 }
 
 const obj = <T>(v: unknown): Record<string, T> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, T>) : {});
@@ -146,10 +153,18 @@ export function evaluateSoak(d: TelemetryDump, errorCount: number, o: SoakOption
   return out;
 }
 
+export function playerTimeline(d: TelemetryDump, max = 300): TimelineEvent[] {
+  const uid = firstPlayer(d);
+  const mine = d.events.filter((e) => e.uid === uid).sort((a, b) => a.t - b.t);
+  return mine.slice(-max).map((e) => (e.value === undefined ? { t: e.t, name: e.name } : { t: e.t, name: e.name, value: e.value }));
+}
+
 export function formatMetrics(r: MetricsReport): string {
   const pass = r.results.filter((x) => x.ok).length;
   const lines = [`metrics ${r.mode} (${r.seconds}s, bot ${r.bot}): ${pass}/${r.results.length} pass`];
   for (const x of r.results) lines.push(`  ${x.ok ? '✓' : '✗'} ${x.id}  ${x.detail}`);
   for (const n of r.notes) lines.push(`  note: ${n}`);
+  const last = r.timeline?.at(-1);
+  if (last) lines.push(`  timeline: ${r.timeline!.length} event(s), last ${last.name} at ${fmtSeconds(last.t)} (metrics-report.json timeline)`);
   return lines.join('\n');
 }

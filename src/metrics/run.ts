@@ -10,7 +10,7 @@ const HTTP_OFF = /Http requests are not enabled/i;
 import { collectLogs, startPlay, stopPlay, summarizeLogs } from '../studio/play.js';
 import { BOT_HOST, installScript, removeHosts } from '../testing/playHost.js';
 import type { DesignDoc } from '../design/schema.js';
-import { evaluateFtue, evaluateSoak, normalizeDump, type MetricResult, type MetricsReport } from './gamefeel.js';
+import { evaluateFtue, evaluateSoak, normalizeDump, playerTimeline, type MetricResult, type MetricsReport } from './gamefeel.js';
 
 // Runs a playtest with a bot driving the player, then reads BloxTelemetry and
 // evaluates FTUE or soak metrics.
@@ -178,6 +178,6 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
   } else {
     results = evaluateSoak(dump, errors, { seconds: o.seconds, doc, archetype: o.archetype, tolerance: o.tolerance, maxMemGrowthMbPerMin: o.maxMemGrowthMbPerMin, expect: o.expect });
   }
-  return { ranAt: new Date().toISOString(), mode: o.mode, seconds: o.seconds, bot: o.bot, results, notes };
+  return { ranAt: new Date().toISOString(), mode: o.mode, seconds: o.seconds, bot: o.bot, results, notes, ...(dump ? { timeline: playerTimeline(dump) } : {}) };
 }
 
