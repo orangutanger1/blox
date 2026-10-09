@@ -24,6 +24,7 @@ describe('ui probe', () => {
     expect(src).toMatch(/BackgroundTransparency < 0\.9/);
     expect(src).toMatch(/ViewportFrame/);
     expect(src).toMatch(/e\.layer = /);
+    expect(src).toMatch(/e\.z = widget\.ZIndex/);
   });
   it('re-applies BloxUI.fit scales per device (scripts are stripped from the clones)', () => {
     const code = uiProbeProgram(DEVICES[0]);

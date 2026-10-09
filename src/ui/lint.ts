@@ -38,6 +38,7 @@ export interface UiElement {
   rot?: number; // Rotation in degrees when not 0 (icon pieces drawn from bars)
   surface?: boolean; // something visible is drawn: a background, text, an image or a 3D viewport
   layer?: number; // its ScreenGui's DisplayOrder when not 0 (a modal drawn over the HUD)
+  z?: number; // its widget's (the ScreenGui's direct child's) ZIndex when not 1 (a dialog over its window)
 }
 export interface UiSnapshot {
   device: Device;
@@ -136,7 +137,7 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
     for (let j = 0; j < i; j++) {
       const a = surfaces[j];
       const b = surfaces[i];
-      if ((a.layer ?? 0) !== (b.layer ?? 0) || widget(a.path) === widget(b.path) || coveredSeen.has(b.path)) continue;
+      if ((a.layer ?? 0) !== (b.layer ?? 0) || (a.z ?? 1) !== (b.z ?? 1) || widget(a.path) === widget(b.path) || coveredSeen.has(b.path)) continue;
       const area = intersect(a, b);
       if (area > OVERLAP_FRACTION * Math.min(a.w * a.h, b.w * b.h)) {
         coveredSeen.add(b.path);
