@@ -74,10 +74,12 @@ describe('metrics tool', () => {
     expect(schema.safeParse({ action: 'soak', seconds: 2000 }).success).toBe(false);
     const samples = [0, 5, 10, 15, 20, 25, 30, 35].map((t) => ({ t, memMb: 300, stats: [] }));
     const events = [{ t: 20, uid: '1', name: 'boss:MegaDog' }];
-    const r = await call({ action: 'soak', seconds: 0, bot: 'idle', expect: ['boss:MegaDog', 'wave:11'] }, ctx({ elapsed: 40, players: { '1': { joinedAt: 0, steps: [] } }, events, samples }));
+    const c = ctx({ elapsed: 40, players: { '1': { joinedAt: 0, steps: [] } }, events, samples });
+    const r = await call({ action: 'soak', seconds: 0, bot: 'idle', expect: ['boss:MegaDog', 'wave:11'] }, c);
     expect(r.text).toMatch(/✓ soak:expect:boss:MegaDog/);
     expect(r.text).toMatch(/✗ soak:expect:wave:11/);
     expect(r.isError).toBe(true);
+    expect(readJson<{ timeline: unknown[] }>(c.projectPath, 'metrics-report.json')!.timeline).toEqual([{ t: 20, name: 'boss:MegaDog' }]);
   });
   it('cli --expect splits on commas', () => {
     expect(cliArgs('metrics', parseFlags(['soak', '--expect', 'boss:MegaDog,wave:11'])).args).toMatchObject({ expect: ['boss:MegaDog', 'wave:11'] });

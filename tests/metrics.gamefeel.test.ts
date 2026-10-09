@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateFtue, evaluateSoak, memorySlope, normalizeDump, formatMetrics, type TelemetryDump } from '../src/metrics/gamefeel.js';
+import { evaluateFtue, evaluateSoak, memorySlope, normalizeDump, formatMetrics, playerTimeline, type TelemetryDump } from '../src/metrics/gamefeel.js';
 import { validateDesign, type DesignDoc } from '../src/design/schema.js';
 
 function doc(): DesignDoc {
@@ -56,6 +56,16 @@ describe('memorySlope', () => {
     const s = [0, 10, 20, 30, 40, 50, 60].map((t) => ({ t, memMb: t < 30 ? 500 : 500 + (t - 30) * 0.5, stats: {} }));
     expect(memorySlope(s)).toBeCloseTo(30, 6); // 0.5 MB/s
     expect(memorySlope(s.slice(0, 3))).toBeNull();
+  });
+});
+
+describe('playerTimeline', () => {
+  it('lists the first player\'s events in time order, capped, and formats the last one', () => {
+    const d = dump({ events: [{ t: 90, uid: '1', name: 'wave:3' }, { t: 5, uid: '2', name: 'wave:1' }, { t: 30, uid: '1', name: 'wave:2', value: 2 }] });
+    expect(playerTimeline(d)).toEqual([{ t: 30, name: 'wave:2', value: 2 }, { t: 90, name: 'wave:3' }]);
+    expect(playerTimeline(d, 1)).toEqual([{ t: 90, name: 'wave:3' }]);
+    const text = formatMetrics({ ranAt: '', mode: 'soak', seconds: 100, bot: 'b', results: [], notes: [], timeline: playerTimeline(d) });
+    expect(text).toMatch(/timeline: 2 event\(s\), last wave:3 at 1m30s/);
   });
 });
 
