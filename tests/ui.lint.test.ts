@@ -45,9 +45,9 @@ describe('lintResults + format', () => {
     const r = lintResults(findings);
     expect(r.find((x) => x.id === 'ui:touch-target')).toMatchObject({ ok: false, actual: 1 });
     expect(r.find((x) => x.id === 'ui:offscreen')).toMatchObject({ ok: true }); // warn only
-    expect(r.map((x) => x.id)).toEqual(['ui:offscreen', 'ui:safe-area', 'ui:touch-target', 'ui:overlap', 'ui:text-overflow', 'ui:text-tiny', 'ui:off-centre', 'ui:touching', 'ui:pill']);
+    expect(r.map((x) => x.id)).toEqual(['ui:offscreen', 'ui:safe-area', 'ui:touch-target', 'ui:overlap', 'ui:covered', 'ui:outside', 'ui:text-overflow', 'ui:text-tiny', 'ui:off-centre', 'ui:touching', 'ui:pill']);
     const text = formatUiReport({ ranAt: 'x', devices: ['phone-landscape'], elements: { 'phone-landscape': 2 }, findings, results: r, notes: [] });
-    expect(text).toMatch(/^ui lint \(phone-landscape\): 8\/9 rules pass, 1 error, 1 warning/);
+    expect(text).toMatch(/^ui lint \(phone-landscape\): 10\/11 rules pass, 1 error, 1 warning/);
     expect(text).toMatch(/ERROR touch-target \[phone-landscape\] S/);
   });
 });

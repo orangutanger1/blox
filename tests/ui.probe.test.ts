@@ -18,6 +18,13 @@ describe('ui probe', () => {
   it('a non-interactable GuiButton (art inside a hit area) is not a touch target', () => {
     expect(uiProbeProgram(DEVICES[0])).toContain('button = o:IsA("GuiButton") and o.Interactable');
   });
+  it('reports which elements draw something and the DisplayOrder layer of their ScreenGui', () => {
+    const src = uiProbeProgram(DEVICES[0]);
+    expect(src).toMatch(/e\.surface = /);
+    expect(src).toMatch(/BackgroundTransparency < 0\.9/);
+    expect(src).toMatch(/ViewportFrame/);
+    expect(src).toMatch(/e\.layer = /);
+  });
   it('re-applies BloxUI.fit scales per device (scripts are stripped from the clones)', () => {
     const code = uiProbeProgram(DEVICES[0]);
     expect(code).toContain('s:GetAttribute("BloxFitHeight")');

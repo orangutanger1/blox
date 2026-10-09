@@ -93,6 +93,7 @@ for i, d in DEVICES do
 		C.BackgroundTransparency = 1
 		C.Position = UDim2.fromOffset(left, top)
 		C.Size = UDim2.new(1, -(left + right), 1, -(top + bottom))
+		C:SetAttribute("BloxLayer", g.DisplayOrder)
 		C.Parent = D
 		for _, child in g:GetChildren() do
 			if not child:IsA("LuaSourceContainer") then
@@ -154,6 +155,16 @@ for _, o in D:GetDescendants() do
 				if o.Rotation ~= 0 then
 					e.rot = o.Rotation
 				end
+				local top = o
+				while top.Parent and top.Parent ~= D do top = top.Parent end
+				local layer = top:GetAttribute("BloxLayer")
+				if layer and layer ~= 0 then e.layer = layer end
+				-- surface: draws something (a background, text, an image or a 3D viewport)
+				local surf = o.BackgroundTransparency < 0.9
+				if not surf and (o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox")) then surf = o.Text ~= "" and o.TextTransparency < 0.9 end
+				if not surf and (o:IsA("ImageLabel") or o:IsA("ImageButton")) then surf = o.Image ~= "" and o.ImageTransparency < 0.9 end
+				if not surf and o:IsA("ViewportFrame") then surf = true end
+				if surf then e.surface = true end
 				if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
 					e.text = string.sub(o.Text, 1, 200)
 					e.textScaled = o.TextScaled
