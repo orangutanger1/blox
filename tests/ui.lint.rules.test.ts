@@ -47,6 +47,12 @@ it('results include the new rules as warnings only', () => {
   expect(ids.every((r) => r.ok)).toBe(true);
 });
 
+it('off-centre skips rotated elements (pieces of a drawn icon are placed by eye)', () => {
+  const parent = el('HUD.Btn', 100, 100, 48, 48);
+  expect(rules([parent, el('HUD.Btn.Blade', 101, 106, 40, 40, { rot: 35 })])).toEqual([]);
+  expect(rules([parent, el('HUD.Btn.Blade', 101, 106, 40, 40)])).toContain('off-centre:HUD.Btn.Blade');
+});
+
 it('off-centre skips the axis a list layout places the element along', () => {
   const parent = el('HUD.List', 100, 100, 400, 400);
   expect(rules([parent, el('HUD.List.Row', 100, 297, 400, 10, { listed: 'y' })])).toEqual([]);
