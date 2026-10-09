@@ -31,6 +31,31 @@ export function pickDevices(names?: string[]): Device[] {
   });
 }
 
+// A landscape-locked game (StarterGui.ScreenOrientation Landscape*) never shows a
+// portrait phone, so linting one only reports layouts no player can see.
+export function forOrientation(devices: Device[], orientation: string | undefined): { devices: Device[]; note?: string } {
+  if (!orientation || !/Landscape(Sensor|Left|Right)$/.test(orientation)) return { devices };
+  const kept = devices.filter((d) => !(d.kind === 'phone' && d.h > d.w));
+  if (kept.length === devices.length) return { devices };
+  return { devices: kept, note: `phone-portrait skipped: StarterGui.ScreenOrientation is ${orientation.replace('Enum.ScreenOrientation.', '')} (pass devices to lint it anyway)` };
+}
+
+// Default device list: every device, minus portrait phones for a landscape-locked
+// game. Explicit names are used as given.
+async function lintDevices(session: StudioSession, names: string[] | undefined, notes: string[]): Promise<Device[]> {
+  if (names?.length) return pickDevices(names);
+  let orientation: string | undefined;
+  try {
+    const r = await runLuau(session, 'return tostring(game:GetService("StarterGui").ScreenOrientation)', 'edit', { chunkName: 'uiOrientation' });
+    if (r.ok && typeof r.values[0] === 'string') orientation = r.values[0];
+  } catch {
+    // no edit DataModel to ask: lint every device
+  }
+  const r = forOrientation(DEVICES, orientation);
+  if (r.note) notes.push(r.note);
+  return r.devices;
+}
+
 // Lays the player's GUI out at device d (client context, play mode), page by page.
 export async function probeDevice(session: StudioSession, d: Device, root: 'player' | 'edit' = 'player'): Promise<{ elements: UiElement[]; sources: number }> {
   const elements: UiElement[] = [];
@@ -51,9 +76,9 @@ export async function probeDevice(session: StudioSession, d: Device, root: 'play
 
 export async function runUiLint(session: StudioSession, o: UiLintOptions): Promise<UiReport> {
   if (o.states?.length) return runUiLintStates(session, o, statesOf(o));
-  const devices = pickDevices(o.devices);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const notes: string[] = [];
+  const devices = await lintDevices(session, o.devices, notes);
   // prepare runs as an injected probe script (game VM: require() and shared work,
   // e.g. shared.BloxControllers), like playtest's client code, unless the eval
   // bridge is on or a playtest is already running (can't add scripts then).
@@ -98,9 +123,9 @@ export async function runUiLint(session: StudioSession, o: UiLintOptions): Promi
 // client Luau run as steps of injected probe scripts (game VM: require, shared),
 // or through the eval bridge when it is on.
 async function runUiLintStates(session: StudioSession, o: UiLintOptions, states: UiState[]): Promise<UiReport> {
-  const devices = pickDevices(o.devices);
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const notes: string[] = [];
+  const devices = await lintDevices(session, o.devices, notes);
   const hasServer = states.some((s) => s.server);
   const hosted = !session.evalBridge && (await session.state()).mode === 'Edit';
   const runId = newRunId();
@@ -189,10 +214,10 @@ const unstage = (session: StudioSession) => runLuau(session, UNSTAGE, 'edit', { 
 // Lint without Play: device names in the report are <device>@<state> when states are given.
 export async function runUiLintEdit(session: StudioSession, o: UiEditOptions): Promise<UiReport> {
   const states = statesOf(o);
-  const devices = pickDevices(o.devices);
   await editOnly(session);
   const named = Boolean(o.states?.length);
   const notes: string[] = ['edit mode: UI that sizes itself from Camera.ViewportSize is not measured truly; parent-size (Scale, AbsoluteSize, BloxUI.fit) UI is'];
+  const devices = await lintDevices(session, o.devices, notes);
   const findings: UiFinding[] = [];
   const elements: Record<string, number> = {};
   const keys: string[] = [];
