@@ -113,6 +113,24 @@ describe('probe hosts (playtest server_code/client_code as real scripts)', () =>
     expect((await runProbes(session, 'r', { server: false, client: true }, Date.now() + 2000, async () => {})).server).toBeUndefined();
   });
 
+  it('a stepped probe runs step N when BloxGo reaches N and reports under the step tag', async () => {
+    const src = probeHostSource(['return 1', 'return 2'], 'client', 'r4');
+    expect(src).toContain('local __blox_steps = {');
+    expect(src).toContain('BLOXTEST:r4:probe-client-');
+    const calls: string[] = [];
+    const session = {
+      call: async (_: string, a: Record<string, unknown>) => {
+        const code = String(a.code);
+        calls.push(code);
+        if (code.includes('BloxGo')) return { content: [{ type: 'text', text: 'ok' }] };
+        return { content: [{ type: 'text', text: code.includes('probe-client-2:') ? '1/1:{"ok":true,"values":[2]}' : '' }] };
+      },
+    } as unknown as StudioSession;
+    const r = await runProbe(session, 'client', 'r4', Date.now() + 5000, async () => {}, 2);
+    expect(calls[0]).toContain('SetAttribute("BloxGo", 2)');
+    expect(r.values).toEqual([2]);
+  });
+
   it('returns serialized values on success and an error at the deadline', async () => {
     const ok = { call: async (_: string, a: Record<string, unknown>) => ({ content: [{ type: 'text', text: String(a.code).includes('BloxGo') ? 'ok' : '1/1:{"ok":true,"values":[6,"Workspace.Dogs"]}' }] }) } as unknown as StudioSession;
     expect((await runProbe(ok, 'client', 'r', Date.now() + 5000, async () => {})).values).toEqual([6, 'Workspace.Dogs']);

@@ -141,7 +141,43 @@ const PROBE_SERIALIZE = `local function __ser(v, depth)
 	return tostring(v)
 end`;
 
-export function probeHostSource(code: string, ctx: PlayContext, runId: string): string {
+// Stepped probe (an array of programs): runs step N each time runProbe raises
+// BloxGo to N, and reports it under probe-<ctx>-<N> (ui lint states).
+function steppedProbeSource(steps: string[], ctx: PlayContext, runId: string): string {
+  return `local __blox_steps = {
+${steps.map((code) => `function() ${code}
+end,`).join('\n')}
+}
+${PROBE_SERIALIZE}
+${ESCAPE_MARKER}
+local done = 0
+while true do
+	local go = script:GetAttribute("BloxGo")
+	if type(go) == "number" and go > done then
+		done = go
+		local fn = __blox_steps[go] or function() end
+		local packed = table.pack(pcall(fn))
+		local out
+		if packed[1] then
+			local values = {}
+			for i = 2, packed.n do values[i - 1] = __ser(packed[i], 0) end
+			out = { ok = true, values = values }
+		else
+			out = { ok = false, error = tostring(packed[2]) }
+		end
+		local json = escapeMarker(game:GetService("HttpService"):JSONEncode(out))
+		local n = math.max(1, math.ceil(#json / ${CHUNK}))
+		for i = 1, n do
+			print("${MARK}:${runId}:probe-${ctx}-" .. go .. ":" .. i .. "/" .. n .. ":" .. string.sub(json, (i - 1) * ${CHUNK} + 1, i * ${CHUNK}))
+		end
+	end
+	task.wait(0.05)
+end
+`;
+}
+
+export function probeHostSource(code: string | string[], ctx: PlayContext, runId: string): string {
+  if (Array.isArray(code)) return steppedProbeSource(code, ctx, runId);
   return `local function __blox_probe() ${code}
 end
 ${PROBE_SERIALIZE}
@@ -164,7 +200,7 @@ end
 `;
 }
 
-export async function installProbe(session: StudioSession, ctx: PlayContext, code: string, runId: string): Promise<void> {
+export async function installProbe(session: StudioSession, ctx: PlayContext, code: string | string[], runId: string): Promise<void> {
   await installScript(session, PROBE_HOSTS[ctx], probeHostSource(code, ctx, runId), `${ctx} probe host`);
 }
 
@@ -174,6 +210,7 @@ export async function runProbe(
   runId: string,
   deadlineMs: number,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  step?: number,
 ): Promise<LuauResult> {
   const t0 = Date.now();
   const dm = ctx === 'server' ? 'Server' : 'Client';
@@ -182,9 +219,9 @@ export async function runProbe(
   const chunk = ctx === 'server' ? 'serverCode' : 'clientCode';
   await luauText(session, `local h = ${holder}
 local s = h and h:FindFirstChild("${name}")
-if s then s:SetAttribute("BloxGo", true) end
+if s then s:SetAttribute("BloxGo", ${step ?? 'true'}) end
 return s ~= nil`, dm).catch(() => '');
-  const prefix = `${MARK}:${runId}:probe-${ctx}:`;
+  const prefix = step === undefined ? `${MARK}:${runId}:probe-${ctx}:` : `${MARK}:${runId}:probe-${ctx}-${step}:`;
   const read = `local out = {}
 for _, e in game:GetService("LogService"):GetLogHistory() do
 	if string.sub(e.message, 1, ${prefix.length}) == ${longString(prefix)} then table.insert(out, string.sub(e.message, ${prefix.length + 1})) end
