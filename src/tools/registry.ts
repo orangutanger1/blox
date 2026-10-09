@@ -835,7 +835,7 @@ export const TOOLS: BloxTool[] = [
       cell: z.number().int().positive().optional(),
       pad: z.number().int().nonnegative().optional(),
       module: z.string().optional(),
-      licence: z.enum(['owned', 'cc0', 'cc-by', 'generated-roblox', 'unknown']).optional(),
+      licence: z.enum(['owned', 'cc0', 'cc-by', 'generated-roblox', 'qwen-research', 'apache-2.0', 'unknown']).optional(),
       attribution: z.string().optional(),
       source_url: z.string().optional(),
       entry: z.unknown().optional(),
@@ -921,7 +921,7 @@ export const TOOLS: BloxTool[] = [
           delete old.uploaded;
           saveManifest(P, m);
         } else {
-          const added = addAsset(P, { id: a.id, kind: 'image', source: a.licence === 'owned' ? 'generated' : 'external', licence: a.licence, ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}), ref: { file: r.map.image }, provenance });
+          const added = addAsset(P, { id: a.id, kind: 'image', source: a.licence === 'owned' || a.licence === 'qwen-research' || a.licence === 'apache-2.0' ? 'generated' : 'external', licence: a.licence, ...(typeof a.attribution === 'string' ? { attribution: a.attribution } : {}), ref: { file: r.map.image }, provenance });
           if (!added.ok) return { text: `could not record ${a.id}: ${added.errors.join('; ')}`, isError: true, summary: 'invalid' };
         }
         return {

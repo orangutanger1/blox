@@ -419,7 +419,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox ui lint|preview|install [--devices a,b] [--prepare '<client luau>'] [--mode edit] [--mount '<luau>'|@file] [--states '<json>'|@file] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
-           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence l [--cell 128] [--module path]
+           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence owned|cc0|cc-by|qwen-research|apache-2.0|… [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
            blox image generate --items '<json>'|@file [--style icon|item|badge|'<text>'] [--size 512] [--backend kaggle-qwen|cloudflare-flux] [--overwrite] [--fresh] | setup | status [--job <id>]
            blox map check|shots|install|detail <check> [--root Workspace.Map] [--spawns '{"Dogs":"Workspace.Map.DogSpawns"}'] [--no-sync]

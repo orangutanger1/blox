@@ -60,6 +60,17 @@ describe('icon sheet', () => {
     expect(readFileSync(join(P, r.map.module), 'utf8')).toContain('Sheet.image = "rbxassetid://87029758011762"\n');
     expect(setSheetImage(P, 'other', 'assets/ui/other.png', 1)).toBeNull();
   });
+  it('sheets AI-generated icons under their model licence (qwen-research, apache-2.0) as generated', async () => {
+    const P = project();
+    const f = fakeStudio({});
+    const c: ToolCtx = { session: new StudioSession({ launch: { command: 'x', args: [] }, connector: async () => f.client, sleep: async () => {}, attachTimeoutMs: 0 }), projectPath: P, config: BloxConfigSchema.parse({ projectPath: P }), agent: 'test' };
+    const call = (args: Record<string, unknown>) => invokeTool(findTool('asset')!, args, c);
+    for (const licence of ['qwen-research', 'apache-2.0']) {
+      const r = await call({ action: 'sheet', id: `hud-${licence.replace('.', '')}`, files: ['icons'], licence });
+      expect(r.isError).toBeFalsy();
+      expect(loadManifest(P).assets.find((x) => x.id === `hud-${licence.replace('.', '')}`)).toMatchObject({ source: 'generated', licence });
+    }
+  });
   it('tool records a candidate image entry and re-running resets it', async () => {
     const P = project();
     const f = fakeStudio({});
