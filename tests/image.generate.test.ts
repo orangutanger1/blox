@@ -44,6 +44,34 @@ describe('generateImages', () => {
     writeFileSync(join(P, 'assets/icons/coin.png'), 'old');
     await expect(generateImages(P, { items: [{ name: 'coin', prompt: 'x' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/exists.*overwrite/);
   });
+  it('keeps manifest changes made by other commands while the batch runs', async () => {
+    const P = proj();
+    await generateImages(P, { items: [{ name: 'coin', prompt: 'a coin' }] }, { backends: [ok('kaggle-qwen')] });
+    const b = ok('kaggle-qwen');
+    const run = b.run;
+    // another command (asset sheet / upload) records an entry while the GPU batch is out
+    b.run = async (items, o) => {
+      const m = loadManifest(P);
+      m.assets.push({ id: 'Sheet', kind: 'image', source: 'generated', licence: 'qwen-research', ref: { file: 'assets/ui/Sheet.png' }, provenance: { tool: 'sheet', createdAt: new Date().toISOString() }, status: 'approved' } as any);
+      writeJson(P, 'assets.json', m);
+      return run(items, o);
+    };
+    await generateImages(P, { items: [{ name: 'coin', prompt: 'a new coin' }, { name: 'gem', prompt: 'a gem' }], overwrite: true }, { backends: [b] });
+    const ids = loadManifest(P).assets.map((a) => a.id);
+    expect(ids).toContain('Sheet');
+    expect(ids).toContain('icon-coin');
+    expect(ids).toContain('icon-gem');
+  });
+  it('has a hud preset for simple 32 px-readable HUD glyphs', async () => {
+    expect(STYLES.hud).toMatch(/one single object/);
+    expect(STYLES.hud).toMatch(/at most three flat colours/);
+    let seen = '';
+    const b = ok('kaggle-qwen');
+    const run = b.run;
+    b.run = async (items, o) => { seen = items[0].prompt; return run(items, o); };
+    await generateImages(proj(), { items: [{ name: 'eye', prompt: 'an eye' }], style: 'hud' }, { backends: [b] });
+    expect(seen).toContain(STYLES.hud);
+  });
   it('rejects duplicate or unsafe names before running', async () => {
     await expect(generateImages(proj(), { items: [{ name: 'a', prompt: 'x' }, { name: 'a', prompt: 'y' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/duplicate/);
     await expect(generateImages(proj(), { items: [{ name: '../x', prompt: 'x' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/name/);
