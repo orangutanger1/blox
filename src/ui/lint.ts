@@ -83,7 +83,11 @@ export function lintSnapshot(s: UiSnapshot): UiFinding[] {
   const add = (rule: UiRule, severity: UiFinding['severity'], e: UiElement, detail: string) => out.push({ rule, severity, device: d.name, path: e.path, detail });
   const buttons: UiElement[] = [];
   for (const e of s.elements) {
-    if (e.w <= 0 || e.h <= 0) continue;
+    if (e.w <= 0 || e.h <= 0) {
+      // a label squeezed out by its row (Size (1, -N) with N > the row's width)
+      if (e.text) add('text-overflow', 'error', e, `"${e.text.slice(0, 30)}" has no room: ${r(e.w)}×${r(e.h)}px`);
+      continue;
+    }
     if (e.clipped) continue; // scrolled partly out of view: judged when scrolled in
     const off = e.x < -TOL || e.y < -TOL || e.x + e.w > d.w + TOL || e.y + e.h > d.h + TOL;
     if (off) add('offscreen', e.button ? 'error' : 'warn', e, `${e.cls} at (${r(e.x)},${r(e.y)}) ${r(e.w)}×${r(e.h)} leaves the ${d.w}×${d.h} screen`);

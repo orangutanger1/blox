@@ -47,6 +47,11 @@ it('results include the new rules as warnings only', () => {
   expect(ids.every((r) => r.ok)).toBe(true);
 });
 
+it('text with no width or height is a text-overflow error (a label squeezed out by its row)', () => {
+  expect(rules([el('Menu.Row.Name', 100, 100, -10, 30, { text: 'Deathshard', textScaled: true })])).toContain('text-overflow:Menu.Row.Name');
+  expect(rules([el('Menu.Row.Name', 100, 100, 0, 30, { text: '' })])).toEqual([]);
+});
+
 it('off-centre skips rotated elements (pieces of a drawn icon are placed by eye)', () => {
   const parent = el('HUD.Btn', 100, 100, 48, 48);
   expect(rules([parent, el('HUD.Btn.Blade', 101, 106, 40, 40, { rot: 35 })])).toEqual([]);
