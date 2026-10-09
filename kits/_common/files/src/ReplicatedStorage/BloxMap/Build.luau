@@ -487,19 +487,24 @@ function B.tree(parent: Instance, pos: Vector3, o: any?): Model
 		CFrame.new(pos + Vector3.new(0, th / 2, 0)),
 		"trunk"
 	)
-	B.part(
-		m,
-		"Leaves",
-		Vector3.new(7 * k, 5 * k, 7 * k),
-		CFrame.new(pos + Vector3.new(0, th + 2.5 * k, 0)),
-		o.style or "leaf"
+	-- leaves are Roof: dogs walk under a canopy, not on it
+	B.roof(
+		B.part(
+			m,
+			"Leaves",
+			Vector3.new(7 * k, 5 * k, 7 * k),
+			CFrame.new(pos + Vector3.new(0, th + 2.5 * k, 0)),
+			o.style or "leaf"
+		)
 	)
-	B.part(
-		m,
-		"Leaves",
-		Vector3.new(4.5 * k, 3 * k, 4.5 * k),
-		CFrame.new(pos + Vector3.new(0, th + 6.5 * k, 0)) * CFrame.Angles(0, RAD45, 0),
-		o.style or "leaf"
+	B.roof(
+		B.part(
+			m,
+			"Leaves",
+			Vector3.new(4.5 * k, 3 * k, 4.5 * k),
+			CFrame.new(pos + Vector3.new(0, th + 6.5 * k, 0)) * CFrame.Angles(0, RAD45, 0),
+			o.style or "leaf"
+		)
 	)
 	return m
 end
