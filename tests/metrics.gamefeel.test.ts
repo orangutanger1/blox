@@ -61,6 +61,13 @@ describe('memorySlope', () => {
 
 describe('evaluateSoak', () => {
   const flat = [0, 5, 10, 15, 20, 25, 30, 35].map((t) => ({ t, memMb: 400, stats: {} }));
+  it('expect: passes when the first player logged each event, fails with the missing ones', () => {
+    const d = dump({ samples: flat, events: [{ t: 30, uid: '1', name: 'wave:5' }, { t: 900, uid: '1', name: 'boss:MegaDog' }] });
+    const ok = evaluateSoak(d, 0, { seconds: 40, expect: ['boss:MegaDog'] });
+    expect(ok.find((x) => x.id === 'soak:expect:boss:MegaDog')).toMatchObject({ ok: true, actual: 900 });
+    const bad = evaluateSoak(d, 0, { seconds: 40, expect: ['boss:KingSlimeDog'] });
+    expect(bad.find((x) => x.id === 'soak:expect:boss:KingSlimeDog')).toMatchObject({ ok: false, actual: null });
+  });
   it('passes errors and memory when clean', () => {
     const r = evaluateSoak(dump({ samples: flat }), 0, { seconds: 40 });
     expect(r.map((x) => [x.id, x.ok])).toEqual([['soak:errors', true], ['soak:memory', true]]);

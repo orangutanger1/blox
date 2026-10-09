@@ -518,12 +518,13 @@ export const TOOLS: BloxTool[] = [
   {
     name: 'metrics',
     description:
-      'Game-feel metrics from a real playtest (needs BloxTelemetry; kits include it). ftue {seconds?=60, bot?} → each design.json ftue step reached within targetSec + first currency <= 60s | soak {seconds?=300, bot?, archetype?, tolerance?} → no runtime errors, memory growth <= 10 MB/min, and (with archetype) purchase milestones on the simulator\'s pace | install (adds src/ReplicatedStorage/BloxTelemetry.luau). bot: "walk" (default) | "idle" | project file returning function(player, deadline) run on the server. Criteria bind via tests:["ftue:<id>"|"soak:<check>"]. Failing checks = isError.',
+      'Game-feel metrics from a real playtest (needs BloxTelemetry; kits include it). ftue {seconds?=60, bot?} → each design.json ftue step reached within targetSec + first currency <= 60s | soak {seconds?=300 (<= 1800), bot?, archetype?, tolerance?, expect?} → no runtime errors, memory growth <= 10 MB/min, (with archetype) purchase milestones on the simulator\'s pace, and (with expect) each named event logged by the bot\'s player via Telemetry.event → soak:expect:<name> | install (adds src/ReplicatedStorage/BloxTelemetry.luau). bot: "walk" (default) | "idle" | project file returning function(player, deadline) run on the server. Criteria bind via tests:["ftue:<id>"|"soak:<check>"]. Failing checks = isError.',
     shape: {
       action: z.enum(['ftue', 'soak', 'install']),
       sync: z.boolean().optional().describe('default true: push files to Studio first'),
-      seconds: z.number().int().min(0).max(900).optional(),
+      seconds: z.number().int().min(0).max(1800).optional(),
       bot: z.string().optional(),
+      expect: z.array(z.string().min(1)).max(10).optional(),
       archetype: z.string().optional(),
       tolerance: z.number().min(1).optional(),
     },
@@ -565,6 +566,7 @@ export const TOOLS: BloxTool[] = [
         bot,
         archetype: a.archetype as string | undefined,
         tolerance: a.tolerance as number | undefined,
+        expect: a.expect as string[] | undefined,
       });
       if (v && !v.ok) report.notes.push('design.json is invalid — FTUE targets and pace checks skipped');
       if (reused) report.notes.push(`bot ${bot}, ${seconds}s: as this mode's last run (pass bot/seconds to change)`);

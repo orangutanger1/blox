@@ -95,6 +95,7 @@ export interface SoakOptions {
   doc?: DesignDoc | null;
   archetype?: string;
   tolerance?: number;
+  expect?: string[];
 }
 
 const PACE_SLACK = 15;
@@ -130,6 +131,17 @@ export function evaluateSoak(d: TelemetryDump, errorCount: number, o: SoakOption
         ? `${bad.length}/${simFirst.size} milestones off pace (×${tol} ±${PACE_SLACK}s): ${bad.slice(0, 5).join('; ')}`
         : `${simFirst.size} milestones within ×${tol} ±${PACE_SLACK}s of the ${o.archetype} simulation`,
     });
+  }
+  if (o.expect?.length) {
+    const uid = firstPlayer(d);
+    for (const name of o.expect) {
+      const hit = d.events.find((e) => e.uid === uid && e.name === name);
+      out.push(
+        hit
+          ? { id: `soak:expect:${name}`, ok: true, actual: hit.t, detail: `${name} at ${fmtSeconds(hit.t)}` }
+          : { id: `soak:expect:${name}`, ok: false, actual: null, detail: `${name} never logged in ${fmtSeconds(o.seconds)}` },
+      );
+    }
   }
   return out;
 }

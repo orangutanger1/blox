@@ -137,6 +137,7 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.bot === 'string' ? { bot: o.bot } : {}),
           ...(typeof o.archetype === 'string' ? { archetype: o.archetype } : {}),
           ...(typeof o.tolerance === 'string' ? { tolerance: Number(o.tolerance) } : {}),
+          ...(typeof o.expect === 'string' ? { expect: o.expect.split(',') } : {}),
         },
       };
     case 'ui':

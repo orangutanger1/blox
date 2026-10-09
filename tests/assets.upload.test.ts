@@ -31,7 +31,13 @@ describe('uploadAsset gates', () => {
     await expect(uploadAsset(project(false), 'rock', { confirm: true })).rejects.toThrow(/blox asset approve rock/);
   });
   it('needs a creator', async () => {
-    await expect(uploadAsset(project(true, false), 'rock')).rejects.toThrow(/creator/);
+    const old = process.env.ROBLOX_CREATOR_USER_ID;
+    delete process.env.ROBLOX_CREATOR_USER_ID; // a developer shell may set one
+    try {
+      await expect(uploadAsset(project(true, false), 'rock')).rejects.toThrow(/creator/);
+    } finally {
+      if (old !== undefined) process.env.ROBLOX_CREATOR_USER_ID = old;
+    }
   });
   it('without confirm it is a dry run that sends nothing', async () => {
     const log: never[] = [];
