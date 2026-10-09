@@ -16,6 +16,8 @@ import type { KernelItem } from './kaggleScripts.js';
 export const STYLES = {
   icon: 'game UI icon, one single centred object, bold dark outline, flat cel shading, bright saturated colours, soft top-left highlight, plain pure white background, no text, no border, no shadow on the ground',
   item: 'game item render, one single centred object, three-quarter view, clean cel shading, bright saturated colours, plain pure white background, no text',
+  // HUD buttons/badges read at 32 px: one silhouette, few colours, no props (Dog Attack Plan 9 lesson)
+  hud: 'simple mobile game HUD icon, one single object with a bold readable silhouette, at most three flat colours, thick even dark outline, large simple shapes, no small details, no extra objects, no sparkles, no glow, no motion lines, no text, no numbers, front view, centred, fills the frame, plain pure white background',
   badge: 'round game badge emblem, centred, bold outline, bright saturated colours, plain pure white background, no text',
 } as const;
 export type StyleName = keyof typeof STYLES;
@@ -100,7 +102,6 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
   const backends = o.backends ?? defaultBackends();
   const cache = o.cacheDir ?? null;
   const key = (it: ImageItem, b: BackendName) => cacheKey({ prompt: it.prompt, style, size, backend: b, seed: it.seed });
-  const m = loadManifest(P);
   const out: GenerateResult = { backend: backends[0]?.name ?? 'kaggle-qwen', written: [], failed: [], notes, cached: [] };
   const write = (it: ImageItem, png: Buffer, meta: CacheMeta) => {
     mkdirSync(join(P, dir), { recursive: true });
@@ -108,6 +109,9 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
     writeFileSync(join(P, file), png);
     const id = `icon-${it.name}`;
     const provenance = { tool: 'blox image', model: meta.model, backend: meta.backend, prompt: it.prompt, seed: meta.seed, createdAt: new Date().toISOString() };
+    // Re-read every time: the batch can run for many minutes and other commands (asset sheet,
+    // upload) write the manifest meanwhile; saving a copy loaded before the await would undo them.
+    const m = loadManifest(P);
     const prev = m.assets.find((a) => a.id === id);
     if (prev) {
       // regenerated: new art needs a fresh human look
@@ -117,7 +121,6 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
     } else {
       const a = addAsset(P, { id, kind: 'image', source: 'generated', licence: meta.licence, ref: { file }, provenance });
       if (!a.ok) throw new Error(`manifest: ${a.errors.join('; ')}`);
-      m.assets.push(a.entry);
     }
     out.written.push({ name: it.name, file, seed: meta.seed });
   };
