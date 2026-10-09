@@ -415,7 +415,7 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox design [get|validate|simulate|codegen]  blox design set '<json>'
            blox check [--fix]             (stylua + luau-lsp + rojo build, no Studio)
            blox kit [list]                blox kit apply <name>   (format kits: proven loops)
-           blox metrics ftue|soak|install [--seconds N] [--bot walk|idle|<file>] [--archetype id]
+           blox metrics ftue|soak|install [--seconds N] [--bot walk|idle|<file>] [--archetype id] [--expect a,b]
            blox ui lint|preview|install [--devices a,b] [--prepare '<client luau>'] [--mode edit] [--mount '<luau>'|@file] [--states '<json>'|@file] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
