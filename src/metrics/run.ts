@@ -91,6 +91,7 @@ export interface MetricsRunOptions {
   archetype?: string;
   tolerance?: number;
   maxMemGrowthMbPerMin?: number;
+  expect?: string[];
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -175,7 +176,7 @@ export async function runMetrics(session: StudioSession, projectPath: string, do
     results = evaluateFtue(dump, doc);
     if (errors) notes.push(`${errors} runtime error(s) during the FTUE run`);
   } else {
-    results = evaluateSoak(dump, errors, { seconds: o.seconds, doc, archetype: o.archetype, tolerance: o.tolerance, maxMemGrowthMbPerMin: o.maxMemGrowthMbPerMin });
+    results = evaluateSoak(dump, errors, { seconds: o.seconds, doc, archetype: o.archetype, tolerance: o.tolerance, maxMemGrowthMbPerMin: o.maxMemGrowthMbPerMin, expect: o.expect });
   }
   return { ranAt: new Date().toISOString(), mode: o.mode, seconds: o.seconds, bot: o.bot, results, notes };
 }

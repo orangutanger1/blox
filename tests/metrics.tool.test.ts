@@ -67,6 +67,21 @@ describe('metrics tool', () => {
     expect(r.text).toMatch(/✓ soak:memory/);
     expect(r.isError).toBeFalsy();
   });
+  it('soak seconds go up to 1800 and expect reaches the report', async () => {
+    const { z } = await import('zod');
+    const schema = z.object(findTool('metrics')!.shape);
+    expect(schema.safeParse({ action: 'soak', seconds: 1500 }).success).toBe(true);
+    expect(schema.safeParse({ action: 'soak', seconds: 2000 }).success).toBe(false);
+    const samples = [0, 5, 10, 15, 20, 25, 30, 35].map((t) => ({ t, memMb: 300, stats: [] }));
+    const events = [{ t: 20, uid: '1', name: 'boss:MegaDog' }];
+    const r = await call({ action: 'soak', seconds: 0, bot: 'idle', expect: ['boss:MegaDog', 'wave:11'] }, ctx({ elapsed: 40, players: { '1': { joinedAt: 0, steps: [] } }, events, samples }));
+    expect(r.text).toMatch(/✓ soak:expect:boss:MegaDog/);
+    expect(r.text).toMatch(/✗ soak:expect:wave:11/);
+    expect(r.isError).toBe(true);
+  });
+  it('cli --expect splits on commas', () => {
+    expect(cliArgs('metrics', parseFlags(['soak', '--expect', 'boss:MegaDog,wave:11'])).args).toMatchObject({ expect: ['boss:MegaDog', 'wave:11'] });
+  });
   it('install writes BloxTelemetry once', async () => {
     const c = ctx(null);
     expect((await call({ action: 'install' }, c)).text).toMatch(/Telemetry\.start\(\)/);
