@@ -26,10 +26,10 @@ describe('ui probe', () => {
     expect(src).toMatch(/e\.layer = /);
     expect(src).toMatch(/e\.z = widget\.ZIndex/);
   });
-  it('re-applies BloxUI.fit scales per device (scripts are stripped from the clones)', () => {
+  it('re-applies BloxUI.fit scales per device, keeping the parent\'s insets (scripts are stripped from the clones)', () => {
     const code = uiProbeProgram(DEVICES[0]);
     expect(code).toContain('s:GetAttribute("BloxFitHeight")');
-    expect(code).toContain('s.Parent.Size = UDim2.fromScale(1 / k, 1 / k)');
+    expect(code).toContain('s.Parent.Size = UDim2.new(base.X.Scale / k, base.X.Offset / k, base.Y.Scale / k, base.Y.Offset / k)');
   });
   it('skips Roblox-injected GUIs (legacy chat etc.)', () => {
     expect(uiProbeProgram(DEVICES[0])).toMatch(/ENGINE_GUIS = \{ Chat = true/);

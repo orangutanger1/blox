@@ -36,7 +36,10 @@ for _, D in frames do
 			k = math.clamp(k, s:GetAttribute("BloxFitMin") or 0.5, s:GetAttribute("BloxFitMax") or 1.5)
 			s.Scale = k
 			if s:GetAttribute("BloxFitFill") ~= false and s.Parent:IsA("GuiObject") then
-				s.Parent.Size = UDim2.fromScale(1 / k, 1 / k)
+				-- Shrink the parent's own size (a ScreenGui-level UIScale lands on the probe's inset
+				-- container, whose size already leaves out the safe insets) so it fills it once scaled.
+				local base = s.Parent.Size
+				s.Parent.Size = UDim2.new(base.X.Scale / k, base.X.Offset / k, base.Y.Scale / k, base.Y.Offset / k)
 			end
 			fitted = true
 		end
