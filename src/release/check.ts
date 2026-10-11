@@ -129,7 +129,9 @@ function provenanceGates(projectPath: string, code: CodeAssetRefs): Gate[] {
 }
 
 // Non-commercial licences (Qwen-Image weights) are fine for a personal game,
-// not once it earns money: blox.config.json "monetized": true turns them into a failure.
+// not once it earns money: blox.config.json "monetized": true turns them into a failure, unless the owner
+// has read the licence and accepted the risk ("acceptNonCommercial": true) — then the gate passes but still
+// names the assets.
 const NON_COMMERCIAL = new Set(['qwen-research']);
 function licenceGate(projectPath: string): Gate {
   let m;
@@ -141,12 +143,18 @@ function licenceGate(projectPath: string): Gate {
   const nc = m.assets.filter((a) => a.status !== 'rejected' && NON_COMMERCIAL.has(a.licence) && (a.uploaded || a.ref.path || a.ref.assetId));
   if (!nc.length) return { id: 'licence', required: false, status: 'n/a', detail: 'no non-commercial assets in use' };
   let monetized = false;
+  let accepted = false;
   try {
-    monetized = JSON.parse(readFileSync(join(projectPath, 'blox.config.json'), 'utf8')).monetized === true;
+    const cfg = JSON.parse(readFileSync(join(projectPath, 'blox.config.json'), 'utf8'));
+    monetized = cfg.monetized === true;
+    accepted = cfg.acceptNonCommercial === true;
   } catch {
     // no config: not monetized
   }
   const list = nc.slice(0, 6).map((a) => a.id).join(', ') + (nc.length > 6 ? `, +${nc.length - 6} more` : '');
+  if (monetized && accepted) {
+    return { id: 'licence', required: true, status: 'pass', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — accepted by the owner (blox.config.json "acceptNonCommercial": true)` };
+  }
   return monetized
     ? { id: 'licence', required: true, status: 'fail', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — regenerate them with a commercial-use backend (image generate backend:"cloudflare-flux") or replace them` }
     : { id: 'licence', required: false, status: 'pass', detail: `${nc.length} non-commercial asset(s) (${list}); fine while blox.config.json has no "monetized": true` };

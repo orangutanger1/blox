@@ -78,6 +78,9 @@ export const BloxConfigSchema = z.object({
   bridge: z.object({ eval: z.boolean().default(false) }).prefault({}),
   // The game earns money (passes, products, ads): non-commercial assets then fail release check.
   monetized: z.boolean().default(false),
+  // The owner accepts non-commercial asset licences in a monetized game: the release licence gate passes
+  // (still listing those assets) instead of failing.
+  acceptNonCommercial: z.boolean().default(false),
   // map check: the map's root, named spawn groups that must reach the players,
   // and the movement/budget numbers (see src/map/run.ts).
   map: z
