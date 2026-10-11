@@ -126,6 +126,14 @@ describe('release licence gate', () => {
     expect(g.status).toBe('fail');
     expect(g.detail).toMatch(/icon-coin.*non-commercial/);
   });
+  it('passes, still naming the assets, when the owner accepts the non-commercial licence', () => {
+    const P = proj();
+    writeFileSync(join(P, 'blox.config.json'), JSON.stringify({ monetized: true, acceptNonCommercial: true }));
+    writeJson(P, 'assets.json', { version: 1, assets: [{ id: 'icon-coin', kind: 'image', source: 'generated', licence: 'qwen-research', ref: {}, provenance: { tool: 'blox image', createdAt: 'x' }, status: 'approved', uploaded: { assetId: 5, operation: 'o', at: 'x' } }] });
+    const g = releaseCheck(P).gates.find((x) => x.id === 'licence')!;
+    expect(g.status).toBe('pass');
+    expect(g.detail).toMatch(/icon-coin.*accepted by the owner/);
+  });
   it('passes when the game is not monetized', () => {
     const P = proj();
     writeJson(P, 'assets.json', { version: 1, assets: [{ id: 'icon-coin', kind: 'image', source: 'generated', licence: 'qwen-research', ref: {}, provenance: { tool: 'blox image', createdAt: 'x' }, status: 'approved', uploaded: { assetId: 5, operation: 'o', at: 'x' } }] });
