@@ -12,11 +12,12 @@ const Entry = z
     // "roblox": Roblox-hosted content, usable in Roblox experiences, not files to ship elsewhere).
     source: z.enum(['code', 'creator-store', 'generated', 'external', 'roblox-gear']),
     // qwen-research: Qwen Research License weights (non-commercial use only);
-    // apache-2.0: e.g. FLUX.1-schnell output.
-    licence: z.enum(['roblox-creator-store', 'roblox', 'owned', 'generated-roblox', 'cc0', 'cc-by', 'apache-2.0', 'qwen-research', 'proprietary', 'unknown']),
+    // apache-2.0: e.g. FLUX.1-schnell output; ai-output: a kie.ai-hosted model's
+    // output (GPT Image, Nano Banana, ...), commercial use per the provider's terms.
+    licence: z.enum(['roblox-creator-store', 'roblox', 'owned', 'generated-roblox', 'cc0', 'cc-by', 'apache-2.0', 'qwen-research', 'ai-output', 'proprietary', 'unknown']),
     attribution: z.string().optional(),
     ref: z.object({ assetId: z.number().int().positive().optional(), path: z.string().optional(), file: z.string().optional(), tag: z.string().optional() }).strict().default({}),
-    provenance: z.object({ tool: z.string(), prompt: z.string().optional(), url: z.string().optional(), model: z.string().optional(), backend: z.string().optional(), seed: z.number().int().optional(), createdAt: z.string() }).strict(),
+    provenance: z.object({ tool: z.string(), prompt: z.string().optional(), url: z.string().optional(), model: z.string().optional(), backend: z.string().optional(), seed: z.number().int().optional(), refs: z.array(z.string()).optional(), sheet: z.string().optional(), cell: z.number().int().positive().optional(), createdAt: z.string() }).strict(),
     sanitized: z.object({ at: z.string(), scriptsRemoved: z.number().int().nonnegative(), findings: z.array(z.string()) }).strict().optional(),
     budget: z.object({ tris: z.number().int().nonnegative().optional(), parts: z.number().int().nonnegative().optional() }).strict().optional(),
     status: z.enum(['candidate', 'approved', 'rejected']).default('candidate'),

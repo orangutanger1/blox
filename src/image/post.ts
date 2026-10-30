@@ -134,3 +134,60 @@ export function cutout(buf: Buffer, o: CutoutOptions): Buffer {
   const out = squareResize(img, o.size, o.margin ?? 0.06);
   return encodePng(out.w, out.h, out.rgba);
 }
+
+// An asset sheet (one generated image, items laid out in a cols×rows grid) →
+// one transparent PNG per cell, in reading order. Every opaque blob goes to the
+// cell holding its centre, and a cell's crop is the union of its blobs: an item
+// that spills over a cell line is kept whole, and loose bits (sparkles, a
+// detached handle) stay with their item. Empty cells come back null.
+export function sliceSheet(buf: Buffer, cols: number, rows: number, o: { tolerance?: number; minArea?: number } = {}): (Buffer | null)[] {
+  let img = decodeAny(buf);
+  img = { ...img, rgba: new Uint8Array(img.rgba) };
+  if (!hasAlpha(img)) floodBackground(img, o.tolerance ?? 24);
+  const { w, h, rgba } = img;
+  const minArea = o.minArea ?? Math.max(4, Math.round((w * h) / 20000));
+  const label = new Int32Array(w * h).fill(-1);
+  const boxes: { x0: number; y0: number; x1: number; y1: number; sx: number; sy: number; n: number }[] = [];
+  const solid = (i: number) => rgba[i * 4 + 3] > 16;
+  for (let start = 0; start < w * h; start++) {
+    if (label[start] !== -1 || !solid(start)) continue;
+    const id = boxes.length;
+    const b = { x0: w, y0: h, x1: -1, y1: -1, sx: 0, sy: 0, n: 0 };
+    const stack = [start];
+    label[start] = id;
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % w, y = (i - x) / w;
+      b.x0 = Math.min(b.x0, x), b.x1 = Math.max(b.x1, x), b.y0 = Math.min(b.y0, y), b.y1 = Math.max(b.y1, y);
+      b.sx += x, b.sy += y, b.n++;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (label[j] === -1 && solid(j)) (label[j] = id), stack.push(j);
+        }
+    }
+    boxes.push(b);
+  }
+  const cells: ({ x0: number; y0: number; x1: number; y1: number; ids: Set<number> } | null)[] = new Array(cols * rows).fill(null);
+  boxes.forEach((b, id) => {
+    if (b.n < minArea) return;
+    const cx = Math.min(cols - 1, Math.floor((b.sx / b.n / w) * cols)), cy = Math.min(rows - 1, Math.floor((b.sy / b.n / h) * rows));
+    const k = cy * cols + cx;
+    const c = (cells[k] ??= { x0: w, y0: h, x1: -1, y1: -1, ids: new Set() });
+    c.x0 = Math.min(c.x0, b.x0), c.y0 = Math.min(c.y0, b.y0), c.x1 = Math.max(c.x1, b.x1), c.y1 = Math.max(c.y1, b.y1);
+    c.ids.add(id);
+  });
+  return cells.map((c) => {
+    if (!c) return null;
+    const out = crop(img, c.x0, c.y0, c.x1 + 1, c.y1 + 1);
+    // keep only this cell's blobs: a neighbour poking into the box is cleared
+    for (let y = 0; y < out.h; y++)
+      for (let x = 0; x < out.w; x++) {
+        const l = label[(c.y0 + y) * w + c.x0 + x];
+        if (l !== -1 && !c.ids.has(l)) out.rgba[(y * out.w + x) * 4 + 3] = 0;
+      }
+    return encodePng(out.w, out.h, out.rgba);
+  });
+}

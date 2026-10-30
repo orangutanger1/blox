@@ -7,7 +7,7 @@ import { startImageJob, readImageJob, listImageJobs, imageEta } from '../src/ima
 import type { ImageBackend } from '../src/image/generate.js';
 
 const png = () => { const rgba = new Uint8Array(40 * 40 * 4).fill(255); for (let i = 0; i < 400; i++) rgba.set([200, 20, 20, 255], (10 * 40 + 10 + (i % 20) + 40 * Math.floor(i / 20)) * 4); return encodePng(40, 40, rgba); };
-const slow = (gate: Promise<void>): ImageBackend => ({ name: 'kaggle-qwen', model: 'm', licence: 'qwen-research', run: async (items, o) => { o.onStatus?.('running'); await gate; return items.map((i) => ({ file: i.file, seed: i.seed, data: png() })); } });
+const slow = (gate: Promise<void>): ImageBackend => ({ name: 'gpt-image-2-text-to-image', model: 'm', licence: 'ai-output', run: async (items, o) => { o.onStatus?.('running'); await gate; return items.map((i) => ({ file: i.file, seed: i.seed, data: png() })); } });
 const proj = () => mkdtempSync(join(tmpdir(), 'blox-imgjob-'));
 
 describe('image jobs', () => {
@@ -17,9 +17,9 @@ describe('image jobs', () => {
     const gate = new Promise<void>((r) => (open = r));
     const j = startImageJob(P, { items: [{ name: 'coin', prompt: 'a coin' }, { name: 'gem', prompt: 'a gem' }] }, { backends: [slow(gate)], cacheDir: null });
     expect(j.id).toMatch(/^img-/);
-    expect(j.etaSec).toBe(imageEta('kaggle-qwen', 2));
+    expect(j.etaSec).toBe(imageEta('gpt-image-2-text-to-image', 2));
     await new Promise((r) => setTimeout(r, 10));
-    expect(readImageJob(P, j.id)).toMatchObject({ status: 'running', progress: 'kaggle-qwen: running', items: ['coin', 'gem'] });
+    expect(readImageJob(P, j.id)).toMatchObject({ status: 'running', progress: 'gpt-image-2-text-to-image: running', items: ['coin', 'gem'] });
     open();
     await j.done;
     const done = readImageJob(P, j.id)!;
@@ -29,7 +29,7 @@ describe('image jobs', () => {
   });
   it('a backend error ends the job failed with the message', async () => {
     const P = proj();
-    const bad: ImageBackend = { name: 'cloudflare-flux', model: 'f', licence: 'apache-2.0', run: async () => { throw new Error('boom'); } };
+    const bad: ImageBackend = { name: 'nano-banana-2-1', model: 'f', licence: 'ai-output', run: async () => { throw new Error('boom'); } };
     const j = startImageJob(P, { items: [{ name: 'coin', prompt: 'a coin' }] }, { backends: [bad], cacheDir: null });
     await j.done;
     expect(readImageJob(P, j.id)).toMatchObject({ status: 'failed', error: 'boom' });
@@ -59,7 +59,7 @@ describe('image tool: async generate + status', () => {
     const r = await imageTool({ action: 'generate', items: [{ name: 'coin', prompt: 'a coin' }] }, ctx);
     const id = /img-[\w-]+/.exec(r.text)![0];
     expect(r.text).toMatch(/image \{action:"status", job:"img-/);
-    expect(r.text).toMatch(/about 11 min/);
+    expect(r.text).toMatch(/about 70 s/);
     const s1 = await imageTool({ action: 'status', job: id }, ctx);
     expect(s1.text).toMatch(/running/);
     open();

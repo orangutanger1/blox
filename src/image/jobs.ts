@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bloxDir } from '../state/store.js';
-import { cacheMisses, generateImages, validateImages, defaultBackends, type BackendName, type GenerateInput, type GenerateResult, type ImageBackend } from './generate.js';
+import { cacheMisses, generateImages, validateImages, defaultBackends, DEFAULT_MODELS, type BackendName, type GenerateInput, type GenerateResult, type ImageBackend } from './generate.js';
 
-// `image generate` over MCP: a Kaggle batch takes 10+ minutes, so the call
-// starts a job in the server process and returns its id and ETA at once;
+// `image generate` over MCP: a kie.ai generation takes about a minute per batch
+// of four, so the call starts a job in the server process and returns its id and ETA at once;
 // `image status {job}` reads .blox/image-jobs/<id>.json (progress, then the files).
 
 export interface ImageJob {
@@ -21,10 +21,9 @@ export interface ImageJob {
   error?: string;
 }
 
-// ~10 min Kaggle setup + ~40 s per 512px image; FLUX ~5 s each; cache hits are free.
-export function imageEta(backend: BackendName, misses: number): number {
-  if (!misses) return 0;
-  return backend === 'kaggle-qwen' ? 600 + 40 * misses : 5 * misses;
+// kie.ai: ~60 s per image (GPT Image 2 at 1K), four at a time; cache hits are free.
+export function imageEta(_backend: BackendName, misses: number): number {
+  return misses ? 60 * Math.ceil(misses / 4) + 10 : 0;
 }
 
 const jobDir = (P: string) => join(bloxDir(P), 'image-jobs');
@@ -63,8 +62,8 @@ export function listImageJobs(P: string): ImageJob[] {
 export function startImageJob(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; cacheDir: string | null; pid?: number }): { id: string; etaSec: number; misses: number; done: Promise<void> } {
   validateImages(P, input);
   const backends = o.backends ?? defaultBackends();
-  const misses = cacheMisses(input, backends, o.cacheDir).length;
-  const backend = backends[0]?.name ?? 'kaggle-qwen';
+  const misses = cacheMisses(P, input, backends, o.cacheDir).length;
+  const backend = backends[0]?.name ?? DEFAULT_MODELS[0];
   const now = new Date();
   const id = `img-${now.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')}-${Math.random().toString(36).slice(2, 6)}`;
   const job: ImageJob = { id, status: 'running', startedAt: now.toISOString(), etaSec: imageEta(backend, misses), backend, items: input.items.map((i) => i.name), progress: misses ? `${backend}: starting` : 'from the image cache', pid: o.pid ?? process.pid };

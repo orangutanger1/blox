@@ -1,17 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
-import { mkdtempSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { addAsset, loadManifest, saveManifest } from '../assets/manifest.js';
 import { cutout } from './post.js';
-import { KaggleUnavailable, runKaggleBatch, type BatchResult } from './kaggle.js';
-import { runFluxBatch } from './cloudflare.js';
-import type { KernelItem } from './kaggleScripts.js';
+import { KieError, imageInput, kieDownload, kieRun, kieUpload, withRefsModel, type KieOptions } from './kie.js';
 
 // `blox image generate`: prompts → transparent square PNGs in assets/icons,
-// each recorded in .blox/assets.json. Backends are pluggable; the default is
-// Qwen-Image-2.1 on a Kaggle T4 x2 batch, then Cloudflare FLUX.1-schnell.
+// each recorded in .blox/assets.json. Backends are kie.ai models, tried in
+// order: GPT Image 2 (native transparent background), then Nano Banana 2.1.
 
 export const STYLES = {
   icon: 'game UI icon, one single centred object, bold dark outline, flat cel shading, bright saturated colours, soft top-left highlight, plain pure white background, no text, no border, no shadow on the ground',
@@ -34,20 +31,65 @@ export interface GenerateInput {
   overwrite?: boolean;
   fresh?: boolean; // skip the image cache (new art for the same prompt)
   dir?: string; // default assets/icons
+  refs?: string[]; // project-relative reference images: same style/character/palette
 }
-export type BackendName = 'kaggle-qwen' | 'cloudflare-flux';
+export type BackendName = string; // the kie.ai model id
+export interface BatchItem {
+  file: string;
+  prompt: string;
+  seed?: number;
+}
+export interface BatchResult {
+  file: string;
+  seed?: number;
+  data?: Buffer;
+  error?: string;
+  model?: string; // the model that actually ran, when it differs (refs → image-to-image)
+}
 export interface ImageBackend {
   name: BackendName;
   model: string;
-  licence: 'qwen-research' | 'apache-2.0';
-  run(items: KernelItem[], o: { size: number; onStatus?: (s: string) => void }): Promise<BatchResult[]>;
+  licence: 'ai-output' | 'apache-2.0' | 'qwen-research';
+  run(items: BatchItem[], o: { size: number; refs?: string[]; aspect?: string; onStatus?: (s: string) => void }): Promise<BatchResult[]>;
 }
 
-export function defaultBackends(): ImageBackend[] {
-  return [
-    { name: 'kaggle-qwen', model: 'Qwen-Image-2.1 (int8 ConvRot, Comfy-Org ace0ede)', licence: 'qwen-research', run: (items, o) => runKaggleBatch(items, { size: o.size <= 512 ? 512 : 1024, workDir: mkdtempSync(join(tmpdir(), 'blox-kaggle-')), onStatus: o.onStatus }) },
-    { name: 'cloudflare-flux', model: 'FLUX.1-schnell (Cloudflare Workers AI)', licence: 'apache-2.0', run: (items) => runFluxBatch(items) },
-  ];
+export const DEFAULT_MODELS = ['gpt-image-2-text-to-image', 'nano-banana-2-1'];
+
+// One kie.ai model as a backend: refs (local files) are uploaded once, items run
+// 4 at a time (createTask allows 20 per 10 s), each result downloaded.
+export function kieBackend(model: string, k: KieOptions = {}): ImageBackend {
+  return {
+    name: model,
+    model: `${model} (kie.ai)`,
+    licence: 'ai-output',
+    async run(items, o) {
+      const refs = o.refs?.length ? await Promise.all(o.refs.map((f) => kieUpload(f, k))) : undefined;
+      const m = refs ? withRefsModel(model) : model;
+      const out: BatchResult[] = new Array(items.length);
+      let next = 0, done = 0;
+      const worker = async () => {
+        while (next < items.length) {
+          const i = next++, it = items[i];
+          try {
+            const r = await kieRun(m, imageInput(m, it.prompt, { refs, aspect: o.aspect, transparent: true }), k);
+            if (!r.urls[0]) throw new KieError('no image returned');
+            out[i] = { file: it.file, data: await kieDownload(r.urls[0], k), model: `${m} (kie.ai)` };
+          } catch (e) {
+            // The whole model is out (no key, no credits, rate-limited): let the next backend try.
+            if (e instanceof KieError && (e.code === undefined ? /no kie\.ai key/.test(e.message) : [401, 402, 429, 455].includes(e.code))) throw e;
+            out[i] = { file: it.file, error: (e as Error).message };
+          }
+          o.onStatus?.(`${++done}/${items.length} done`);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+      return out;
+    },
+  };
+}
+
+export function defaultBackends(model?: string): ImageBackend[] {
+  return (model ? [model] : DEFAULT_MODELS).map((m) => kieBackend(m));
 }
 
 export interface GenerateResult {
@@ -61,14 +103,20 @@ export interface GenerateResult {
 const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 
 // ~/.cache/blox/images/<sha256 of prompt+style+size+backend(+seed)>.png (+ .json meta):
-// icons repeat across projects and re-runs, and a Kaggle batch costs minutes of weekly GPU quota.
+// icons repeat across projects and re-runs, and every generation costs kie.ai credits.
 export function imageCacheDir(): string {
   return process.env.BLOX_IMAGE_CACHE || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'blox', 'images');
 }
-export function cacheKey(k: { prompt: string; style: string; size: number; backend: BackendName; seed?: number }): string {
-  return createHash('sha256').update(JSON.stringify([k.prompt, k.style, k.size, k.backend, k.seed ?? null])).digest('hex').slice(0, 32);
+export function cacheKey(k: { prompt: string; style: string; size: number; backend: BackendName; seed?: number; refs?: string }): string {
+  return createHash('sha256').update(JSON.stringify([k.prompt, k.style, k.size, k.backend, k.seed ?? null, ...(k.refs ? [k.refs] : [])])).digest('hex').slice(0, 32);
 }
-interface CacheMeta { backend: BackendName; model: string; licence: ImageBackend['licence']; seed?: number; prompt: string }
+// Reference images change the output: their bytes are part of the cache key.
+export function refsDigest(P: string, refs?: string[]): string | undefined {
+  if (!refs?.length) return undefined;
+  const h = createHash('sha256');
+  for (const r of refs) h.update(readFileSync(join(P, r)));
+  return h.digest('hex').slice(0, 16);
+}
 
 // Input errors surface before any backend (or background job) starts.
 export function validateImages(P: string, input: GenerateInput): void {
@@ -81,17 +129,43 @@ export function validateImages(P: string, input: GenerateInput): void {
     seen.add(it.name);
     if (!input.overwrite && existsSync(join(P, dir, `${it.name}.png`))) throw new Error(`${dir}/${it.name}.png exists — pass overwrite: true to replace it`);
   }
+  for (const r of input.refs ?? []) if (!existsSync(join(P, r))) throw new Error(`reference image ${r} not found (paths are relative to the project)`);
 }
 
 const styleOf = (input: GenerateInput) => (input.style === undefined ? STYLES.icon : (STYLES as Record<string, string>)[input.style] ?? input.style);
 
 // The cache file (without extension) holding this item from any of the backends, or null.
-function cached(input: GenerateInput, it: ImageItem, backends: ImageBackend[], cache: string | null): string | null {
+function cached(P: string, input: GenerateInput, it: ImageItem, backends: ImageBackend[], cache: string | null): string | null {
   if (!cache || input.fresh) return null;
-  const style = styleOf(input), size = input.size ?? 512;
-  return backends.map((b) => join(cache, cacheKey({ prompt: it.prompt, style, size, backend: b.name, seed: it.seed }))).find((f) => existsSync(`${f}.png`) && existsSync(`${f}.json`)) ?? null;
+  const style = styleOf(input), size = input.size ?? 512, refs = refsDigest(P, input.refs);
+  return backends.map((b) => join(cache, cacheKey({ prompt: it.prompt, style, size, backend: b.name, seed: it.seed, refs }))).find((f) => existsSync(`${f}.png`) && existsSync(`${f}.json`)) ?? null;
 }
-export const cacheMisses = (input: GenerateInput, backends: ImageBackend[], cache: string | null): ImageItem[] => input.items.filter((it) => !cached(input, it, backends, cache));
+export const cacheMisses = (P: string, input: GenerateInput, backends: ImageBackend[], cache: string | null): ImageItem[] => input.items.filter((it) => !cached(P, input, it, backends, cache));
+
+export interface ImageMeta { backend: BackendName; model: string; licence: ImageBackend['licence']; seed?: number; prompt: string }
+
+// Write one finished icon and record it in the manifest as a candidate.
+export function recordImage(P: string, dir: string, name: string, png: Buffer, meta: ImageMeta, extra: Record<string, unknown> = {}): string {
+  mkdirSync(join(P, dir), { recursive: true });
+  const file = `${dir}/${name}.png`;
+  writeFileSync(join(P, file), png);
+  const id = `icon-${name}`;
+  const provenance = { tool: 'blox image', model: meta.model, backend: meta.backend, prompt: meta.prompt, seed: meta.seed, ...extra, createdAt: new Date().toISOString() };
+  // Re-read every time: a generation can run for minutes and other commands (asset sheet,
+  // upload) write the manifest meanwhile; saving a copy loaded before the await would undo them.
+  const m = loadManifest(P);
+  const prev = m.assets.find((a) => a.id === id);
+  if (prev) {
+    // regenerated: new art needs a fresh human look
+    Object.assign(prev, { licence: meta.licence, provenance, status: 'candidate', ref: { ...prev.ref, file } });
+    delete prev.uploaded;
+    saveManifest(P, m);
+  } else {
+    const a = addAsset(P, { id, kind: 'image', source: 'generated', licence: meta.licence, ref: { file }, provenance });
+    if (!a.ok) throw new Error(`manifest: ${a.errors.join('; ')}`);
+  }
+  return file;
+}
 
 export async function generateImages(P: string, input: GenerateInput, o: { backends?: ImageBackend[]; onStatus?: (s: string) => void; cacheDir?: string | null } = {}): Promise<GenerateResult> {
   validateImages(P, input);
@@ -101,27 +175,11 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
   const notes: string[] = [];
   const backends = o.backends ?? defaultBackends();
   const cache = o.cacheDir ?? null;
-  const key = (it: ImageItem, b: BackendName) => cacheKey({ prompt: it.prompt, style, size, backend: b, seed: it.seed });
-  const out: GenerateResult = { backend: backends[0]?.name ?? 'kaggle-qwen', written: [], failed: [], notes, cached: [] };
-  const write = (it: ImageItem, png: Buffer, meta: CacheMeta) => {
-    mkdirSync(join(P, dir), { recursive: true });
-    const file = `${dir}/${it.name}.png`;
-    writeFileSync(join(P, file), png);
-    const id = `icon-${it.name}`;
-    const provenance = { tool: 'blox image', model: meta.model, backend: meta.backend, prompt: it.prompt, seed: meta.seed, createdAt: new Date().toISOString() };
-    // Re-read every time: the batch can run for many minutes and other commands (asset sheet,
-    // upload) write the manifest meanwhile; saving a copy loaded before the await would undo them.
-    const m = loadManifest(P);
-    const prev = m.assets.find((a) => a.id === id);
-    if (prev) {
-      // regenerated: new art needs a fresh human look
-      Object.assign(prev, { licence: meta.licence, provenance, status: 'candidate', ref: { ...prev.ref, file } });
-      delete prev.uploaded;
-      saveManifest(P, m);
-    } else {
-      const a = addAsset(P, { id, kind: 'image', source: 'generated', licence: meta.licence, ref: { file }, provenance });
-      if (!a.ok) throw new Error(`manifest: ${a.errors.join('; ')}`);
-    }
+  const refs = refsDigest(P, input.refs);
+  const key = (it: ImageItem, b: BackendName) => cacheKey({ prompt: it.prompt, style, size, backend: b, seed: it.seed, refs });
+  const out: GenerateResult = { backend: backends[0]?.name ?? DEFAULT_MODELS[0], written: [], failed: [], notes, cached: [] };
+  const write = (it: ImageItem, png: Buffer, meta: ImageMeta) => {
+    const file = recordImage(P, dir, it.name, png, { ...meta, prompt: it.prompt }, input.refs?.length ? { refs: input.refs } : {});
     out.written.push({ name: it.name, file, seed: meta.seed });
   };
 
@@ -129,23 +187,24 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
   if (cache && !input.fresh) {
     todo = [];
     for (const it of input.items) {
-      const hit = cached(input, it, backends, cache);
+      const hit = cached(P, input, it, backends, cache);
       if (!hit) { todo.push(it); continue; }
-      const meta = JSON.parse(readFileSync(`${hit}.json`, 'utf8')) as CacheMeta;
+      const meta = JSON.parse(readFileSync(`${hit}.json`, 'utf8')) as ImageMeta;
       write(it, readFileSync(`${hit}.png`), meta);
       out.cached!.push(it.name);
       out.backend = meta.backend;
     }
     if (!todo.length) return out;
   }
-  const kitems: KernelItem[] = todo.map((it) => ({ file: `${it.name}.png`, prompt: style ? `${it.prompt}. ${style}` : it.prompt, seed: it.seed ?? Math.floor(Math.random() * 2 ** 31) }));
+  const kitems: BatchItem[] = todo.map((it) => ({ file: `${it.name}.png`, prompt: style ? `${it.prompt}. ${style}` : it.prompt, seed: it.seed }));
+  const refFiles = input.refs?.map((r) => join(P, r));
   for (let b = 0; b < backends.length; b++) {
     const be = backends[b];
     let results: BatchResult[];
     try {
-      results = await be.run(kitems, { size, onStatus: o.onStatus });
+      results = await be.run(kitems, { size, refs: refFiles, onStatus: o.onStatus });
     } catch (e) {
-      if (e instanceof KaggleUnavailable && b < backends.length - 1) {
+      if (e instanceof KieError && b < backends.length - 1 && e.code !== 402 && e.code !== 401 && !/no kie\.ai key/.test(e.message)) {
         notes.push(`${be.name} unavailable (${(e as Error).message.split('\n')[0]}); used ${backends[b + 1].name}`);
         continue;
       }
@@ -165,7 +224,7 @@ export async function generateImages(P: string, input: GenerateInput, o: { backe
         out.failed.push({ name: it.name, error: `post-process: ${(e as Error).message}` });
         continue;
       }
-      const meta: CacheMeta = { backend: be.name, model: be.model, licence: be.licence, seed: 'seed' in r ? r.seed : kitems.find((k) => k.file === r.file)!.seed, prompt: it.prompt }; // FLUX ignores seeds: none recorded
+      const meta: ImageMeta = { backend: be.name, model: r.model ?? be.model, licence: be.licence, seed: r.seed, prompt: it.prompt };
       if (cache) {
         try {
           mkdirSync(cache, { recursive: true });
