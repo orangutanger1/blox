@@ -339,7 +339,10 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
 }
 
 function selfCliPath(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), 'cli.js');
+  // Run from source (tsx/vitest) there is no src/cli.js; point at the build.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const own = resolve(here, 'cli.js');
+  return existsSync(own) ? own : resolve(here, '..', 'dist', 'cli.js');
 }
 
 export function mcpServerEntry(projectPath: string): { command: string; args: string[] } {
@@ -401,7 +404,7 @@ export function setupAgent(agent: string, projectPath: string): string[] {
 
 const HELP = `blox — Roblox development runtime for AI agents
 
-Project:   blox new <dir>                 scaffold a project (src/, world/, tests/, AGENTS.md)
+Project:   blox new <dir> [--agent claude|cursor|codex|none]  scaffold a project + wire the agent (default claude)
            blox setup claude|cursor|codex wire an agent to this project's blox MCP server
            blox mcp                       run the MCP server (stdio)
 Develop:   blox status                    Studio/sync/tests/task report
@@ -457,7 +460,17 @@ export async function runToolCommand(argv: string[]): Promise<boolean> {
     const dir = resolve(f.rest[0] ?? projectPath);
     const r = scaffoldProject(dir, typeof f.opts.name === 'string' ? f.opts.name : undefined);
     console.log(`scaffolded ${r.dir}\n  created: ${r.created.join(', ') || '(nothing)'}`);
-    console.log(`next: cd ${dir} && blox setup claude   (or: blox status)`);
+    // Wire an agent straight away (default Claude Code), so a session started
+    // in the new project gets the blox MCP server + guide without a second step.
+    const agent = typeof f.opts.agent === 'string' ? f.opts.agent : 'claude';
+    if (agent !== 'none') {
+      try {
+        for (const l of setupAgent(agent, dir)) console.log(l);
+      } catch (e) {
+        console.error((e as Error).message);
+        process.exitCode = 1;
+      }
+    } else console.log(`next: cd ${dir} && blox setup claude   (or: blox status)`);
     return true;
   }
   if (cmd === 'setup') {

@@ -40,7 +40,7 @@ Studio runs on Windows; blox finds `StudioMCP.exe` itself.
 ```bash
 npm install && npm run build && npm link   # provides the `blox` command
 
-blox new my-game && cd my-game             # Rojo project + world/ + tests/ + AGENTS.md
+blox new my-game && cd my-game             # Rojo project + world/ + tests/ + AGENTS.md, wired for Claude Code
 blox status                                # Studio attached? in sync? tests? task?
 blox setup claude                          # or: cursor | codex  (wires `blox mcp`)
 claude                                     # the agent now has the blox tools
