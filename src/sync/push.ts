@@ -54,10 +54,18 @@ export interface WorldBuilder {
   hash: string;
 }
 
+export interface ProjectProperty {
+  path: string[]; // names from the DataModel child (service) down
+  name: string;
+  value: boolean | number | string;
+}
+
 export interface SyncPlan {
   instances: DesiredInstance[];
   builders: WorldBuilder[];
   skipped: { file: string; reason: string }[];
+  // Scalar $properties from default.project.json (the sourcemap drops them).
+  props?: ProjectProperty[];
 }
 
 export interface SyncResult {
@@ -75,6 +83,8 @@ export interface SyncResult {
   studioEdits: { key: string; file?: string }[];
   // Adopted packs put back from assets/packs/*.rbxm (missing from the place).
   packs?: string[];
+  // Project-file $properties set this sync.
+  properties?: number;
   durationMs: number;
 }
 
@@ -164,6 +174,59 @@ export function planFromSourcemap(root: SourcemapNode, projectPath: string, read
   walk(root, [], 0);
   return { instances, builders: [], skipped };
 }
+
+// Rojo's explicit typed form for scalars: {"Bool": true}, {"Float32": 1.5}, ...
+const TYPED_SCALARS = new Set(['Bool', 'String', 'Float32', 'Float64', 'Int32', 'Int64']);
+
+function scalarValue(v: unknown): boolean | number | string | undefined {
+  if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') return v;
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const entries = Object.entries(v as Record<string, unknown>);
+    if (entries.length === 1 && TYPED_SCALARS.has(entries[0][0])) return scalarValue(entries[0][1]);
+  }
+  return undefined;
+}
+
+// $properties declared in the project file. `rojo sourcemap` carries no
+// properties, so without this they never reach Studio. Only scalars are
+// applied; anything else (Vector3, Color3, Enum…) is reported as skipped.
+export function projectProperties(project: unknown): { props: ProjectProperty[]; skipped: SyncPlan['skipped'] } {
+  const props: ProjectProperty[] = [];
+  const skipped: SyncPlan['skipped'] = [];
+  const walk = (node: Record<string, unknown>, path: string[]) => {
+    const declared = node.$properties;
+    if (path.length > 0 && declared && typeof declared === 'object') {
+      for (const [name, raw] of Object.entries(declared as Record<string, unknown>)) {
+        const value = scalarValue(raw);
+        if (value === undefined) {
+          skipped.push({ file: `default.project.json:${[...path, name].join('.')}`, reason: 'non-scalar $properties value is not applied by blox sync — set it from a script or a world/ builder' });
+        } else props.push({ path, name, value });
+      }
+    }
+    for (const [k, child] of Object.entries(node)) {
+      if (!k.startsWith('$') && child && typeof child === 'object' && !Array.isArray(child)) walk(child as Record<string, unknown>, [...path, k]);
+    }
+  };
+  const tree = (project as { tree?: unknown } | null)?.tree;
+  if (tree && typeof tree === 'object') walk(tree as Record<string, unknown>, []);
+  return { props, skipped };
+}
+
+const APPLY_PROPS_LUAU = `local HS = game:GetService("HttpService")
+local applied, errors = 0, {}
+for _, p in HS:JSONDecode(PAYLOAD) do
+	local ok, inst = pcall(game.GetService, game, p.path[1])
+	if not ok then inst = game:FindFirstChild(p.path[1]) end
+	for i = 2, #p.path do inst = inst and inst:FindFirstChild(p.path[i]) end
+	local where = table.concat(p.path, ".") .. "." .. p.name
+	if not inst then
+		table.insert(errors, where .. ": instance not found")
+	else
+		local setOk, err = pcall(function() inst[p.name] = p.value end)
+		if setOk then applied += 1 else table.insert(errors, where .. ": " .. tostring(err)) end
+	end
+end
+return HS:JSONEncode({ applied = applied, errors = errors })`;
 
 const PARENT_RE = /^--\s*@parent\s+([A-Za-z]+)/;
 
@@ -506,6 +569,16 @@ export async function buildPlan(projectPath: string, opts: PushOptions = {}): Pr
   const sm = await readSourcemap(projectPath, opts.spawn);
   const plan = planFromSourcemap(sm, projectPath);
   plan.builders = withDependencyHashes(planWorldBuilders(projectPath, opts.worldDir), plan.instances);
+  const projectFile = join(projectPath, 'default.project.json');
+  if (existsSync(projectFile)) {
+    try {
+      const { props, skipped } = projectProperties(JSON.parse(readFileSync(projectFile, 'utf8')));
+      plan.props = props;
+      plan.skipped.push(...skipped);
+    } catch {
+      // rojo sourcemap already validated the file; an unparsable one never gets here.
+    }
+  }
   return plan;
 }
 
@@ -652,6 +725,11 @@ export async function pushProject(session: StudioSession, projectPath: string, o
   if (packs.restored.length) result.packs = packs.restored;
   result.errors.push(...packs.errors);
   if (d.builders.length || d.deletes.length || d.stamps.length) await apply([], d.builders, d.deletes, d.stamps);
+  if (plan.props?.length) {
+    const r = await luauJson<{ applied?: number; errors?: string[] }>(session, `local PAYLOAD = ${longString(JSON.stringify(plan.props))}\n${APPLY_PROPS_LUAU}`);
+    result.properties = r.applied ?? 0;
+    result.errors.push(...(r.errors ?? []).map((e) => `property ${e}`));
+  }
   result.ok = result.errors.length === 0 && result.conflicts.length === 0 && result.builders.every((b) => b.status !== 'error');
   result.durationMs = Date.now() - t0;
   return result;
@@ -666,6 +744,7 @@ export function formatSyncResult(r: SyncResult): string {
     if (b.status !== 'unchanged') lines.push(`  world ${b.name}: ${b.status}${b.parts !== undefined ? ` (${b.parts} parts)` : ''}${b.error ? ` — ${b.error}` : ''}`);
   }
   for (const p of r.packs ?? []) lines.push(`  pack restored ${p}`);
+  if (r.properties) lines.push(`  project properties set: ${r.properties}`);
   for (const s of r.skipped) lines.push(`  skipped ${s.file}: ${s.reason}`);
   for (const e of r.errors) lines.push(`  ERROR ${e}`);
   for (const c of r.conflicts) {
