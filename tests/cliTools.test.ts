@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseFlags, cliArgs, setupAgent, mcpServerEntry } from '../src/cliTools.js';
+import { parseFlags, cliArgs, setupAgent, mcpServerEntry, runToolCommand } from '../src/cliTools.js';
 import { scaffoldProject } from '../src/scaffold.js';
 import { AGENT_GUIDE } from '../src/agentGuide.js';
 
@@ -67,6 +67,22 @@ describe('setupAgent', () => {
     const out = setupAgent('codex', dir).join('\n');
     expect(out).toContain('[mcp_servers.blox]');
     expect(mcpServerEntry(dir).args.slice(-3)).toEqual(['mcp', '--project', dir]);
+  });
+  it('points the MCP entry at a real cli.js even when run from source', () => {
+    expect(mcpServerEntry('/g').args[0]).toMatch(/[\\/]dist[\\/]cli\.js$/);
+  });
+});
+
+describe('blox new', () => {
+  it('wires Claude Code by default, and skips it with --agent none', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'blox-new-')), 'game');
+    await runToolCommand(['new', dir]);
+    expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe('@AGENTS.md\n');
+    expect(JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')).mcpServers.blox.args).toContain(dir);
+    const bare = join(mkdtempSync(join(tmpdir(), 'blox-new-')), 'game');
+    await runToolCommand(['new', bare, '--agent', 'none']);
+    expect(existsSync(join(bare, '.mcp.json'))).toBe(false);
+    expect(existsSync(join(bare, 'AGENTS.md'))).toBe(true);
   });
 });
 
