@@ -156,7 +156,7 @@ function licenceGate(projectPath: string): Gate {
     return { id: 'licence', required: true, status: 'pass', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — accepted by the owner (blox.config.json "acceptNonCommercial": true)` };
   }
   return monetized
-    ? { id: 'licence', required: true, status: 'fail', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — regenerate them with a commercial-use backend (image generate backend:"cloudflare-flux") or replace them` }
+    ? { id: 'licence', required: true, status: 'fail', detail: `${list}: non-commercial licence (qwen-research) in a monetized game — regenerate them with image generate/sheet (kie.ai models: commercial use per the provider's terms) or replace them` }
     : { id: 'licence', required: false, status: 'pass', detail: `${nc.length} non-commercial asset(s) (${list}); fine while blox.config.json has no "monetized": true` };
 }
 

@@ -4,21 +4,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodePng } from '../src/present/square.js';
 import { generateImages, STYLES, type ImageBackend } from '../src/image/generate.js';
-import { KaggleUnavailable } from '../src/image/kaggle.js';
+import { KieError } from '../src/image/kie.js';
 import { loadManifest } from '../src/assets/manifest.js';
 import { writeJson } from '../src/state/store.js';
 import { releaseCheck } from '../src/release/check.js';
 
 const png = () => { const rgba = new Uint8Array(40 * 40 * 4).fill(255); for (let i = 0; i < 400; i++) rgba.set([200, 20, 20, 255], (10 * 40 + 10 + (i % 20) + 40 * Math.floor(i / 20)) * 4); return encodePng(40, 40, rgba); };
-const ok = (name: string): ImageBackend => ({ name: name as any, model: 'm', licence: name === 'kaggle-qwen' ? 'qwen-research' : 'apache-2.0', run: async (items) => items.map((i) => ({ file: i.file, seed: i.seed, data: png() })) });
-const down: ImageBackend = { name: 'kaggle-qwen', model: 'Qwen-Image-2.1', licence: 'qwen-research', run: async () => { throw new KaggleUnavailable('quota'); } };
+const ok = (name: string): ImageBackend => ({ name, model: 'm', licence: 'ai-output', run: async (items) => items.map((i) => ({ file: i.file, seed: i.seed, data: png() })) });
+const down: ImageBackend = { name: 'gpt-image-2-text-to-image', model: 'gpt', licence: 'ai-output', run: async () => { throw new KieError('kie /api/v1/jobs/createTask: 455 service unavailable', 455); } };
 const proj = () => mkdtempSync(join(tmpdir(), 'blox-img-'));
 
 describe('generateImages', () => {
   it('writes icons, records provenance with model, prompt, seed and licence', async () => {
     const P = proj();
     let seen: string[] = [];
-    const b = ok('kaggle-qwen');
+    const b = ok('gpt-image-2-text-to-image');
     const run = b.run;
     b.run = async (items, o) => { seen = items.map((i) => i.prompt); return run(items, o); };
     const r = await generateImages(P, { items: [{ name: 'coin', prompt: 'a gold coin' }] }, { backends: [b] });
@@ -26,33 +26,52 @@ describe('generateImages', () => {
     expect(seen[0]).toContain('a gold coin');
     expect(seen[0]).toContain(STYLES.icon);
     const e = loadManifest(P).assets.find((a) => a.id === 'icon-coin')!;
-    expect(e).toMatchObject({ kind: 'image', source: 'generated', licence: 'qwen-research', status: 'candidate', ref: { file: 'assets/icons/coin.png' } });
-    expect(e.provenance).toMatchObject({ tool: 'blox image', model: 'm', backend: 'kaggle-qwen', prompt: 'a gold coin' });
-    expect(typeof e.provenance.seed).toBe('number');
-    expect(r.backend).toBe('kaggle-qwen');
+    expect(e).toMatchObject({ kind: 'image', source: 'generated', licence: 'ai-output', status: 'candidate', ref: { file: 'assets/icons/coin.png' } });
+    expect(e.provenance).toMatchObject({ tool: 'blox image', model: 'm', backend: 'gpt-image-2-text-to-image', prompt: 'a gold coin' });
+    expect(r.backend).toBe('gpt-image-2-text-to-image');
   });
-  it('falls back to the next backend when Kaggle is unavailable, and says so', async () => {
+  it('falls back to the next model when one is unavailable, and says so', async () => {
     const P = proj();
-    const r = await generateImages(P, { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [down, ok('cloudflare-flux')] });
-    expect(r.backend).toBe('cloudflare-flux');
-    expect(r.notes.join(' ')).toMatch(/kaggle-qwen unavailable.*quota/);
-    expect(loadManifest(P).assets[0].licence).toBe('apache-2.0');
+    const r = await generateImages(P, { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [down, ok('nano-banana-2-1')] });
+    expect(r.backend).toBe('nano-banana-2-1');
+    expect(r.notes.join(' ')).toMatch(/gpt-image-2-text-to-image unavailable.*455/);
+    expect(loadManifest(P).assets[0].licence).toBe('ai-output');
+  });
+  it('out of credits does not fall back: the error says to top up', async () => {
+    const broke: ImageBackend = { ...down, run: async () => { throw new KieError('kie: 402 insufficient (out of credits: top up at https://kie.ai)', 402); } };
+    await expect(generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [broke, ok('nano-banana-2-1')] })).rejects.toThrow(/top up/);
+  });
+  it('reference images go to the backend and into the cache key and provenance', async () => {
+    const P = proj();
+    mkdirSync(join(P, 'assets/sheets'), { recursive: true });
+    writeFileSync(join(P, 'assets/sheets/set.png'), png());
+    let refs: string[] | undefined;
+    const b = ok('gpt-image-2-text-to-image');
+    const run = b.run;
+    b.run = async (items, o) => { refs = o.refs; return run(items, o); };
+    const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
+    await generateImages(P, { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [b], cacheDir });
+    const r = await generateImages(P, { items: [{ name: 'gem', prompt: 'a gem' }], refs: ['assets/sheets/set.png'], overwrite: true }, { backends: [b], cacheDir });
+    expect(r.cached).toEqual([]);
+    expect(refs).toEqual([join(P, 'assets/sheets/set.png')]);
+    expect(loadManifest(P).assets[0].provenance).toMatchObject({ refs: ['assets/sheets/set.png'] });
+    await expect(generateImages(P, { items: [{ name: 'x', prompt: 'x' }], refs: ['nope.png'] }, { backends: [b] })).rejects.toThrow(/nope\.png not found/);
   });
   it('refuses to overwrite an existing icon unless asked', async () => {
     const P = proj();
     mkdirSync(join(P, 'assets/icons'), { recursive: true });
     writeFileSync(join(P, 'assets/icons/coin.png'), 'old');
-    await expect(generateImages(P, { items: [{ name: 'coin', prompt: 'x' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/exists.*overwrite/);
+    await expect(generateImages(P, { items: [{ name: 'coin', prompt: 'x' }] }, { backends: [ok('gpt-image-2-text-to-image')] })).rejects.toThrow(/exists.*overwrite/);
   });
   it('keeps manifest changes made by other commands while the batch runs', async () => {
     const P = proj();
-    await generateImages(P, { items: [{ name: 'coin', prompt: 'a coin' }] }, { backends: [ok('kaggle-qwen')] });
-    const b = ok('kaggle-qwen');
+    await generateImages(P, { items: [{ name: 'coin', prompt: 'a coin' }] }, { backends: [ok('gpt-image-2-text-to-image')] });
+    const b = ok('gpt-image-2-text-to-image');
     const run = b.run;
     // another command (asset sheet / upload) records an entry while the GPU batch is out
     b.run = async (items, o) => {
       const m = loadManifest(P);
-      m.assets.push({ id: 'Sheet', kind: 'image', source: 'generated', licence: 'qwen-research', ref: { file: 'assets/ui/Sheet.png' }, provenance: { tool: 'sheet', createdAt: new Date().toISOString() }, status: 'approved' } as any);
+      m.assets.push({ id: 'Sheet', kind: 'image', source: 'generated', licence: 'ai-output', ref: { file: 'assets/ui/Sheet.png' }, provenance: { tool: 'sheet', createdAt: new Date().toISOString() }, status: 'approved' } as any);
       writeJson(P, 'assets.json', m);
       return run(items, o);
     };
@@ -66,15 +85,15 @@ describe('generateImages', () => {
     expect(STYLES.hud).toMatch(/one single object/);
     expect(STYLES.hud).toMatch(/at most three flat colours/);
     let seen = '';
-    const b = ok('kaggle-qwen');
+    const b = ok('gpt-image-2-text-to-image');
     const run = b.run;
     b.run = async (items, o) => { seen = items[0].prompt; return run(items, o); };
     await generateImages(proj(), { items: [{ name: 'eye', prompt: 'an eye' }], style: 'hud' }, { backends: [b] });
     expect(seen).toContain(STYLES.hud);
   });
   it('rejects duplicate or unsafe names before running', async () => {
-    await expect(generateImages(proj(), { items: [{ name: 'a', prompt: 'x' }, { name: 'a', prompt: 'y' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/duplicate/);
-    await expect(generateImages(proj(), { items: [{ name: '../x', prompt: 'x' }] }, { backends: [ok('kaggle-qwen')] })).rejects.toThrow(/name/);
+    await expect(generateImages(proj(), { items: [{ name: 'a', prompt: 'x' }, { name: 'a', prompt: 'y' }] }, { backends: [ok('gpt-image-2-text-to-image')] })).rejects.toThrow(/duplicate/);
+    await expect(generateImages(proj(), { items: [{ name: '../x', prompt: 'x' }] }, { backends: [ok('gpt-image-2-text-to-image')] })).rejects.toThrow(/name/);
   });
 });
 
@@ -82,7 +101,7 @@ describe('image cache', () => {
   const counting = (name: string) => { const b = ok(name); const run = b.run; const calls: string[][] = []; b.run = async (items, o) => { calls.push(items.map((i) => i.file)); return run(items, o); }; return { b, calls }; };
   it('reuses a cached image for the same prompt, style, size and backend; only misses go to the backend', async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
-    const { b, calls } = counting('kaggle-qwen');
+    const { b, calls } = counting('gpt-image-2-text-to-image');
     await generateImages(proj(), { items: [{ name: 'coin', prompt: 'a gold coin' }] }, { backends: [b], cacheDir });
     const P = proj();
     const r = await generateImages(P, { items: [{ name: 'coin', prompt: 'a gold coin' }, { name: 'gem', prompt: 'a gem' }] }, { backends: [b], cacheDir });
@@ -90,11 +109,11 @@ describe('image cache', () => {
     expect(r.written.map((w) => w.name).sort()).toEqual(['coin', 'gem']);
     expect(r.cached).toEqual(['coin']);
     expect(existsSync(join(P, 'assets/icons/coin.png'))).toBe(true);
-    expect(loadManifest(P).assets.find((a) => a.id === 'icon-coin')!.provenance).toMatchObject({ backend: 'kaggle-qwen', prompt: 'a gold coin' });
+    expect(loadManifest(P).assets.find((a) => a.id === 'icon-coin')!.provenance).toMatchObject({ backend: 'gpt-image-2-text-to-image', prompt: 'a gold coin' });
   });
   it('all hits: no backend run at all; a different size, style or fresh:true misses', async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
-    const { b, calls } = counting('kaggle-qwen');
+    const { b, calls } = counting('gpt-image-2-text-to-image');
     const one = { items: [{ name: 'coin', prompt: 'a gold coin' }] };
     await generateImages(proj(), one, { backends: [b], cacheDir });
     await generateImages(proj(), one, { backends: [b], cacheDir });
@@ -106,12 +125,12 @@ describe('image cache', () => {
   });
   it('a hit from a fallback backend counts; an explicit seed is part of the key', async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), 'blox-imgcache-'));
-    const flux = counting('cloudflare-flux');
+    const flux = counting('nano-banana-2-1');
     await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [down, flux.b], cacheDir });
-    const q = counting('kaggle-qwen');
+    const q = counting('gpt-image-2-text-to-image');
     const r = await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem' }] }, { backends: [q.b, flux.b], cacheDir });
     expect(q.calls).toHaveLength(0);
-    expect(r.backend).toBe('cloudflare-flux');
+    expect(r.backend).toBe('nano-banana-2-1');
     await generateImages(proj(), { items: [{ name: 'gem', prompt: 'a gem', seed: 7 }] }, { backends: [q.b], cacheDir });
     expect(q.calls).toHaveLength(1);
   });

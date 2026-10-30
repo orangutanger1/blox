@@ -280,7 +280,16 @@ export function cliArgs(cmd: string, f: Flags): { tool: string; args: Record<str
           ...(typeof o.items === 'string' ? { items: JSON.parse(fileOrText(o.items)) } : {}),
           ...(typeof o.style === 'string' ? { style: o.style } : {}),
           ...(typeof o.size === 'string' ? { size: Number(o.size) } : {}),
-          ...(typeof o.backend === 'string' ? { backend: o.backend } : {}),
+          ...(typeof o.model === 'string' ? { model: o.model } : {}),
+          ...(typeof o.refs === 'string' ? { refs: o.refs.split(',') } : {}),
+          ...(typeof o.cols === 'string' ? { cols: Number(o.cols) } : {}),
+          ...(typeof o.prompt === 'string' ? { prompt: o.prompt } : {}),
+          ...(typeof o.kind === 'string' ? { kind: o.kind } : {}),
+          ...(typeof o.aspect === 'string' ? { aspect: o.aspect } : {}),
+          ...(typeof o.input === 'string' ? { input: JSON.parse(fileOrText(o.input)) } : {}),
+          ...(typeof o.timeout === 'string' ? { timeout: Number(o.timeout) } : {}),
+          ...(['sheet', 'ref', 'run'].includes(f.rest[0] ?? '') && f.rest[1] ? { name: f.rest[1] } : {}),
+          ...(f.rest[0] === 'models' && f.rest[1] ? { query: f.rest[1] } : {}),
           ...(o.overwrite === true ? { overwrite: true } : {}),
           ...(o.fresh === true ? { fresh: true } : {}),
           ...(typeof o.job === 'string' ? { job: o.job } : {}),
@@ -422,9 +431,11 @@ Develop:   blox status                    Studio/sync/tests/task report
            blox ui lint|preview|install [--devices a,b] [--prepare '<client luau>'] [--mode edit] [--mount '<luau>'|@file] [--states '<json>'|@file] [--no-sync]
            blox present get|generate|render|lint [--shots a,b]   blox present set '<json>'
            blox multiplayer [filter] [--clients N]   (tests/*.mp.luau via the dock plugin)
-           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence owned|cc0|cc-by|qwen-research|apache-2.0|… [--cell 128] [--module path]
+           blox asset list|scan|lint|sanitize <path>|normalize <file>|upload <id> [--confirm]|resolve <id|decalId>|relink <id> <path>|save [id]|sheet <id> <png|dir>... --licence owned|cc0|cc-by|ai-output|qwen-research|apache-2.0|… [--cell 128] [--module path]
            blox asset approve|reject <id>   (human sign-off; not available to agents over MCP)
-           blox image generate --items '<json>'|@file [--style icon|item|badge|'<text>'] [--size 512] [--backend kaggle-qwen|cloudflare-flux] [--overwrite] [--fresh] | setup | status [--job <id>]
+           blox image generate --items '<json>'|@file [--style icon|hud|item|badge|'<text>'] [--size 512] [--model <kie model>] [--refs a.png,b.png] [--overwrite] [--fresh]
+           blox image sheet <name> --items '<json>'|@file [--cols N] [--style …] [--refs …] | ref <name> --prompt '<text>' [--kind turnaround|style|concept|ui|raw] [--refs …]
+           blox image run <name> --model <kie model> --input '<json>'|@file [--timeout 900] | models [query] | credit | status [--job <id>]
            blox map check|shots|install|detail <check> [--root Workspace.Map] [--spawns '{"Dogs":"Workspace.Map.DogSpawns"}'] [--no-sync]
            blox scout <need> --kind map|ui|model|audio|image [--max N] [--sources store,devforum] | try <assetId> --id x [--kind k] | import <url|file> --id x --licence cc0|cc-by|owned|unknown --source-url <page> [--attribution a] [--pick f] | preview <id|path> [--panels a,b] [--show-all] [--max N] [--no-phone] | adopt <id> --to Workspace [--unpack] [--keep-scripts] | discard <id>
            blox idea research [--fresh] [--device all|phone|computer|tablet|console] | propose '<json ideas>' | list | brief <id>
